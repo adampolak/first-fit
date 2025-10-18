@@ -70,6 +70,18 @@ Note that the offline optimum is equal to the clique number of the intersection 
 
 The best known lower bound is 5. The best known upper bound is 8.
 
+Try using recursive strategies.
+
+Try getting inspired by this paper: https://arxiv.org/abs/1506.00192
+
+For further inspiration try searching scientific literature on various variants of online interval coloring and related problems.
+
+Heuristics that tend to raise FF without raising omega (suggestions)
+- Keep a low omega "spine" (e.g., 10 <= omega <= 25) of long intervals, and inject waves of short intervals that pairwise avoid forming larger cliques but overlap many active colors so FF is forced upward.
+- Use arrival‑order engineering: place blocker intervals to occupy small colors early; later intervals that overlap these blockers but mutually avoid forming a bigger clique push FF to assign new colors beyond 5*omega.
+- Build towers: layered stacks of intervals with staggered starts/ends; then caps that overlap one piece from each tower to couple colors across layers.
+- Periodically run the shrinker to keep n and span modest; smaller witnesses are easier to verify.
+
 Be creative and try to find a new solution better than the best known lower bound."""
 
 evo_config = EvolutionConfig(
@@ -90,6 +102,7 @@ evo_config = EvolutionConfig(
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
+    # "gpt-5-pro",
   ],
   llm_kwargs=dict(
     temperatures=[0.0, 0.5, 1.0],
