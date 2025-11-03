@@ -114,6 +114,10 @@ OPENAI_MODELS = {
         "input_price": 0.05 / M,
         "output_price": 0.4 / M,
     },
+    "gpt-5-pro": {
+        "input_price": 15.0 / M,
+        "output_price": 120.0 / M,
+    },
 }
 
 
@@ -171,6 +175,7 @@ REASONING_OAI_MODELS = [
     "gpt-5",
     "gpt-5-mini",
     "gpt-5-nano",
+    "gpt-5-pro",
 ]
 
 REASONING_CLAUDE_MODELS = [
