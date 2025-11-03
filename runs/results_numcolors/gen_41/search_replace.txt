@@ -1,0 +1,174 @@
+<NAME>
+rotated_preload_four_block_expansion
+</NAME>
+
+<DESCRIPTION>
+I propose replacing the current simple 4-block recursion (depth=3) with an enhanced, parameterized four-block expansion that includes:
+- deterministic rotation of the four translated starts across rounds to disrupt periodic reuse,
+- optional reversal of block order on alternating blocks to mix color patterns,
+- small "preload" blocker intervals embedded inside each translated block (short intervals placed early in the block) to occupy small FirstFit colors without increasing the clique number significantly,
+- short bridges between adjacent blocks to couple color choices lightly,
+- a modest increase of default recursion depth (from 3 to 5) to raise FirstFit pressure while staying comfortably under the 10k interval cap,
+- scaling to integer coordinates at the end to ensure consistent behavior with the evaluator.
+
+These targeted changes keep the original Kierstead–Trotter style structure but introduce deterministic variability and small gadgets that tend to force FirstFit to introduce more colors while not increasing the offline optimum (clique size) by much. I kept defaults conservative (depth=5, 2 preload blockers per block, small blocker length) so the witness stays small and verifiable, and I convert to integer intervals at the end.
+
+The DIFF below replaces only the function block between EVOLVE-BLOCK-START and EVOLVE-BLOCK-END.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(depth=3):
+    """
+    Recursive construction of interval sequence inspired by Kierstead-Trotter style
+    blow-up (see Figure 4 in https://arxiv.org/abs/1506.00192), with one extra
+    level of recursion to push the FirstFit ratio beyond the previous 2.33.
+    depth: number of recursive expansions (default 3)
+    Returns list of (l,r) intervals in presentation order.
+    """
+    # Base pattern T_0
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+        # compute current span
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = hi - lo
+        # we will make 4 scaled copies at offsets 2,6,10,14 times span
+        S = []
+        offsets = [2, 6, 10, 14]
+        for off in offsets:
+            base = off * span - lo
+            for (l, r) in T:
+                S.append((l + base, r + base))
+        # add the 4 connector intervals as in Figure 4
+        # they link the 4 blocks into a single FF chain
+        S.append((1 * span, 5 * span))    # connects first two blocks
+        S.append((12 * span, 16 * span))  # connects last two blocks
+        S.append((4 * span, 9 * span))    # cross connector
+        S.append((8 * span, 13 * span))   # cross connector
+        T = S
+    return T
+
+def run_experiment(**kwargs):
+    return construct_intervals(depth=3)
+=======
+def construct_intervals(depth=5,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        preload_blockers=2,
+                        blocker_length_frac=0.03,
+                        blocker_gap_frac=0.02):
+    """
+    Enhanced recursive four-block expansion inspired by Kierstead-Trotter (Figure 4).
+    Improvements over the prior version:
+      - rotation of start patterns across rounds to disrupt repeating overlaps,
+      - optional reversal of block order for odd blocks to mix FirstFit color assignment,
+      - small preload blocker intervals inside each translated block to occupy low colors early,
+      - short bridges between adjacent blocks to couple colors,
+      - default depth increased to 5 (still under the usual 10k cap).
+    Parameters are conservative; they can be tuned to push FirstFit further.
+    Returns a list of (l,r) intervals (integers) in presentation order.
+    """
+    # Deterministic rotation cycle for the four translated copies per round
+    start_patterns = [
+        [2, 6, 10, 14],  # classic
+        [1, 5, 9, 13],   # left-shifted
+        [3, 7, 11, 15],  # right-shifted
+        [2, 4, 8, 12],   # compressed variant
+    ]
+
+    # Base seed
+    T = [(0.0, 1.0)]
+
+    # Guard depth
+    depth = max(0, int(depth))
+
+    for round_idx in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = hi - lo
+        if span <= 0:
+            span = 1.0
+
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+        blocks = []
+        # Build each translated block, optionally reversing the clone order
+        for b_idx, s in enumerate(starts):
+            base = s * span - lo
+            block = []
+            # insert small preload blockers at the start of the block area to occupy small colors
+            for b in range(preload_blockers):
+                start = base + (0.06 + b * (blocker_length_frac + blocker_gap_frac)) * span
+                end = start + blocker_length_frac * span
+                block.append((start, end))
+            # append the cloned copy of T (possibly reversed)
+            src = list(reversed(T)) if (reverse_block_parity and (b_idx % 2 == 1)) else T
+            for (l, r) in src:
+                block.append((l + base, r + base))
+            blocks.append(block)
+
+        # Optionally interleave blocks round-robin to mix colors more aggressively
+        S = []
+        if interleave_blocks:
+            maxlen = max(len(b) for b in blocks)
+            order = list(range(len(blocks)))
+            # rotate the order deterministically each round to vary interactions
+            krot = round_idx % len(order)
+            order = order[krot:] + order[:krot]
+            for i in range(maxlen):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+
+        # Add short bridges between adjacent blocks to couple colors lightly
+        for i in range(len(starts) - 1):
+            s = starts[i]
+            next_s = starts[i + 1]
+            S.append(((s + 0.55) * span, (next_s + 0.35) * span))
+
+        # Add the deterministic connector intervals (caps / crosses) derived from the classic pattern
+        s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+        connectors = [
+            ((s0 - 1) * span, (s1 - 1) * span),  # left cap
+            ((s2 + 2) * span, (s3 + 2) * span),  # right cap
+            ((s0 + 2) * span, (s2 - 1) * span),  # cross 1
+            ((s1 + 2) * span, (s3 - 1) * span),  # cross 2
+        ]
+        for a, b in connectors:
+            S.append((a, b))
+
+        T = S
+
+    # Convert to integer coordinates with scaling to preserve fractional structure
+    if not T:
+        return []
+    # scale factor chosen to keep relative differences visible when rounding
+    scale_factor = 1000
+    min_l = min(l for l, r in T)
+    # shift to non-negative
+    shifted = [( (l - min_l) * scale_factor, (r - min_l) * scale_factor ) for (l, r) in T]
+
+    intervals = []
+    for (l, r) in shifted:
+        li = int(round(l))
+        ri = int(round(r))
+        if ri <= li:
+            ri = li + 1
+        intervals.append((li, ri))
+
+    # keep the sequence size reasonable (safety cap)
+    if len(intervals) > 10000:
+        intervals = intervals[:10000]
+
+    return intervals
+
+def run_experiment(**kwargs):
+    return construct_intervals()
+>>>>>>> REPLACE
+</DIFF>

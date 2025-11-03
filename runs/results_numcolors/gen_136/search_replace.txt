@@ -1,0 +1,67 @@
+<NAME>rotate_start_patterns</NAME>
+
+<DESCRIPTION>
+Introduce a bank of start-pattern templates and rotate through them each KT spine round. This breaks the rigid symmetry of the fixed pattern, enhancing cross-block interactions and ideally forcing FirstFit to consume more colors without raising the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  starts = (2, 6, 10, 14)
+  # Seed with multiple disjoint unit intervals if requested (new capability)
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    step = 3
+    T = [(i * step, i * step + 1) for i in range(seed_count)]
+=======
+  # Define start-pattern bank to vary block offsets
+  template_bank = [
+      (2, 6, 10, 14),  # classic KT
+      (1, 5,  9, 13),  # left-shifted
+      (3, 7, 11, 15),  # right-shifted
+      (4, 8, 12, 16),  # alternate
+  ]
+  # Seed with multiple disjoint unit intervals if requested (new capability)
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    step = 3
+    T = [(i * step, i * step + 1) for i in range(seed_count)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for round_idx in range(6):
+=======
+  for round_idx in range(6):
+    # choose rotating start-pattern to diversify interactions
+    starts = template_bank[round_idx % len(template_bank)]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_cross4_connector</NAME>
+
+<DESCRIPTION>
+Add a fourth long-range cross connector in each KT spine round. This extra connector deepens coupling between distant blocks and increases the pressure on FirstFit to introduce additional colors, without enlarging the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+=======
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+      (delta * (s0 + 4), delta * (s3 + 4)),  # cross 4 (extended)
+    ]
+>>>>>>> REPLACE
+</DIFF>

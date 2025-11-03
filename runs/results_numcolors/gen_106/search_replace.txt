@@ -1,0 +1,55 @@
+<NAME>
+disable_interleave_and_microphase_guard
+</NAME>
+
+<DESCRIPTION>
+The current implementation interleaves blocks on even rounds and runs a delta2 micro-phase, both of which increase local overlap and push the clique number from 8 to 9, degrading the FirstFit/omega ratio to ~2.33. Prior runs show that the classic KT spine without interleaving and without the micro-phase attains a stronger ratio (~2.50) with roughly the same interval budget.
+
+This edit makes three targeted adjustments:
+- Disable interleaving in all rounds to reduce peak overlap while preserving the color-coupling pressure of the KT connectors.
+- Default-disable the micro-phase (phase2_iters=0) so it does not run unless explicitly requested.
+- Tighten the capacity cap to 9560 to guarantee the micro-phase is skipped even when requested, while still permitting the full six KT rounds.
+
+These changes aim to drop omega back to 8 while keeping FirstFit high (around 20), thereby improving the competitive ratio and the combined score, with minimal code changes and within the interval budget.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=0):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 9800
+=======
+  # Hard capacity guard tuned to allow exactly six KT rounds but block micro-phase
+  CAP = 9560
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd rounds keep sequential order
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0))
+=======
+  for ridx in range(depth):
+    # Keep sequential order every round (disabling interleaving lowers omega)
+    T = apply_round(T, spine_starts, do_interleave=False)
+>>>>>>> REPLACE
+
+</DIFF>

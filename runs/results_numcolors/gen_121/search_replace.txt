@@ -1,0 +1,72 @@
+<NAME>
+rotate_and_always_micro
+</NAME>
+
+<DESCRIPTION>
+Enable rotation of start patterns and reversal of odd-indexed blocks by default to increase FirstFit pressure while maintaining omega. Additionally, always apply the micro-phase sprinkle when budget allows, instead of skipping it at six rounds. These tweaks restore the stronger behavior seen in prior best-performing variants (combined score 2.10) by diversifying overlap patterns across rounds and coupling colors late without inflating the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=False,
+                        reverse_block_parity=False,  # now supported in block builder; default off (best prior)
+                        interleave_blocks=False,     # default to sequential, which empirically boosts FF
+                        micro_phase=True):
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,   # enable odd-block reversal by default to disrupt reuse
+                        interleave_blocks=False,     # default to sequential, which empirically boosts FF
+                        micro_phase=True):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Optional micro-phase: only if we did not reach 6 rounds
+    # (The 6-round construction already achieves a strong ratio; extra caps may disrupt it.)
+    if micro_phase and rounds_allowed < 6:
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = max(1, hi - lo)
+        d2 = max(1, delta // 4)
+        micro = [
+            (lo + 1 * d2, lo + 5 * d2),
+            (hi - 6 * d2, hi - 2 * d2),
+            (lo + 3 * d2, lo + 8 * d2),
+            (hi - 8 * d2, hi - 3 * d2),
+        ]
+        # Insert these near the end to touch many active colors
+        for i, it in enumerate(micro):
+            pos = len(T) - (2 * i + 1)
+            if 0 <= pos < len(T):
+                T.insert(pos, it)
+            else:
+                T.append(it)
+=======
+    # Optional micro-phase: always apply a small late sprinkle when budget allows
+    if micro_phase and (len(T) + 8) <= max_intervals:
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = max(1, hi - lo)
+        d2 = max(1, delta // 4)
+        micro = [
+            (lo + 1 * d2, lo + 5 * d2),
+            (hi - 6 * d2, hi - 2 * d2),
+            (lo + 3 * d2, lo + 8 * d2),
+            (hi - 8 * d2, hi - 3 * d2),
+        ]
+        # Insert these near the end to touch many active colors
+        for i, it in enumerate(micro):
+            pos = len(T) - (2 * i + 1)
+            if 0 <= pos < len(T):
+                T.insert(pos, it)
+            else:
+                T.append(it)
+>>>>>>> REPLACE
+
+</DIFF>

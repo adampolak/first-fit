@@ -1,0 +1,175 @@
+<NAME>
+rotated_interleave_expansion
+</NAME>
+
+<DESCRIPTION>
+Replace the simple recursive expansion with a rotated, interleaved Kierstead–Trotter style expansion. Changes:
+- Rotate among several start patterns to break periodic overlap reuse.
+- Optionally reverse every other translated block to reduce predictable color reuse.
+- Interleave blocks in round-robin presentation order to increase instantaneous FirstFit pressure.
+- Integer arithmetic and a safety cap keep the total number of intervals below 10000.
+
+This is a targeted edit of the EVOLVE block to increase FirstFit load without increasing omega, improving the competitive ratio and combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=3):
+    """
+    Recursive construction of interval sequence inspired by Kierstead-Trotter style
+    blow-up (see Figure 4 in https://arxiv.org/abs/1506.00192), with one extra
+    level of recursion to push the FirstFit ratio beyond the previous 2.33.
+    depth: number of recursive expansions (default 3)
+    Returns list of (l,r) intervals in presentation order.
+    """
+    # Base pattern T_0
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+        # compute current span
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = hi - lo
+        # we will make 4 scaled copies at offsets 2,6,10,14 times span
+        S = []
+        offsets = [2, 6, 10, 14]
+        for off in offsets:
+            base = off * span - lo
+            for (l, r) in T:
+                S.append((l + base, r + base))
+        # add the 4 connector intervals as in Figure 4
+        # they link the 4 blocks into a single FF chain
+        S.append((1 * span, 5 * span))    # connects first two blocks
+        S.append((12 * span, 16 * span))  # connects last two blocks
+        S.append((4 * span, 9 * span))    # cross connector
+        S.append((8 * span, 13 * span))   # cross connector
+        T = S
+    return T
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()
+=======
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=3, rotate_starts=True, reverse_block_parity=True, interleave=True, max_intervals=9800):
+    """
+    Improved recursive construction:
+      - rotates among a small set of start patterns to break repeating overlap motifs,
+      - optionally reverses every other translated block to reduce color reuse,
+      - optionally interleaves translated blocks in round-robin presentation order
+        to increase instantaneous FirstFit pressure,
+      - uses integer arithmetic and a safety cap on total intervals.
+
+    Parameters:
+      depth (int): recursion depth (default 3)
+      rotate_starts (bool): rotate start pattern per round
+      reverse_block_parity (bool): reverse every odd block copy
+      interleave (bool): present blocks in round-robin order each round
+      max_intervals (int): safety cap on total intervals (default 9800)
+
+    Returns:
+      list of (l,r) integer tuples representing open intervals in presentation order.
+    """
+    # small cycle of start patterns (includes the classic Figure 4 pattern)
+    start_patterns = [
+        [2, 6, 10, 14],  # classic
+        [1, 5, 9, 13],   # left-shift
+        [3, 7, 11, 15],  # right-shift
+        [2, 4, 8, 12],   # compressed variant
+    ]
+
+    # Base seed (use integer endpoints)
+    T = [(0, 1)]
+
+    # Prevent runaway growth: approximate growth per round ~ 4*size + 4
+    # cut depth if needed
+    est_size = 1
+    allowed_depth = 0
+    while allowed_depth < int(depth):
+        if est_size * 4 + 4 > max_intervals:
+            break
+        est_size = est_size * 4 + 4
+        allowed_depth += 1
+    depth = allowed_depth
+
+    for round_idx in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = hi - lo
+        if span <= 0:
+            span = 1
+
+        # choose start pattern for this round
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+        # create four translated blocks (optionally reversing every other)
+        blocks = []
+        for b_idx, s in enumerate(starts):
+            src = list(reversed(T)) if (reverse_block_parity and (b_idx % 2 == 1)) else T
+            shift = s * span - lo
+            block = [(l + shift, r + shift) for (l, r) in src]
+            blocks.append(block)
+
+        # presentation order: interleave blocks to increase simultaneous active colors
+        S = []
+        if interleave:
+            maxlen = max(len(b) for b in blocks)
+            order = list(range(len(blocks)))
+            # vary visitation order slightly per round to avoid a fixed pattern
+            if round_idx % 2 == 1:
+                order = order[::-1]
+            for i in range(maxlen):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+
+        # connectors (caps) derived from starts: link blocks but do not raise clique too much
+        s0, s1, s2, s3 = starts
+        connectors = [
+            ((s0 - 1) * span, (s1 - 1) * span),  # left cap
+            ((s2 + 2) * span, (s3 + 2) * span),  # right cap
+            ((s0 + 2) * span, (s2 - 1) * span),  # cross connector 1
+            ((s1 + 2) * span, (s3 - 1) * span),  # cross connector 2
+        ]
+        # append connectors in a stable deterministic order
+        S.extend(connectors)
+
+        T = S
+
+        # safety: stop early if we exceed max_intervals
+        if len(T) > max_intervals:
+            break
+
+    # normalize to non-negative integers
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+        T = [(l - min_l, r - min_l) for l, r in T]
+
+    # ensure integer endpoints
+    intervals = [(int(l), int(r)) for l, r in T]
+    return intervals
+
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals(**kwargs)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals(**kwargs)
+>>>>>>> REPLACE
+</DIFF>

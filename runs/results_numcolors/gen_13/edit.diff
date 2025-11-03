@@ -1,0 +1,114 @@
+--- a/original.py
++++ b/original.py
+@@ -1,64 +1,77 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(rounds=3, seed_lo=0.0, seed_scale=1.0):
+   """
+   Deterministic, adaptive multi-round wave construction.
+   - rounds: number of recursive expansion rounds
+   - seed_lo / seed_scale: deterministic knobs for initial placement and scaling
+   Returns:
+-    intervals: list of tuples (l, r) representing open intervals
++    intervals: list of intervals (l, r) as open intervals
+   """
+-  # Start with a compact core
+-  T = [(seed_lo, seed_lo + 1.0 * seed_scale)]
++  # Seed with several disjoint unit intervals to promote early overlap coupling
++  T = [(seed_lo, seed_lo + 1.0 * seed_scale),
++       (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
++       (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
++       (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)]
++
++  # A small bank of four-interval gadgets (templates)
++  templates = [
++    # Template A: original pattern
++    [(1, 5), (12, 16), (4, 9), (8, 13)],
++    # Template B: shifted
++    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
++    # Template C: tighter internal overlaps
++    [(1, 4), (6, 9), (3, 7), (9, 13)],
++    # Template D: staggered caps
++    [(2, 6), (7, 11), (0, 3), (10, 14)]
++  ]
++
++  # Deterministic cycle of start-patterns (each is a tuple of starts)
++  start_patterns = [
++    (2, 6, 10, 14),                 # compact 4-wave
++    (2, 4, 6, 8, 10, 12, 14, 16),   # dense 8-wave
++    (2, 5, 8, 11, 14, 17, 20),      # staggered 7-wave
++  ]
++
+   for round_idx in range(rounds):
+-    # Furthest-left/right boundaries of current wave
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+-    delta = hi - lo if hi > lo else 1.0  # avoid degenerate
++    delta = hi - lo
++    if delta <= 0:
++      delta = 1.0  # safety
+ 
+     S = []
+-    # Adaptive starts: denser in early rounds, controlled growth later
+-    if round_idx == 0:
+-      starts = [2, 4, 6, 8, 10, 12, 14, 16]
+-    else:
+-      # add a few extra starts but cap total to prevent exponential blowup
+-      starts = [2, 4, 6, 8, 10, 12, 14, 16, 18, 22, 26]
+ 
+-    # Create translated copies of current T
+-    for i, start in enumerate(starts):
+-      # Alternate inner order to reduce color re-use
+-      base = T if (i % 2 == 0) else list(reversed(T))
++    # pick deterministic pattern/template for this round
++    starts = list(start_patterns[round_idx % len(start_patterns)])
++    template = templates[round_idx % len(templates)]
++
++    # Build translated copies with alternating inner order to hamper color reuse
++    for idx, start in enumerate(starts):
++      base = T if (idx % 2 == 0) else list(reversed(T))
+       S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+ 
+-      # Optional light bridging to couple colors across adjacent blocks
+-      if i + 1 < len(starts):
+-        nxt = starts[i + 1]
+-        # bridge spans inside current to inside next block
++      # light bridging between consecutive blocks to couple colors
++      if idx + 1 < len(starts):
++        nxt = starts[idx + 1]
+         S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+ 
+-    # Local four-interval gadget to keep omega small but push FF usage
+-    S += [
+-      (delta * 1.0, delta * 5.0),
+-      (delta * 12.0, delta * 16.0),
+-      (delta * 4.0, delta * 9.0),
+-      (delta * 8.0, delta * 13.0)
+-    ]
++    # Add the chosen template intervals scaled by delta
++    S += [(delta * a, delta * b) for (a, b) in template]
+ 
+-    # Tiny caps to further push color usage without large omega
+-    caps = []
+-    cap1 = max(1.0, delta * 0.4)
+-    cap2 = delta * 1.8
+-    # place a few small caps at spaced positions
+-    for j in range(3):
+-      caps.append((cap1 * (j + 1), cap1 * (j + 1) + cap2 * 0.2))
+-    S += caps
++    # Add sparse caps to push color usage without large omega
++    max_start = max(starts)
++    caps_step = max(3, int(max(3, max_start) // 4))
++    for j in range(2, max_start, caps_step):
++      # small caps around positions to lightly pressure color usage
++      S.append((delta * (j - 0.5), delta * (j + 1.0 + 0.5)))
+ 
+     T = S
+ 
+   return T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

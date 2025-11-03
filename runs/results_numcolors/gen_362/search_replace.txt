@@ -1,0 +1,53 @@
+<NAME>
+adaptive_micro_rounds
+</NAME>
+
+<DESCRIPTION>
+Introduce an adaptive micro-round scheduler to allocate budget for the delta-round micro-block phase. The idea is to perform multiple small micro-rounds when there is ample CAP slack, potentially increasing FirstFit pressure without inflating the clique number. A new flag adaptive_micro (default True) controls this behavior. When enabled, the code will attempt up to 3 micro-rounds (or until CAP is exhausted), re-evaluating the remaining budget after each round. When disabled, the old single micro-round strategy remains. This targeted change stays within the existing framework and aims to push performance beyond the current 2.30 benchmark by better densifying the tail with controlled, capacity-aware micro-structures.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(seed_count=1):
+=======
+def construct_intervals(seed_count=1, adaptive_micro=True):
+>>>>>>> REPLACE
+=======
+def construct_intervals(seed_count=1, adaptive_micro=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # One safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+=======
+  # Adaptive or fixed micro-rounds
+  if adaptive_micro:
+    room = CAP - len(T)
+    rounds = 0
+    while room > 8 and rounds < 3:
+      micro = build_micro_delta_round(T, room)
+      if not micro:
+        break
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+      room = CAP - len(T)
+      rounds += 1
+  else:
+    room = CAP - len(T)
+    if room > 8:
+      micro = build_micro_delta_round(T, room)
+      if micro:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+>>>>>>> REPLACE
+</DIFF>

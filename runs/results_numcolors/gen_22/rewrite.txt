@@ -1,0 +1,78 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=3, seed_lo=0.0, seed_scale=1.0):
+    """
+    Construct a sequence of open intervals that FirstFit colors online,
+    aiming to maximize FF-colors / clique-size (omega).
+    - rounds: number of recursive expansion rounds
+    - seed_lo, seed_scale: initial placement and scale knobs
+    Returns: list of (l, r) intervals in arrival order.
+    """
+    # Seed with several disjoint unit intervals for early overlap coupling
+    T = [
+        (seed_lo, seed_lo + 1.0 * seed_scale),
+        (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+        (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+        (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale),
+    ]
+
+    # Four-interval gadget templates
+    templates = [
+        [(1, 5),   (12, 16), (4, 9),  (8, 13)],   # A
+        [(0.5,4.5),(11,15),  (3.5,8.5),(7,12)],    # B
+        [(1,4),   (6,9),    (3,7),   (9,13)],     # C
+        [(2,6),   (7,11),   (0,3),   (10,14)],    # D
+    ]
+    # Deterministic cycle of start-patterns
+    start_patterns = [
+        (2,6,10,14),                   # compact 4-wave
+        (2,4,6,8,10,12,14,16),         # dense 8-wave
+        (2,5,8,11,14,17,20),           # staggered 7-wave
+    ]
+
+    for round_idx in range(rounds):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo if hi > lo else 1.0
+
+        # pick start pattern and template for this round
+        starts = list(start_patterns[round_idx % len(start_patterns)])
+        template = templates[round_idx % len(templates)]
+
+        S = []
+        # clone T into shifted blocks, reversing on odd indices
+        for idx, start in enumerate(starts):
+            base = T if (idx % 2 == 0) else list(reversed(T))
+            # translate each interval in base
+            for (l, r) in base:
+                S.append((delta * start + l - lo, delta * start + r - lo))
+            # light bridge to next block
+            if idx + 1 < len(starts):
+                nxt = starts[idx+1]
+                S.append((delta*(start+0.5), delta*(nxt+0.5)))
+
+        # add the chosen gadget template scaled
+        for (a, b) in template:
+            S.append((delta*a, delta*b))
+
+        # short caps around each start to press local FF usages
+        cap_radius = 0.3
+        cap_length = 1.2
+        for start in starts:
+            mid = delta*start
+            S.append((mid - cap_radius, mid + cap_length))
+
+        # longer sparse caps spanning blocks to couple distant colors
+        max_start = max(starts)
+        for j in range(3, max_start, max(3, max_start//4)):
+            S.append((delta*(j - 1), delta*(j + 2)))
+
+        T = S
+
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals(**kwargs)

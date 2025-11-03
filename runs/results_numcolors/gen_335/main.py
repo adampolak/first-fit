@@ -1,0 +1,331 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(enable_alt_microphase=True):
+  """
+  Adaptive six-template spine + CAP-aware density multiplier + two-phase micro rounds.
+
+  Args:
+    enable_alt_microphase (bool): enable the alternate micro-phase (phase B).
+
+  Returns:
+    list of (l, r) integer tuples (open intervals) in the FF presentation order.
+  """
+
+  CAP = 9800  # hard capacity guard
+
+  # Six-template bank (deterministic per-round selection helps mixing)
+  template_bank = [
+    (2, 6, 10, 14),   # classic KT
+    (1, 5, 9, 13),    # left-shift
+    (3, 7, 11, 15),   # right-shift
+    (4, 8, 12, 16),   # stretched-right
+    (2, 4, 8, 12),    # compressed-left
+    (3, 5, 9, 13),    # gentle-left pack
+  ]
+
+  # Deterministic interleaving pattern (length 4): rotates choices per round
+  interleave_pattern = [True, False, True, True]
+
+  # Base connectors count used to estimate per-round growth (conservative)
+  base_connectors = 4
+  # extra density overhead we may add per round (small)
+  per_round_overhead = 2
+
+  # Seed (one unit interval)
+  T = [(0, 1)]
+
+  # Helpers
+  def _span(Tlist):
+    lo = min(l for l, r in Tlist)
+    hi = max(r for l, r in Tlist)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    return lo, hi, delta
+
+  def _append_classic_connectors(S, starts, delta):
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))
+
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, density_frac=0.03):
+    """
+    Build a KT-style expansion round with optional interleaving and a small density boost.
+    density_frac: fraction of intervals to duplicate (0..0.1) deterministically (CAP-aware).
+    """
+    lo, hi, delta = _span(current_T)
+    # Build translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Assemble S with optional interleaving
+    S = []
+    if do_interleave:
+      order = list(range(len(blocks)))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Append standard connectors to link towers
+    _append_classic_connectors(S, starts[:4], delta)
+
+    # CAP-aware density multiplier: duplicate a small subset of recently appended intervals
+    # Determine how many duplicates to attempt
+    dens_count = max(0, int(len(current_T) * density_frac))
+    dens_count = min(dens_count, 60)  # absolute cap per round
+    if dens_count > 0:
+      # pick evenly spaced items from the last appended block-section of S (deterministic)
+      pick_stride = max(1, len(S) // max(1, dens_count))
+      picks = [S[i] for i in range(0, len(S), pick_stride)][:dens_count]
+      # small shift to avoid exact copies and to influence FirstFit ordering
+      eps = max(1, delta // 1000)
+      # ensure eps at least 1 to change endpoints on integer coordinates
+      for idx, (l, r) in enumerate(picks):
+        # alternating shorter/shifted duplicates to diversify overlaps
+        if idx % 2 == 0:
+          nl, nr = l + eps, r  # left-shift inside original span
+        else:
+          nl, nr = l, r - eps  # shorten right endpoint
+        if nr - nl >= 1:
+          S.append((nl, nr))
+    return S
+
+  # Predictive depth calculation (conservative)
+  def max_rounds_within_cap(initial_size, max_rounds):
+    sz = initial_size
+    done = 0
+    for i in range(int(max_rounds)):
+      nxt = 4 * sz + base_connectors + per_round_overhead
+      if nxt > CAP:
+        break
+      sz = nxt
+      done += 1
+    return done, sz
+
+  # Decide how many spine rounds to run (up to 7 but conservative)
+  max_requested_rounds = 7
+  depth, _ = max_rounds_within_cap(len(T), max_requested_rounds)
+
+  # Run spine rounds with deterministic per-round template selection and interleaving pattern
+  for ridx in range(depth):
+    # Choose template deterministically mixing round index
+    starts = template_bank[(ridx * 7) % len(template_bank)]
+    # deterministic interleave flag from pattern (rotating)
+    do_inter = interleave_pattern[ridx % len(interleave_pattern)]
+    # reverse order on odd rounds to break symmetry
+    rev = (ridx % 2 == 1)
+    # density fraction small and varies by round (slightly increasing mid-spine)
+    density_frac = 0.02 + 0.01 * ((ridx % 3) == 2)
+    # apply round but guard to not exceed CAP in returned list
+    S = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, density_frac=density_frac)
+    if len(S) > CAP:
+      S = S[:CAP]
+    T = S
+    if len(T) >= CAP - 16:
+      break
+
+  # If we're already near cap return early
+  if len(T) >= CAP - 8:
+    # normalize coordinates and return
+    if not T:
+      return []
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+      T = [(l - min_l, r - min_l) for l, r in T]
+    # floor endpoints to integers and ensure length >= 1
+    out = []
+    for l, r in T:
+      li = int(round(l))
+      ri = int(round(r))
+      if ri <= li:
+        ri = li + 1
+      out.append((li, ri))
+    if len(out) > CAP:
+      out = out[:CAP]
+    return out
+
+  # Deterministic long-range connectors after spine to couple towers across scales
+  lo, hi, delta = _span(T)
+  long_offsets = [(-2, 10), (1, 12), (3, 14), (5, 16), (-1, 18)]
+  # append them in interleaved positions near the tail to maximize effect on FF
+  connectors = []
+  for aoff, boff in long_offsets:
+    a = lo + aoff * delta
+    b = lo + boff * delta
+    if b <= a:
+      b = a + 1
+    connectors.append((a, b))
+  # attach but don't exceed CAP
+  for c in connectors:
+    if len(T) >= CAP:
+      break
+    T.append(c)
+
+  # Micro-phase budget split: adapt to remaining room
+  room = CAP - len(T)
+  min_micro = 8
+  if room < min_micro:
+    # finalize and return
+    if not T:
+      return []
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+      T = [(l - min_l, r - min_l) for l, r in T]
+    out = []
+    for l, r in T:
+      li = int(round(l)); ri = int(round(r))
+      if ri <= li: ri = li + 1
+      out.append((li, ri))
+    if len(out) > CAP: out = out[:CAP]
+    return out
+
+  # Split remaining room adaptively: primary gets ~62%, secondary gets rest
+  phaseA_budget = max(min_micro, int(room * 0.62))
+  phaseB_budget = room - phaseA_budget
+
+  # Micro round builder (thin seed, fractional windows, connectors)
+  def build_micro_delta_round(current_T, budget, iter_id=0, alt=False):
+    if not current_T or budget <= min_micro:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed size adapts to current size but bounded
+    base_seed_sz = max(8, min(48, len(current_T) // 240))
+    seed_sz = base_seed_sz + (2 if alt else 0) - (iter_id % 2)
+    seed_sz = max(8, min(64, seed_sz))
+
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Two families of windows: primary and alternate; alt uses slightly shifted windows
+    if not alt:
+      window_fracs = [
+        (0.10, 0.20),
+        (0.32, 0.42),
+        (0.54, 0.64),
+        (0.76, 0.86),
+      ]
+    else:
+      window_fracs = [
+        (0.05, 0.15),
+        (0.28, 0.38),
+        (0.60, 0.70),
+        (0.82, 0.92),
+      ]
+
+    # Build blocks placed inside each fractional window
+    blocks = []
+    for j, (fa, fb) in enumerate(window_fracs):
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # small deterministic internal reversal for variety
+      if (j + iter_id) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleaving policy: alternate between forward and reverse based on iter_id and alt
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if (iter_id % 2 == 1) ^ alt:
+      order = list(reversed(order))
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Add fractional connectors at micro-scale, limited
+    micro_connectors = []
+    mcands = [
+      (0.06, 0.30),
+      (0.58, 0.92),
+      (0.24, 0.56),
+      (0.40, 0.78),
+    ]
+    for (fa, fb) in mcands:
+      a = glo + int(round(fa * G))
+      b = glo + int(round(fb * G))
+      if b > a:
+        micro_connectors.append((a, b))
+
+    # Add one longer cross in alt-phase to tie far colors
+    if alt:
+      a = glo + int(round(0.18 * G))
+      b = glo + int(round(0.84 * G))
+      if b > a:
+        micro_connectors.append((a, b))
+
+    # Append connectors after micro items to influence FF assignment towards higher colors
+    micro.extend(micro_connectors)
+
+    # Trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute primary micro-phase
+  microA = build_micro_delta_round(T, phaseA_budget, iter_id=0, alt=False)
+  if microA:
+    avail = CAP - len(T)
+    if len(microA) > avail:
+      microA = microA[:avail]
+    T.extend(microA)
+
+  # Execute alternate micro-phase only if enabled and budget remains
+  if enable_alt_microphase and phaseB_budget >= min_micro:
+    room2 = CAP - len(T)
+    if room2 > min_micro:
+      microB = build_micro_delta_round(T, room2, iter_id=1, alt=True)
+      if microB:
+        avail = CAP - len(T)
+        if len(microB) > avail:
+          microB = microB[:avail]
+        T.extend(microB)
+
+  # Final normalization: make non-negative integers, ensure lengths >=1
+  if not T:
+    return []
+  min_l = min(l for l, r in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for l, r in T]
+  intervals = []
+  for (l, r) in T:
+    li = int(round(l))
+    ri = int(round(r))
+    if ri <= li:
+      ri = li + 1
+    intervals.append((li, ri))
+
+  # Final trim to CAP
+  if len(intervals) > CAP:
+    intervals = intervals[:CAP]
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

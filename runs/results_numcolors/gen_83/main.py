@@ -1,0 +1,92 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals on the real line (open intervals) in arrival order
+  to pressure FirstFit while keeping the clique number modest.
+
+  Enhancements over the base 4-start, 4-connector scheme:
+  - Interleave blocks across starts (round-robin) to couple color usage.
+  - Reverse-parity cloning: use reversed(T) for every odd-indexed start.
+  - Add deterministic light bridges between consecutive starts and sparse
+    second-next bridges on even rounds.
+
+  Returns:
+    intervals: list of tuples (l, r)
+  """
+
+  # Cycle through multiple start-pattern templates to break periodic reuse
+  start_patterns = [(2, 6, 10, 14), (1, 5, 9, 13), (3, 7, 11, 15), (2, 4, 8, 12)]
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1.0
+
+    # choose the start tuple for this round
+    starts = list(start_patterns[round_idx % len(start_patterns)])
+
+    # Build translated copies into blocks, reversing inner order on odd indices
+    blocks = []
+    for idx, start in enumerate(starts):
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      base_off = delta * start - lo
+      block = [(l + base_off, r + base_off) for (l, r) in base]
+      blocks.append(block)
+
+    # Interleave blocks round-robin to maximize color mixing
+    S = []
+    order = list(range(len(blocks)))
+    if round_idx % 2 == 1:
+      order = list(reversed(order))
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+
+    # Dynamic connectors based on the current starts (classic 4)
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+
+    # Light bridges between consecutive starts to propagate colors
+    for i in range(len(starts) - 1):
+      a = delta * (starts[i] + 0.5)
+      b = delta * (starts[i + 1] + 0.5)
+      S.append((a, b))
+
+    # Sparse second-next bridges on even rounds to enhance cross-scale coupling
+    if round_idx % 2 == 0:
+      for i in range(len(starts) - 2):
+        a = delta * (starts[i] + 0.75)
+        b = delta * (starts[i + 2] + 0.25)
+        S.append((a, b))
+
+    T = S
+
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

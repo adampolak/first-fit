@@ -1,0 +1,151 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(max_intervals=9800,
+                        depth=5,
+                        branching=4,
+                        rotate_starts=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+  """
+  Improved two-phase, multi-start KT-style construction.
+
+  Parameters:
+    max_intervals (int) : hard cap on produced intervals (keeps experiment manageable)
+    depth (int)         : nominal recursion depth (adaptive-capped by max_intervals)
+    branching (int)     : number of translated copies per round (typical KT uses 4)
+    rotate_starts (bool): cycle through start-pattern templates
+    interleave_blocks (bool): interleave translated blocks round-robin each round
+    micro_phase (bool)  : append sparse long caps to increase FF pressure late
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Seed with multiple disjoint unit intervals to increase early cross-block coupling
+  T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+
+  # Start pattern bank (designed for branching==4); will be cycled to avoid repetition
+  start_patterns = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (2, 4, 8, 12),
+  ]
+
+  # Small disruption to block order helps FirstFit use more colors across blocks
+  reverse_block_parity = True
+
+  # Adaptive depth cap so we never exceed max_intervals
+  if depth < 0:
+    depth = 0
+  size = len(T)
+  allowed = 0
+  while allowed < depth:
+    next_size = size * branching + 4  # branching copies + ~4 connectors per round
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed
+
+  for round_idx in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # choose starts for this round (cycle through the bank if rotate_starts)
+    starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+    # Build translated blocks; optionally reverse every odd block to mix color order
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      block_src = list(reversed(T)) if (reverse_block_parity and (b_idx % 2 == 1)) else T
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in block_src]
+      blocks.append(block)
+
+    # Interleave blocks round-robin (with a small rotation each round) to maximize mixing
+    S = []
+    if interleave_blocks:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      krot = round_idx % len(order)
+      order = order[krot:] + order[:krot]
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # KT-style connectors (preserve low clique increase) + sparse neighbor links
+    s0, s1, s2, s3 = starts[:4]
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    # add gentle neighbor links (floating endpoints) to chain blocks without making a big clique
+    for i in range(len(starts) - 1):
+      a = delta * (starts[i] + 0.5)
+      b = delta * (starts[i + 1] - 0.5)
+      connectors.append((a, b))
+
+    S.extend(connectors)
+    T = S
+
+  # Micro-phase: sprinkle sparse long-range caps that overlap many active colors
+  if micro_phase and T:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    span = hi - lo if hi > lo else 1
+
+    # number of caps proportional to branching but capped to avoid clashing
+    num_caps = min(18, max(6, branching * 3))
+    # pick cap length small enough so caps do not overlap each other (keeps omega small)
+    cap_len = max(1, int(span // (num_caps * 2)))
+    caps = []
+    for k in range(num_caps):
+      center = lo + (k + 0.5) * (span / num_caps)
+      a = center - cap_len / 2.0
+      b = center + cap_len / 2.0
+      caps.append((a, b))
+
+    # insert caps near the end of the sequence (interleaved) to press FirstFit
+    insert_at = max(0, len(T) - len(caps) * 2)
+    for i, c in enumerate(caps):
+      pos = insert_at + (i * 2)
+      if pos >= len(T):
+        T.append(c)
+      else:
+        T.insert(pos, c)
+
+  # Normalize to non-negative integer coordinates and trim to budget
+  if not T:
+    return []
+  min_l = min(l for l, r in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for l, r in T]
+
+  intervals = []
+  for (l, r) in T:
+    li = int(round(l))
+    ri = int(round(r))
+    if ri <= li:
+      ri = li + 1
+    intervals.append((li, ri))
+    if len(intervals) >= max_intervals:
+      break
+
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

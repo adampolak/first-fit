@@ -1,0 +1,179 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2):
+    """
+    Enhanced KT-spine with ghost density, per-round micro-phases,
+    long-range cross connectors, and parity-based interleaving.
+    Returns a list of (l, r) tuples for FirstFit.
+    """
+    CAP = 9800
+
+    # Strong four-template bank
+    template_bank = [
+        (2, 6, 10, 14),  # classic
+        (1, 5, 9, 13),   # left-shift
+        (3, 7, 11, 15),  # right-shift
+        (4, 8, 12, 16),  # stretched
+    ]
+
+    # Helpers
+    def _span(T):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        d = hi - lo
+        return lo, hi, d if d > 0 else 1
+
+    def _thin_sample(T, max_sz):
+        n = len(T)
+        if n == 0 or max_sz < 1:
+            return []
+        step = max(1, n // max_sz)
+        return [T[i] for i in range(0, n, step)][:max_sz]
+
+    def _append_connectors(S, starts, delta):
+        s0, s1, s2, s3 = starts
+        # four classic connectors
+        S.append(((s0-1)*delta, (s1-1)*delta))
+        S.append(((s2+2)*delta, (s3+2)*delta))
+        S.append(((s0+2)*delta, (s2-1)*delta))
+        S.append(((s1+2)*delta, (s3-1)*delta))
+
+    def _append_cross4(S, starts, delta):
+        s0, _, _, s3 = starts
+        S.append(((s0+4)*delta, (s3+4)*delta))
+
+    def apply_spine_round(T_prev, starts, ridx):
+        lo, hi, delta = _span(T_prev)
+        # main blocks
+        main_blocks = []
+        for s in starts:
+            base = s*delta - lo
+            main_blocks.append([(l+base, r+base) for (l, r) in T_prev])
+        # ghost density blocks (thin coupling)
+        U = _thin_sample(T_prev, max_sz= max(8, len(T_prev)//400))
+        ghost_blocks = []
+        if U:
+            ulo = min(l for l, r in U)
+            for i in range(len(starts)-1):
+                mid = (starts[i] + starts[i+1])//2
+                base = mid*delta - ulo
+                gb = [(l+base, r+base) for (l, r) in U]
+                # alternate reverse for mixing
+                if (ridx + i) % 2:
+                    gb.reverse()
+                ghost_blocks.append(gb)
+        # assemble block sequence
+        seq = []
+        blocks = []
+        # interleave main and ghosts if requested
+        if interleave_blocks:
+            # create interleave list: main[0], ghost[0], main[1], ghost[1], ...
+            for i in range(len(main_blocks)):
+                blocks.append(main_blocks[i])
+                if i < len(ghost_blocks):
+                    blocks.append(ghost_blocks[i])
+        else:
+            # sequential: all main, then all ghosts
+            blocks = main_blocks + ghost_blocks
+        # reverse block order on odd ridx if parity enabled
+        if reverse_block_parity and (ridx % 2 == 1):
+            blocks = list(reversed(blocks))
+        # weave blocks into seq
+        maxlen = max((len(b) for b in blocks), default=0)
+        for i in range(maxlen):
+            for blk in blocks:
+                if i < len(blk):
+                    seq.append(blk[i])
+        # connectors
+        _append_connectors(seq, starts, delta)
+        # occasional long-range connector
+        if ridx % 3 == 2:
+            _append_cross4(seq, starts, delta)
+        return seq
+
+    def build_micro(T_prev, window_fracs, add_long_cross=False):
+        lo, hi, D = _span(T_prev)
+        # thin seed
+        U = _thin_sample(T_prev, max_sz=32)
+        if not U:
+            return []
+        ulo = min(l for l, r in U)
+        blocks = []
+        for (a_frac, b_frac) in window_fracs:
+            a = lo + int(a_frac * D)
+            # align seed's left to a
+            base = a - ulo
+            blk = [(l+base, r+base) for (l, r) in U]
+            blocks.append(blk if (len(blocks)%2==0) else list(reversed(blk)))
+        # interleave fully
+        micro = []
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for blk in blocks:
+                if i < len(blk):
+                    micro.append(blk[i])
+        # small connectors
+        con_fracs = [(0.08,0.30),(0.60,0.92),(0.26,0.56),(0.44,0.78)]
+        for (a_frac,b_frac) in con_fracs:
+            A = lo + int(a_frac*D)
+            B = lo + int(b_frac*D)
+            if B > A:
+                micro.append((A,B))
+        if add_long_cross:
+            micro.append((lo + int(0.18*D), lo + int(0.84*D)))
+        return micro
+
+    # --- main construction ---
+    T = [(0,1)]
+    # Stage 1: spine rounds
+    for ridx in range(rounds):
+        # stop if CAP near
+        if len(T) > CAP*0.9:
+            break
+        starts = template_bank[ridx % len(template_bank)] if rotate_starts else template_bank[0]
+        new_block = apply_spine_round(T, starts, ridx)
+        T = new_block
+        # per-round micro-phase (even rounds)
+        if phase2_iters>0 and ridx%2==1 and len(T) < CAP-50:
+            wset = [(0.12,0.22),(0.35,0.45),(0.58,0.68),(0.80,0.90)]
+            micro = build_micro(T, wset, add_long_cross=False)
+            room = CAP - len(T)
+            if micro:
+                T.extend(micro[:room])
+    # Stage 2: final micro-phases
+    # A
+    if len(T) < CAP-100:
+        wA = [(0.10,0.20),(0.30,0.40),(0.55,0.65),(0.75,0.85)]
+        microA = build_micro(T, wA, add_long_cross=False)
+        room = CAP - len(T)
+        if microA:
+            T.extend(microA[:room])
+    # B
+    if len(T) < CAP-100:
+        wB = [(0.05,0.15),(0.28,0.38),(0.60,0.70),(0.82,0.92)]
+        microB = build_micro(T, wB, add_long_cross=True)
+        room = CAP - len(T)
+        if microB:
+            T.extend(microB[:room])
+    # Stage 3: global cross4 connectors
+    if len(T) < CAP-10:
+        lo, hi, D = _span(T)
+        for (fa, fb) in [(0.03,0.37),(0.22,0.66),(0.52,0.94)]:
+            A = lo + int(fa*D)
+            B = lo + int(fb*D)
+            if B > A:
+                T.append((A,B))
+    # final trim
+    if len(T) > CAP:
+        T = T[:CAP]
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

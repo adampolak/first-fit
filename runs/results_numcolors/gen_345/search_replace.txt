@@ -1,0 +1,58 @@
+<NAME>
+spine_global_cross_connector
+</NAME>
+
+<DESCRIPTION>
+After the final spine round, insert a long-range "global cross" interval spanning most of the current T‐span. This extra connector forces FirstFit to open a new color late in the spine, increasing FF usage without enlarging the maximum clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    T = apply_round(T, starts, interleave=interleave, reverse_order=reverse_order)
+=======
+    T = apply_round(T, starts, interleave=interleave, reverse_order=reverse_order)
+    # extra global cross connector on final spine round to increase FF pressure
+    if ridx == MAX_ROUNDS - 1 and len(T) < CAP:
+      lo2, hi2, delta2 = span_delta(T)
+      cross = (lo2 + int(round(0.10 * delta2)), lo2 + int(round(0.90 * delta2)))
+      if cross[1] > cross[0]:
+        T.append(cross)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_medium_cross_micro
+</NAME>
+
+<DESCRIPTION>
+Always include a medium‐range cross connector in every micro‐phase (primary and alternate). This extra micro‐connector overlaps a large fraction of the micro‐blocks, pushing FirstFit to use additional colors while preserving the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Connectors across micro-windows
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+    ]
+    if alt_windows:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+=======
+    # Connectors across micro-windows (including a medium-range cross for extra FF pressure)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      (glo + int(round(0.18 * G)), glo + int(round(0.84 * G))),  # medium-range cross
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,112 @@
+# EVOLVE-BLOCK-START
+
+def _rounds_allowed(max_intervals, base_size, copies, connectors, target):
+    size, rounds = base_size, 0
+    while rounds < target:
+        nxt = copies * size + connectors
+        if nxt > max_intervals:
+            break
+        size, rounds = nxt, rounds + 1
+    return rounds
+
+def _build_blocks(T, delta, lo, starts, K):
+    blocks = []
+    for s in starts:
+        base = s * delta * K - lo
+        blocks.append([(l + base, r + base) for (l, r) in T])
+    return blocks
+
+def _append_connectors(S, delta, starts):
+    s0, s1, s2, s3 = starts
+    # five gadgets: left cap, right cap, cross1, cross2, cross4 (new)
+    connectors = [
+        ((s0 - 1) * delta,   (s1 - 1) * delta),
+        ((s2 + 2) * delta,   (s3 + 2) * delta),
+        ((s0 + 2) * delta,   (s2 - 1) * delta),
+        ((s1 + 2) * delta,   (s3 - 1) * delta),
+        ((s0 + s3) * delta//2, (s1 + s2) * delta//2)  # cross4: ties extremes
+    ]
+    S.extend(connectors)
+
+def _normalize(intervals, cap=None):
+    if not intervals:
+        return []
+    min_l = min(l for l,_ in intervals)
+    if min_l < 0:
+        intervals = [(l-min_l, r-min_l) for (l,r) in intervals]
+    out=[]
+    for l,r in intervals:
+        li,ri=int(round(l)),int(round(r))
+        if ri<=li: ri=li+1
+        out.append((li,ri))
+    if cap and len(out)>cap:
+        out=out[:cap]
+    return out
+
+def _micro_phase(T, lo, hi, delta, scales, max_extra, cap):
+    """Append micro phases at scales in 'scales' list (fractions)."""
+    extras=[]
+    for frac in scales:
+        d = max(1, int(delta*frac))
+        extras.extend([
+            (lo + 1*d, lo + 5*d),
+            (hi - 6*d, hi - 2*d)
+        ])
+    # insert alternating near-end to touch many active colors
+    for i,iv in enumerate(extras[:max_extra]):
+        pos=len(T)-(2*i+1)
+        if pos<0: T.append(iv)
+        else: T.insert(pos,iv)
+        if len(T)>=cap: break
+    return T
+
+def construct_intervals(max_intervals=9800, depth=6):
+    """
+    Produces a sequence of open intervals to maximize FirstFit/opt ratio.
+    """
+    # 1) two‐seed initialization
+    T=[(0,1),(2,3)]
+    base_size=len(T)
+
+    # 2) eight‐template rotation bank
+    templates = [
+      (2,6,10,14),(1,5,9,13),(3,7,11,15),(4,8,12,16),
+      (2,5,8,11),(3,6,9,12),(1,4,7,10),(5,7,9,11)
+    ]
+
+    # parameters
+    COPIES, CONNECTORS = 4, 5
+    K=2  # delta multiplier
+    rounds = _rounds_allowed(max_intervals, base_size, COPIES, CONNECTORS, depth)
+
+    # 3) main spine rounds
+    for r in range(rounds):
+        lo = min(l for l,_ in T)
+        hi = max(rg for _,rg in T)
+        span = hi - lo or 1
+        starts = templates[r % len(templates)]
+        blocks = _build_blocks(T, span, lo, starts, K)
+        # sequential assembly
+        S=[]
+        for blk in blocks: S.extend(blk)
+        _append_connectors(S, span*K, starts)
+        T = S
+
+    # 4) three micro phases: delta2, delta3
+    lo = min(l for l,_ in T); hi = max(r for _,r in T)
+    delta = hi - lo or 1
+    # scales chosen to avoid clique growth
+    T = _micro_phase(T, lo, hi, delta, scales=[1/4,1/8], max_extra=8, cap=max_intervals)
+    lo = min(l for l,_ in T); hi = max(r for _,r in T)
+    delta = hi - lo or 1
+    T = _micro_phase(T, lo, hi, delta, scales=[1/16],   max_extra=4, cap=max_intervals)
+
+    # 5) normalize and cap
+    intervals = _normalize(T, cap=max_intervals)
+    return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

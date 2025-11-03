@@ -1,0 +1,20 @@
+<NAME>
+skip_micro_by_cap
+</NAME>
+
+<DESCRIPTION>
+We want to preserve the strong six-round KT spine, which empirically yields a higher FirstFit/omega ratio, and avoid the subsequent micro-phase that inflates omega and degrades the ratio. The current code proceeds to Stage 2 unless it is “near the cap.” By lowering CAP from 9800 to 9560 (just above the six-round size 9556), we guarantee:
+- All six spine rounds still run, since 9556 ≤ CAP.
+- The “near-cap” early return triggers after stage 1 (because 9556 ≥ CAP − 16), skipping the micro-phase.
+This minimal change is consistent with the rest of the code and should restore the stronger ratio observed in prior runs (~2.7), improving the combined score without risking capacity overflow.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+=======
+  # Capacity guard tuned to return after six spine rounds (skipping micro-phase) and < 10000
+  CAP = 9560
+>>>>>>> REPLACE
+</DIFF>

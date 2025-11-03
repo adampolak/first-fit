@@ -1,0 +1,72 @@
+<NAME>
+tower_pins_microphase
+</NAME>
+
+<DESCRIPTION>
+I add a new, CAP-guarded micro-phase that injects short, staggered “tower pins” after the existing micro-phases. These pins are very short intervals placed in four interior windows and spaced so they do not overlap each other, thus keeping omega under control. Because they arrive late and are positioned where many spine intervals overlap, they tend to see many active colors, pushing FirstFit to introduce additional colors without significantly increasing the maximum clique size.
+
+This follows the heuristic of building towers with staggered starts and caps, and reinforces cross-scale color coupling while respecting the capacity constraint. The pins’ short length and spacing minimize mutual overlap, reducing the risk of increasing omega beyond 10 while still increasing the number of colors used by FirstFit.
+
+No existing parameters are changed; the addition is deterministic and only activates if capacity remains.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase C: alternate window family + long cross (guarded, optional)
+  room = CAP - len(T)
+  if enable_alt_microphase and room > 8:
+    micro_alt = build_micro_delta_round(T, room, alt=True)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+=======
+  # Micro-phase C: alternate window family + long cross (guarded, optional)
+  room = CAP - len(T)
+  if enable_alt_microphase and room > 8:
+    micro_alt = build_micro_delta_round(T, room, alt=True)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+
+  # Micro-phase D: tower pins (short, staggered intervals) to increase FF pressure
+  # without inflating omega; placed in four interior windows and spaced to be disjoint.
+  room = CAP - len(T)
+  if room > 8:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+    eps = max(1, G // 4096)  # very short pins
+    windows = [0.14, 0.31, 0.66, 0.83]
+    # Limit per-window pins to keep total bounded and spacing clean
+    max_per_win = max(4, min(64, room // max(1, len(windows))))
+    stride = max(2 * eps + 3, 3)
+    pins = []
+    for wi, w in enumerate(windows):
+      base = glo + int(round(w * G))
+      start = base - (max_per_win // 2) * stride + (wi % 3)
+      for j in range(max_per_win):
+        L = start + j * stride
+        R = L + eps
+        if R > L:
+          pins.append((L, R))
+    if pins:
+      if len(pins) > room:
+        pins = pins[:room]
+      T.extend(pins)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

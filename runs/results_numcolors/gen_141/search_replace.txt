@@ -1,0 +1,100 @@
+<NAME>
+rotate_and_micro_unlocked
+</NAME>
+
+<DESCRIPTION>
+I enable two principled upgrades aligned with KT-style lower-bound heuristics and the literature:
+
+1) Rotate the main spine’s four-start templates across rounds (T1=(2,6,10,14), T2=(1,5,9,13), T3=(3,7,11,15), T4=(4,8,12,16)). This round‑robin rotation deepens cross-scale coupling that FirstFit cannot reconcile easily without inflating omega, improving color pressure over a fixed-start spine while keeping the clique small.
+
+2) Unlock a capacity‑bounded micro-phase by raising CAP from 9560 to 9800 and defaulting to two micro-iterations. The delta2 micro-rounds place thin sampled waves in four staggered windows with KT-like connectors; this injects late arrivals that overlap many active colors while avoiding large all-point cliques. The second micro-round is automatically trimmed to remain under CAP.
+
+These changes are minimal and deterministic: they reuse the existing construction, keep blocks sequential in the spine phase (to stabilize omega), and only add a small, budgeted micro-layer to push FirstFit higher. This mirrors the “low-omega spine + late waves” strategy and the template-rotation recommendations, aiming to increase the combined score by boosting FF usage (and often bringing OPT closer to, but not exceeding, 10).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=0):
+  """
+  Deterministic KT-style spine with a safeguarded two-phase scaffold.
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2):
+  """
+  Rotating four-template KT spine with an enabled micro-phase to boost FirstFit.
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Hard capacity guard tuned to allow exactly six KT rounds but block micro-phase
+  CAP = 9560
+=======
+  # Hard capacity guard raised to allow micro-phase after six KT rounds
+  CAP = 9800
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Optional template bank for exploratory use in micro/secondary phase
+  # (kept dormant by default to preserve the strong baseline).
+  template_bank = [
+    [2, 6, 10, 14],  # A: classic KT
+    [1, 5, 9, 13],   # B: left-shifted
+    [3, 7, 11, 15],  # C: right-shifted
+    [2, 4, 8, 12],   # D: compressed left pair
+    [3, 5, 9, 13],   # E: gentle left pack
+    [1, 7, 11, 15],  # F: wide skew
+    [2, 8, 10, 12],  # G: inner symmetric
+    [4, 6, 8, 10],   # H: tight middle
+  ]
+=======
+  # Rotating template bank for the main spine (round-robin over the first four)
+  template_bank = [
+    [2, 6, 10, 14],  # T1: classic KT
+    [1, 5, 9, 13],   # T2: left-shifted
+    [3, 7, 11, 15],  # T3: right-shifted
+    [4, 8, 12, 16],  # T4: stretched right (new)
+    [2, 4, 8, 12],   # aux: compressed left pair
+    [3, 5, 9, 13],   # aux: gentle left pack
+    [1, 7, 11, 15],  # aux: wide skew
+    [2, 8, 10, 12],  # aux: inner symmetric
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Keep sequential order every round (disabling interleaving lowers omega)
+    T = apply_round(T, spine_starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Round-robin rotate among four strong templates to couple colors across scales
+    starts = template_bank[ridx % 4]
+    T = apply_round(T, starts, do_interleave=False)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+=======
+  # Respect requested phase2_iters but guard to at most two micro-rounds by default.
+  steps = min(max(0, int(phase2_iters)), 2)
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,43 @@
+<NAME>
+add_cross_scale_connectors
+</NAME>
+
+<DESCRIPTION>
+Introduce a new Stage 1.5 immediately after the KT spine that injects up to four long‐range “cross‐scale” connectors spanning low and high regions of the current interval set. These connectors link distant parts of the structure, increasing FirstFit pressure (forcing new colors) without creating large local cliques. Additions are capacity‐guarded and followed by a rebase to keep coordinates small.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+
+  # ---------- Micro-phase A: near-tail long caps ----------
+=======
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+
+  # ---------- Stage 1.5: long-range cross-scale connectors ----------
+  lo, hi, span = _span_delta(T)
+  # Add cross-scale connectors: couple low and high regions to boost FF mixing
+  cross_caps = [
+    (lo + max(1, int(round(0.10 * span))), hi - max(1, int(round(0.10 * span)))),
+    (lo + max(1, int(round(0.25 * span))), hi - max(1, int(round(0.25 * span)))),
+    (lo + max(1, int(round(0.40 * span))), hi - max(1, int(round(0.40 * span)))),
+    (lo + max(1, int(round(0.60 * span))), hi - max(1, int(round(0.60 * span)))),
+  ]
+  room = CAP - len(T)
+  for (L, R) in cross_caps:
+    if room <= 0:
+      break
+    if R <= L:
+      R = L + 1
+    T.append((L, R))
+    room -= 1
+  # Rebase to keep coordinates bounded
+  T = _rebase_to_zero(T)
+
+  # ---------- Micro-phase A: near-tail long caps ----------
+>>>>>>> REPLACE
+</DIFF>

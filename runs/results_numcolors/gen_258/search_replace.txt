@@ -1,0 +1,40 @@
+<NAME>
+per_round_pins
+</NAME>
+
+<DESCRIPTION>
+I add a light, deterministic per-round micro-pin phase immediately after each main KT-style round. These very short “pins” are placed at four-window-like fractions of the current span, with only two pins per round (alternating windows by parity) and sub-delta lengths (eps = G // 2048). This aims to couple colors across blocks early, increasing FirstFit’s pressure without inflating the clique number: pins are short and spread across the span. The total addition is modest (<= 12 intervals over six rounds), keeping us under the 9800 CAP by trimming later micro-rounds if needed. This implements the “periodic four-window micro-phase” idea in a deterministic, capacity-safe way and is designed to raise FF colors while preserving omega around 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+
+    # Per-round micro pins: two short pins at deterministic window fractions.
+    # These couple colors early while adding negligible clique load.
+    if len(T) < CAP - 64:
+      glo = min(l for l, r in T)
+      ghi = max(r for l, r in T)
+      G = max(1, ghi - glo)
+      eps = max(1, G // 2048)
+      fracs = (0.18, 0.66) if (ridx % 2 == 0) else (0.34, 0.82)
+      for f in fracs:
+        a = glo + int(round(f * G))
+        b = a + eps
+        if b > a:
+          T.append((a, b))
+>>>>>>> REPLACE
+
+</DIFF>

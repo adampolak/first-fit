@@ -1,0 +1,44 @@
+<NAME>
+enable_interleaving_blocks
+</NAME>
+
+<DESCRIPTION>
+Switch the default block merging strategy from sequential flattening to parity-based interleaving. This mixes intervals from different translated blocks each round, increasing FirstFit color pressure while still controlling the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    interleave_blocks = False      # sequential blocks boost FF vs omega
+=======
+    interleave_blocks = True       # interleaving blocks by parity to increase FF pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_cross4_connectors
+</NAME>
+
+<DESCRIPTION>
+Introduce an additional long-range 'cross4' connector on even spine rounds to couple the first and last block copies. This extra connector forces FirstFit to allocate more colors without significantly increasing the maximum clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+=======
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        # cross4 connector for even rounds to strengthen long-range coupling
+        if round_idx % 2 == 0:
+            connectors.append(((s0 + 3) * delta, (s3 - 1) * delta))
+>>>>>>> REPLACE
+</DIFF>

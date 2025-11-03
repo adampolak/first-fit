@@ -1,0 +1,248 @@
+<NAME>
+rotate_interleave_plus_window_micro
+</NAME>
+
+<DESCRIPTION>
+I switch the main spine from a fixed (2,6,10,14) pattern to a deterministic round‑robin rotation over four strong start templates and enable parity-based interleaving of the four translated blocks on even rounds (with reverse order on odd rounds). This matches the proven strategy in the literature and prior best runs for raising FirstFit colors without inflating omega.
+
+Additionally, I replace the half‑scale micro‑round with a window‑based delta2 micro‑phase that translates a thin, evenly‑spaced seed into four interior windows of the global span, then interleaves them and adds safe fractional-span connectors. This mirrors the successful construction that previously achieved a higher competitive ratio while staying under CAP and keeping the clique number modest.
+
+Net effect:
+- Increased cross-scale color coupling via rotation and parity interleaving.
+- Micro-phase that focuses activity into interior windows to force FF to open more colors while avoiding large cliques.
+- Interval count remains < 9800; micro rounds are budget-trimmed to fit.
+
+These are targeted changes that should improve the combined score toward or beyond the prior 2.30 while keeping the program simple and deterministic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def apply_spine_round(current_T, starts):
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Four translated blocks sequentially (no interleaving)
+    S = []
+    for s in starts:
+      base = s * delta - lo
+      S.extend((l + base, r + base) for (l, r) in current_T)
+
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    return S
+=======
+  def apply_spine_round(current_T, starts, do_interleave=False, reverse_order=False):
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Interleave or keep sequential order
+    S = []
+    if do_interleave:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      if reverse_order:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    return S
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Perform exactly six spine rounds unless capacity would be exceeded (it won't for this growth).
+  for _ in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    T = apply_spine_round(T, spine_starts)
+=======
+  # Perform exactly six spine rounds with rotated templates and parity interleaving.
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # alternate
+  ]
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = apply_spine_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  def micro_round(current_T, round_id, budget):
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Use delta2 at half-scale to avoid expanding the global span too aggressively.
+    delta2 = max(1, G // 2)
+
+    # Thin seed: bounded and deterministic size to respect budget
+    # Keep micro blocks small: target at most ~ (budget//6) per block (four blocks + ~8 extras).
+    per_block_target = max(16, min(64, budget // 8))
+    U = thin_seed(current_T, per_block_target)
+
+    if not U:
+      return []
+
+    # Build four translated blocks using the same 4-start template,
+    # with deterministic parity-based interleaving policy:
+    # - Rounds with round_id % 2 == 0: forward interleave
+    # - Rounds with round_id % 2 == 1: reverse interleave
+    starts = spine_starts
+    blocks = []
+    ulo = min(l for l, r in U)
+    for s in starts:
+      base = s * delta2 - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Add a tiny deterministic internal reversal to break symmetry every other block
+      if ((s // 2) % 2) == (round_id % 2):
+        block = list(reversed(block))
+      blocks.append(block)
+
+    micro = []
+    if round_id % 2 == 0:
+      # Forward interleave
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+    else:
+      # Reverse interleave (swap block order)
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in reversed(blocks):
+          if i < len(blk):
+            micro.append(blk[i])
+
+    # Deterministic connectors at delta2 scale, including a cross3 extension
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    micro.extend(connectors)
+
+    # Sparse micro caps: add three long but safe caps at half-scale
+    cap1 = (glo + (delta2 // 4), glo + int(1.8 * delta2))
+    cap2 = (glo + int(0.9 * delta2), glo + int(2.6 * delta2))
+    mid = glo + G // 2
+    cap3 = (mid - max(1, delta2 // 8), mid + max(1, delta2 // 8))
+    for cap in (cap1, cap2, cap3):
+      if cap[1] > cap[0]:
+        micro.append(cap)
+
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+  def micro_round(current_T, round_id, budget):
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed: small evenly spaced subset (keeps omega modest)
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Four interior windows across the global span to emulate a KT-like micro round
+    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave the micro-blocks to maximize FirstFit mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Fractional-span connectors that couple windows without spiking omega
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+
+</DIFF>

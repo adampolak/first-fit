@@ -1,0 +1,127 @@
+<NAME>
+six_template_spine_long_connectors_two_pass_micro
+</NAME>
+
+<DESCRIPTION>
+I expanded the backbone rotation to a six-template bank so each of the six spine rounds uses a distinct start pattern. This structured diversification historically improves FirstFit pressure without increasing omega for KT-style constructions.
+
+I added a small set of deterministic, CAP-guarded long-range connectors right after the spine to couple colors across distant blocks while staying conservative (only 4). These connectors are placed with fractional-span anchors and we immediately rebase to keep coordinates tight.
+
+I then switched the tail augmentation to a two-pass, CAP-aware micro-phase budgeting strategy: a first pass with window family A, followed by a second pass with a distinct window family B (alternate). Both passes are budget-limited to preserve clique discipline while still increasing FF usage. Finally, a thin pair of long-tail connectors ties the micro windows, which has been effective in practice to push FF colors with minimal omega impact.
+
+All changes are deterministic, CAP-guarded, and avoid inflating omega by keeping added intervals relatively sparse and windowed.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (5, 9, 13, 17),  # center-extended
+    (6, 10, 14, 18), # right-extended
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+=======
+  # Deterministic long-range connectors appended after the spine (CAP-guarded)
+  if len(T) < CAP - 32:
+    lo, hi, span = _span_delta(T)
+    lr_fracs = [(0.06, 0.44), (0.22, 0.66), (0.38, 0.86), (0.14, 0.88)]
+    for (fa, fb) in lr_fracs:
+      if len(T) >= CAP:
+        break
+      a, b = _cap_at(lo, span, fa, fb)
+      T.append((a, b))
+    T = _rebase_to_zero(T)
+
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds: primary then alternate
+  room = CAP - len(T)
+  if room > 8:
+    microA = _build_micro_delta_round(T, room, iter_id=0, alt=False)
+    if microA:
+      if len(microA) > room:
+        microA = microA[:room]
+      T.extend(microA)
+      T = _rebase_to_zero(T)
+
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_delta_round(T, room, iter_id=1, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+
+  # Micro-phase C: secondary fractional-window pass for finer coupling
+  room = CAP - len(T)
+  if room > 8:
+    microC = _build_micro_delta_round(T, room, iter_id=2, alt=False)
+    if microC:
+      if len(microC) > room:
+        microC = microC[:room]
+      T.extend(microC)
+      T = _rebase_to_zero(T)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+=======
+  # Two-pass, CAP-aware micro-phase budgeting anchored to the spine
+  room = CAP - len(T)
+  if room > 8:
+    budget1 = min(1400, room)
+    microA = _build_micro_delta_round(T, budget1, iter_id=0, alt=False)
+    if microA:
+      T.extend(microA)
+      T = _rebase_to_zero(T)
+
+  room = CAP - len(T)
+  if room > 8:
+    budget2 = min(1800, room)
+    microB = _build_micro_delta_round(T, budget2, iter_id=1, alt=True)
+    if microB:
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+
+  # Deterministic long-range connectors after micro-phases, gated by remaining CAP
+  room = CAP - len(T)
+  if room > 0:
+    lo, hi, span = _span_delta(T)
+    tail_fracs = [(0.10, 0.60), (0.30, 0.85)]
+    for (fa, fb) in tail_fracs:
+      if len(T) >= CAP:
+        break
+      a, b = _cap_at(lo, span, fa, fb)
+      T.append((a, b))
+    T = _rebase_to_zero(T)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+>>>>>>> REPLACE
+
+</DIFF>

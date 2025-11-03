@@ -1,0 +1,120 @@
+<NAME>
+improved_wave_preload
+</NAME>
+
+<DESCRIPTION>
+Replace the previous dense-starts construction with a refined recursive "wave" generator that (1) alternates clone order to break predictable reuse, (2) injects small per-block "preload" blockers before each cloned block to occupy low-numbered colors early, (3) adds short bridges between adjacent blocks to couple colors across blocks, and (4) keeps sparse caps and occasional long sentries to reserve colors across rounds. The pattern is inspired by the wave/tower constructions from the literature (e.g. arXiv:1506.00192) but includes arrival-order engineering (reversal + preload) to push FirstFit to create more colors while keeping the offline clique small by spacing blocks and limiting cap overlap. The default rounds is increased to 3 (capped to avoid explosion). This should increase the FirstFit usage (alg) for a modest number of intervals without blowing up omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=2):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it tends to maximize the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+  through a recursive wave construction.
+
+  The construction generalizes the two-round pattern used in Figure 4 of
+  https://arxiv.org/abs/1506.00192 to a multi-round recursive expansion.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+  T = [(0, 1)]
+  for round_idx in range(rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # In earlier rounds we apply a compact set of shifts; in later rounds,
+    # we widen the set of shifts to inject more waves and increase color usage.
+    # Use a denser set of shifts each round to amplify FirstFit pressure
+    starts = [2, 4, 6, 8, 10, 12, 14, 16]
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # additional local blocks to create overlapping waves without increasing omega too much
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+=======
+def construct_intervals(rounds=3):
+  """
+  Improved recursive wave construction inspired by arXiv:1506.00192.
+
+  Key ideas:
+  - Alternate clone order (reverse every other block) to disrupt FirstFit reuse.
+  - Inject a few small "preload" blocker intervals at the start of each block
+    so low colors become occupied early and clones are forced to seek higher colors.
+  - Add short bridges between adjacent blocks to couple their color choices.
+  - Use sparse caps and occasional long sentries to reserve colors across rounds.
+  - Cap the number of rounds to avoid explosive growth.
+
+  These arrival-order engineering techniques aim to increase FirstFit's color
+  usage while keeping the offline optimum (largest clique) small by spacing blocks
+  and limiting how many caps overlap a single point.
+  """
+  T = [(0.0, 1.0)]
+  # safety cap on rounds to avoid creating enormous sequences
+  rounds = max(1, min(rounds, 4))
+  for round_idx in range(rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Widely spaced block starts; add more blocks in later rounds
+    starts = [2, 6, 10, 14]
+    if round_idx >= 1:
+      starts += [18, 22, 26, 30]
+    if round_idx >= 2:
+      starts += [34, 38]
+    # For each block: prepend a few short "preload" blockers, then append a cloned
+    # copy of T (alternating order). Add a short bridge to the next block to couple colors.
+    preload_blockers = 3
+    for idx, start in enumerate(starts):
+      for b in range(preload_blockers):
+        off = 0.08 * b
+        # place blocker inside the block interval [delta*start, delta*(start+1)]
+        S.append((delta * (start + 0.08 + off), delta * (start + 0.08 + off + 0.18)))
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      for l, r in base:
+        S.append((delta * start + l - lo, delta * start + r - lo))
+      # short bridge to next block (only overlaps two neighbouring blocks)
+      if idx + 1 < len(starts):
+        nxt = starts[idx + 1]
+        S.append((delta * (start + 0.6), delta * (nxt + 0.35)))
+    # local gadget: keeps omega small but increases FF pressure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13),
+    ]
+    # sparse caps (moderate spans), spaced to avoid creating large cliques
+    max_start = max(starts)
+    for j in range(5, int(max_start), 6):
+      S.append((delta * (j - 1.5), delta * (j + 1.5)))
+    # occasional long sentries to occupy low colors early (only in first round)
+    if round_idx == 0:
+      S += [(delta * 0.5, delta * 1.5), (delta * 1.2, delta * 2.2)]
+    T = S
+  return T
+>>>>>>> REPLACE
+</DIFF>

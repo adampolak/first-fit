@@ -1,0 +1,188 @@
+<NAME>
+spine_and_micro_two_pass
+</NAME>
+
+<DESCRIPTION>
+Targeted, conservative improvements to raise FirstFit pressure while preserving safety:
+
+1. Expand the KT template bank from 4 to 6 templates (adds deterministic structural variety).
+2. Extend _apply_round to accept an optional add_cross4 flag and append a conservative long-range connector when requested.
+3. Change the spine interleaving policy to a 3-cycle for more varied mixing and enable add_cross4 only on the final executed spine round.
+4. Make the micro-phase CAP-aware two-pass: split available room deterministically (half for pass A, remainder for pass B) to spread pressure reliably.
+
+These localized edits keep the original code shape and capacity checks. They aim to improve coupling across scales (helping FF use more colors) without increasing the maximum clique too much. All replacements are narrow and safe.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Four strong KT start templates (empirically best)
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  # Expanded KT start templates (6 templates): small variations to improve coupling
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed left pair (aux)
+    (3, 5, 9, 13),   # gentle left pack (aux)
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    # Use list comprehension for speed
+    base_vals = [s * delta - lo for s in starts]
+    blocks = [[(l + base, r + base) for (l, r) in current_T] for base in base_vals]
+
+    # Assemble with optional interleaving and reverse order to mix colors
+    S = []
+    if do_interleave:
+      order = [0, 1, 2, 3]
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Append classic connectors
+    _append_connectors(S, starts, delta)
+    return S
+=======
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, add_cross4=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    # Use list comprehension for speed
+    base_vals = [s * delta - lo for s in starts]
+    blocks = [[(l + base, r + base) for (l, r) in current_T] for base in base_vals]
+
+    # Assemble with optional interleaving and reverse order to mix colors.
+    # Interleaving order is deterministic but slightly varied across rounds (3-cycle handled outside).
+    S = []
+    if do_interleave:
+      order = [0, 1, 2, 3]
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Append classic connectors
+    _append_connectors(S, starts, delta)
+
+    # Optional conservative long-range cross to couple distant colors (use sparingly)
+    if add_cross4:
+      s0, _, _, s3 = starts
+      S.append(((s0 + 4) * delta, (s3 + 4) * delta))
+
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # ---------- Stage 1: KT spine with rotation and parity policies ----------
+  target_rounds = _max_rounds_within_cap(len(T), 6)
+  for ridx in range(target_rounds):
+    # Rotate starts deterministically
+    starts = TEMPLATE_BANK[ridx % len(TEMPLATE_BANK)]
+    # Interleave on even rounds; reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+    # Keep numbers bounded without changing structure
+    T = _rebase_to_zero(T)
+=======
+  # ---------- Stage 1: KT spine with rotation and parity policies ----------
+  target_rounds = _max_rounds_within_cap(len(T), 6)
+  for ridx in range(target_rounds):
+    # Rotate starts deterministically from the expanded template bank
+    starts = TEMPLATE_BANK[ridx % len(TEMPLATE_BANK)]
+    # Deterministic 3-cycle interleaving pattern (more varied than simple even/odd)
+    do_inter = ((ridx % 3) != 2)
+    rev = (ridx % 2 == 1)
+    # Add conservative long-range cross only on the last executed spine round
+    add_c4 = (ridx == target_rounds - 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+    # Keep numbers bounded without changing structure
+    T = _rebase_to_zero(T)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds: primary then alternate
+  room = CAP - len(T)
+  if room > 8:
+    microA = _build_micro_delta_round(T, room, iter_id=0, alt=False)
+    if microA:
+      if len(microA) > room:
+        microA = microA[:room]
+      T.extend(microA)
+      T = _rebase_to_zero(T)
+
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_delta_round(T, room, iter_id=1, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+=======
+  # Execute a two-pass, CAP-aware micro-phase: split the available room deterministically
+  room = CAP - len(T)
+  if room > 8:
+    # Allocate first pass half of the available room (rounded down)
+    budget1 = max(8, room // 2)
+    microA = _build_micro_delta_round(T, budget1, iter_id=0, alt=False)
+    if microA:
+      if len(microA) > budget1:
+        microA = microA[:budget1]
+      T.extend(microA)
+      T = _rebase_to_zero(T)
+
+  # Recompute remaining room and run a complementary alternate micro-phase on the rest
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_delta_round(T, room, iter_id=1, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,271 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1,
+                        rounds=6,
+                        K=1,
+                        CAP=9800,
+                        CAP_MARGIN=32,
+                        BASE_SEED=123456,
+                        enable_long_connectors=True,
+                        phase2_iters=2):
+  """
+  CAP-guarded dual-micro staircase generator with deterministic seed chain.
+  Returns a list of open intervals (l, r) in FirstFit presentation order.
+
+  Arguments (kept backward-compatible):
+    seed_count: kept for API compatibility; internally we always start from a single seed.
+  """
+
+  # ----------------------------
+  # Deterministic seed utilities
+  # ----------------------------
+  def _mix(a, b):
+    x = (a ^ (b + 0x9e3779b97f4a7c15)) & ((1 << 64) - 1)
+    x ^= (x >> 30)
+    x = (x * 0xbf58476d1ce4e5b9) & ((1 << 64) - 1)
+    x ^= (x >> 27)
+    x = (x * 0x94d049bb133111eb) & ((1 << 64) - 1)
+    x ^= (x >> 31)
+    return x
+
+  def _seed_round(i):
+    return _mix(BASE_SEED, i + 1)
+
+  def _rand01(s, tag):
+    h = _mix(s, tag)
+    return ((h >> 11) & ((1 << 53) - 1)) / float(1 << 53)
+
+  # ----------------------------
+  # Helpers on interval sets
+  # ----------------------------
+  def _span(T):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    return lo, hi, delta
+
+  def _safe_append(dst, src, cap):
+    room = cap - len(dst)
+    if room <= 0:
+      return dst
+    if len(src) > room:
+      src = src[:room]
+    dst.extend(src)
+    return dst
+
+  # ----------------------------
+  # Backbone staircase blocks
+  # ----------------------------
+  # Template bank; order selected deterministically per round via seed
+  template_bank = [
+    (2, 6, 10, 14),  # classic
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched
+  ]
+
+  # Single-seed start (keeps omega small early)
+  T = [(0, 1)]
+
+  def _apply_staircase_round(current_T, starts, ridx, density_K=1, interleave=True):
+    lo, hi, delta = _span(current_T)
+    # Blocks with spacing multiplier K to control mixing density
+    blocks = []
+    for s in starts:
+      base = s * delta * max(1, int(density_K)) - lo
+      blk = [(l + base, r + base) for (l, r) in current_T]
+      # Deterministic internal reversal per block for asymmetry
+      if ((s // 2) + ridx) % 2 == 1:
+        blk = list(reversed(blk))
+      blocks.append(blk)
+
+    # Assemble S with parity-based interleaving to pressure FF
+    S = []
+    if interleave:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(4))
+      if ridx % 2 == 1:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if ridx % 2 == 1:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Four classic staircase connectors (scaled by K)
+    s0, s1, s2, s3 = starts
+    kdelta = delta * max(1, int(density_K))
+    S.append(((s0 - 1) * kdelta, (s1 - 1) * kdelta))
+    S.append(((s2 + 2) * kdelta, (s3 + 2) * kdelta))
+    S.append(((s0 + 2) * kdelta, (s2 - 1) * kdelta))
+    S.append(((s1 + 2) * kdelta, (s3 - 1) * kdelta))
+
+    # Optional long-range connector per round (deterministic enable)
+    if enable_long_connectors and (ridx % 3 == 2):
+      S.append(((s0 + 4) * kdelta, (s3 + 4) * kdelta))
+    return S
+
+  # Predictive size accounting under recurrence |T'| ≈ 4|T| + 4 per round
+  def _safe_can_apply(sz):
+    return (4 * sz + 4) <= CAP
+
+  # Backbone construction with deterministic template choice
+  for ridx in range(max(0, int(rounds))):
+    if not _safe_can_apply(len(T)):
+      break
+    s = _seed_round(ridx)
+    # Deterministic template selection (but not pure round-robin)
+    tidx = int(_rand01(s, 7) * 4) % 4
+    starts = template_bank[tidx]
+    interleave = (ridx % 2 == 0)
+    T = _apply_staircase_round(T, starts, ridx, density_K=K, interleave=interleave)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+
+  # ----------------------------
+  # CAP-gated dual micro-phases
+  # ----------------------------
+  if len(T) >= CAP - CAP_MARGIN:
+    return T
+
+  def _thin_seed(current_T, max_seed):
+    n = len(current_T)
+    if n <= 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    return current_T[::step][:max_seed]
+
+  def _build_micro_phase(current_T, budget, ridx, variant=0):
+    if budget <= 8 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Seed size depends on variant, capped to keep omega small
+    if variant == 0:
+      seed_sz = max(8, min(36, len(current_T) // 280))
+    else:
+      seed_sz = max(8, min(44, len(current_T) // 240))
+    U = _thin_seed(current_T, seed_sz)
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Two distinct window families
+    if variant == 0:
+      # Family A (inside windows, shift by seed)
+      shift = (ridx % 3) * 0.01 + 0.005
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+      ]
+    else:
+      # Family B (complementary placements)
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+    # Build translated micro-blocks
+    blocks = []
+    for (fa, fb) in window_fracs:
+      fa = max(0.04, min(0.90, fa))
+      fb = max(fa + 0.02, min(0.96, fb))
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      blk = [(l + base, r + base) for (l, r) in U]
+      # Deterministic internal reversal to break symmetry
+      if int(round(fa * 100)) % 2 == (1 if variant == 0 else 0):
+        blk = list(reversed(blk))
+      blocks.append(blk)
+
+    # Interleave with variant-dependent order
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if (ridx + variant) % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        b = blocks[idx]
+        if i < len(b):
+          micro.append(b[i])
+
+    # Fractional connectors (caps and crosses) tuned per variant
+    if variant == 0:
+      connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      ]
+    else:
+      connectors = [
+        (glo + int(round(0.10 * G)), glo + int(round(0.34 * G))),
+        (glo + int(round(0.22 * G)), glo + int(round(0.66 * G))),
+        (glo + int(round(0.38 * G)), glo + int(round(0.82 * G))),
+        (glo + int(round(0.64 * G)), glo + int(round(0.94 * G))),
+      ]
+    # Extra long-range connector to tie distant windows (kept sparse)
+    if enable_long_connectors and variant == 1:
+      connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.88 * G))))
+
+    for a, b in connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute guarded micro-phase A and B
+  steps = min(max(0, int(phase2_iters)), 2)
+  for step in range(steps):
+    if len(T) > CAP - CAP_MARGIN:
+      break
+    room = CAP - len(T)
+    microA = _build_micro_phase(T, room, ridx=step, variant=0)
+    if microA:
+      T = _safe_append(T, microA, CAP)
+
+  if len(T) <= CAP - CAP_MARGIN:
+    room = CAP - len(T)
+    microB = _build_micro_phase(T, room, ridx=steps, variant=1)
+    if microB:
+      T = _safe_append(T, microB, CAP)
+
+  # ----------------------------
+  # Fifth connector layer (long-range cross-scale), CAP-gated
+  # ----------------------------
+  if enable_long_connectors and len(T) <= CAP - 8:
+    lo, hi, d = _span(T)
+    G = max(1, hi - lo)
+    # Deterministic set tied to BASE_SEED
+    extras = [
+      (lo + int(0.07 * G), lo + int(0.41 * G)),
+      (lo + int(0.19 * G), lo + int(0.73 * G)),
+      (lo + int(0.33 * G), lo + int(0.87 * G)),
+    ]
+    T = _safe_append(T, extras, CAP)
+
+  # Final trim
+  if len(T) > CAP:
+    T = T[:CAP]
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main entrypoint called by the evaluator; preserves input/output signature."""
+  return construct_intervals()

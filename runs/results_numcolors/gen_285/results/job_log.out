@@ -1,0 +1,3 @@
+Evaluation error: construct_intervals.<locals>._final_long_connectors() got an unexpected keyword argument 'room'
+Correctness and error status saved to results73omegav2/gen_285/results/correct.json
+Metrics saved to results73omegav2/gen_285/results/metrics.json

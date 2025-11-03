@@ -1,0 +1,117 @@
+<NAME>
+reserve_cross4_layer
+</NAME>
+
+<DESCRIPTION>
+I introduce a small reserved capacity to append a deterministic, long-range cross-scale connector layer at the very end, inspired by connector sets that couple distant blocks without inflating the clique number. This follows the “cross4 connector layer” idea to strengthen color coupling across scales while keeping omega modest.
+
+Concretely:
+- Add RESERVE = 24 to hold space for a final connector layer.
+- Reduce micro-phase budgets to leave this reserved tail unconsumed.
+- After the micro-phases, append a carefully curated set of long and medium connectors that avoid overloading the center point while still tying far-apart parts of the instance. The patterns include left- and right-biased caps and a few center-crossing couplers.
+
+This should push FirstFit to use additional colors beyond the previous 23 while preserving OPT near 10, improving the competitive ratio. The design adheres to CAP and remains deterministic.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 9800
+=======
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 9800
+  # Reserve a small tail capacity for a final cross-scale connector layer
+  RESERVE = 24
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+=======
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T) - RESERVE
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append (respect reserved tail)
+    avail = CAP - len(T) - RESERVE
+    if avail <= 0:
+      break
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T)
+      if len(microB) > avail:
+        microB = microB[:avail]
+      T.extend(microB)
+
+  return T
+=======
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T) - RESERVE
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T) - RESERVE
+      if avail > 0:
+        if len(microB) > avail:
+          microB = microB[:avail]
+        T.extend(microB)
+
+  # Final cross-scale connector layer (cross4) to couple distant colors without inflating omega
+  room = CAP - len(T)
+  if room > 0:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+
+    # Patterns chosen to avoid stacking too many intervals on the center point,
+    # while adding a few long cross couplers.
+    patterns = [
+      (0.05, 0.30), (0.12, 0.44), (0.24, 0.36),  # left-biased, avoid center
+      (0.70, 0.92), (0.56, 0.88), (0.64, 0.76),  # right-biased, avoid center
+      (0.18, 0.82), (0.38, 0.62), (0.31, 0.69),  # a few cross couplers
+    ]
+    cross4 = []
+    for a, b in patterns:
+      A = glo + int(round(max(0.02, min(0.98, a)) * G))
+      B = glo + int(round(max(0.02, min(0.98, b)) * G))
+      if B > A:
+        cross4.append((A, B))
+    if len(cross4) > room:
+      cross4 = cross4[:room]
+    T.extend(cross4)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

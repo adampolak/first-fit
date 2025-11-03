@@ -1,0 +1,63 @@
+<NAME>interleave_templates_extra_caps</NAME>
+<DESCRIPTION>
+Introduce a cycle of four distinct 4‐start templates to break rigid periodic structure and interleave all translated blocks each round (rather than stacking sequentially). Add a fifth “cross3” connector for stronger cross-layer coupling, and append a tiny micro-phase of two sparse long caps at the end to pressure FirstFit late without increasing the clique number. This should raise FF usage while keeping ω=10.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  for _ in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+=======
+  # cycle through multiple start-pattern templates and interleave blocks
+  start_patterns = [(2, 6, 10, 14), (3, 7, 11, 15), (1, 5, 9, 13), (4, 8, 12, 16)]
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+    # select pattern for this round
+    starts = start_patterns[round_idx % len(start_patterns)]
+    # build and interleave translated blocks
+    blocks = []
+    for s in starts:
+      blocks.append([(delta * s + l - lo, delta * s + r - lo) for l, r in T])
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          S.append(blk[i])
+    # original connectors plus extra cross3 for better coupling
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13),
+      (delta * (s0 + 3), delta * (s3 - 2)),
+    ]
+    S.extend(connectors)
+    T = S
+  # micro-phase: sprinkle sparse long-range caps to boost FF usage late
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  span = hi - lo if hi > lo else 1
+  cap_len = max(1, span // 25)
+  T.append((lo + 2 * cap_len, lo + 10 * cap_len))
+  T.append((hi - 10 * cap_len, hi - 2 * cap_len))
+  return T
+>>>>>>> REPLACE
+</DIFF>

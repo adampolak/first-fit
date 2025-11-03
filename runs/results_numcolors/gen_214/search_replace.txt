@@ -1,0 +1,199 @@
+<NAME>
+second_micro_phase_and_cross4
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted enhancements inspired by known strategies for pushing FirstFit without inflating the clique number:
+
+1) Enable a final long-range cross4 connector during the last backbone (spine) round when cross4_enabled is True. This adds a single long-range connector that couples distant blocks across the scale, leveraging the strong colors accumulated by the spine while keeping additional overlap sparse (so omega remains controlled).
+
+2) Add a second, distinct fractional-window micro-phase (with windows [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]) that activates after the primary micro-phase, capacity-gated. This is aligned with the recommendation to run a second micro-phase using a different window set to boost FF pressure without densifying any single point excessively. To support this, the micro-round builder now accepts an optional window_fracs parameter.
+
+Additionally, I set the default phase2_iters to 2, allowing two primary micro rounds by default when capacity permits; all micro-phases are CAP-guarded so the total count stays under 9800.
+
+These changes preserve the existing strong behavior (competitive ratio ~2.30) while offering a principled pathway to increased FF usage by more robust cross-scale coupling and a second micro-phase using distinct windows.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        cross4_enabled=True):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        cross4_enabled=True):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Add cross4 only on final executed round and only if not rotating templates (safer)
+    add_c4 = False  # default safer choice
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+=======
+    # Add cross4 only on the last planned round (capacity may truncate earlier).
+    last_planned = max(1, int(round(rounds))) - 1
+    add_c4 = bool(cross4_enabled and (ridx == last_planned))
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_micro_delta_round(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin, evenly spaced seed
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Four windows across the span (stay inside to control omega)
+    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave micro-blocks to maximize FF mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Fractional-span connectors at the micro scale
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+  def build_micro_delta_round(current_T, budget, window_fracs=None):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin, evenly spaced seed
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Default four windows across the span (stay inside to control omega)
+    if window_fracs is None:
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave micro-blocks to maximize FF mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Fractional-span connectors at the micro scale
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  steps = min(max(0, int(phase2_iters)), 2)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    if len(micro) > room:
+      micro = micro[:room]
+    T.extend(micro)
+
+  return T
+=======
+  steps = min(max(0, int(phase2_iters)), 2)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    if len(micro) > room:
+      micro = micro[:room]
+    T.extend(micro)
+
+  # Second guarded micro-phase with a distinct window set to strengthen cross-scale coupling
+  room = CAP - len(T)
+  if room > 8:
+    alt_windows = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+    micro2 = build_micro_delta_round(T, room, window_fracs=alt_windows)
+    if micro2:
+      if len(micro2) > room:
+        micro2 = micro2[:room]
+      T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE

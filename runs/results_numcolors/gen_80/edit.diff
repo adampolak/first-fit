@@ -1,0 +1,256 @@
+--- a/original.py
++++ b/original.py
+@@ -1,148 +1,152 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(rounds=6,
+                         rotate_starts=True,
+                         reverse_block_parity=True,
+                         interleave_blocks=True,
+                         phase2_iters=1):
+   """
+-  Deterministic KT-style spine with a safeguarded two-phase scaffold.
++  Modular, safeguarded KT-spine with a clean two-phase workflow.
++
++  - Phase 1: Expand the Kierstead–Trotter spine using four translated blocks per round.
++  - Phase 2 (optional): Light micro-augmentation that adds sparse long caps without blowing omega.
++  - All steps keep total intervals under CAP (9800), and return a deterministic sequence.
+ 
+   Parameters:
+-    rounds (int): main expansion depth; near 6 yields ~9556 intervals for a single-seed KT spine.
+-    rotate_starts (bool): available but disabled in the safeguarded spine mode.
+-    reverse_block_parity (bool): available but disabled in the safeguarded spine mode.
+-    interleave_blocks (bool): available but disabled in the safeguarded spine mode.
+-    phase2_iters (int): requested micro iterations; actual application is strictly capacity- and safety-gated.
++    rounds (int): desired expansion depth (cap-limited by CAP).
++    rotate_starts (bool): cycle through a bank of four-start templates.
++    reverse_block_parity (bool): optionally reverse every second block to diversify color usage.
++    interleave_blocks (bool): interleave blocks round-robin to maximize color mixing.
++    phase2_iters (int): number of guarded micro-phase iterations (default 1).
+ 
+   Returns:
+-    intervals: list of (l, r) integer tuples, open intervals, in FF presentation order.
++    intervals: list of (l, r) integer tuples, representing open intervals in FF order.
+   """
+ 
+-  # Hard capacity guard to keep the total count < 10000
++  # Capacity cap to prevent excessive growth
+   CAP = 9800
+ 
+-  # Stable KT-spine start pattern (proven strong in prior runs)
+-  spine_starts = [2, 6, 10, 14]
+-
+-  # Optional template bank for exploratory use in micro/secondary phase
+-  # (kept dormant by default to preserve the strong baseline).
++  # Template bank of four-start patterns (classic KT style plus variations)
+   template_bank = [
+-    [2, 6, 10, 14],  # A: classic KT
+-    [1, 5, 9, 13],   # B: left-shifted
+-    [3, 7, 11, 15],  # C: right-shifted
+-    [2, 4, 8, 12],   # D: compressed left pair
+-    [3, 5, 9, 13],   # E: gentle left pack
+-    [1, 7, 11, 15],  # F: wide skew
+-    [2, 8, 10, 12],  # G: inner symmetric
+-    [4, 6, 8, 10],   # H: tight middle
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (2, 4, 8, 12),
+   ]
+ 
+-  # Seed with one unit interval to allow six KT rounds within CAP.
++  # Seed spine with a minimal unit interval
+   T = [(0, 1)]
+ 
+-  # Predictive size accounting to cap the number of full rounds.
+-  # KT growth per round: size -> 4*size + 4
+-  def round_next_size(sz):
+-    return 4 * sz + 4
++  # Helpers
++  def round_size(sz):
++    return 4 * sz + 4  # 4 copies + 4 connectors per round
+ 
+-  def max_rounds_within_cap(initial_size, max_rounds):
+-    sz = initial_size
+-    done = 0
+-    for _ in range(max(0, int(max_rounds))):
+-      nxt = round_next_size(sz)
+-      if nxt > CAP:
+-        break
+-      sz = nxt
+-      done += 1
+-    return done, sz
++  # Determine safe depth under CAP
++  depth = 0
++  size_est = len(T)
++  while depth < max(0, int(rounds)):
++    nxt = round_size(size_est)
++    if nxt > CAP:
++      break
++    size_est = nxt
++    depth += 1
+ 
+-  # Stage 1: KT spine, un-interleaved, classic connectors, capacity-safe depth.
+-  depth, size_est = max_rounds_within_cap(len(T), rounds)
+-
+-  def apply_round(current_T, starts):
+-    # Compute span and delta
+-    lo = min(l for l, r in current_T)
+-    hi = max(r for l, r in current_T)
++  # Phase 1: build spine
++  for round_idx in range(depth):
++    lo = min(l for l, r in T)
++    hi = max(r for l, r in T)
+     delta = hi - lo
+     if delta <= 0:
+       delta = 1
+ 
+-    # Build four translated blocks sequentially (no interleaving)
++    # Choose starts for this round
++    if rotate_starts:
++      starts = template_bank[round_idx % len(template_bank)]
++    else:
++      starts = template_bank[0]
++
++    # Build four translated blocks
++    blocks = []
++    for b_idx, s in enumerate(starts):
++      base = s * delta - lo
++      block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
++      block = [(l + base, r + base) for (l, r) in block_src]
++      blocks.append(block)
++
++    # Interleave blocks if requested
+     S = []
+-    for s in starts:
+-      base = s * delta - lo
+-      # No parity reversal here: spine mode
+-      S.extend((l + base, r + base) for (l, r) in current_T)
++    if interleave_blocks:
++      maxlen = max(len(b) for b in blocks)
++      order = list(range(len(blocks)))
++      krot = round_idx % len(order)
++      order = order[krot:] + order[:krot]
++      for i in range(maxlen):
++        for idx in order:
++          blk = blocks[idx]
++          if i < len(blk):
++            S.append(blk[i])
++    else:
++      for blk in blocks:
++        S.extend(blk)
+ 
+-    # Classic connectors that preserve the desired FF pressure without
+-    # blowing up omega when used with spine_starts:
+-    s0, s1, s2, s3 = starts
++    # Connectors (KT-like anchors)
++    s0, s1, s2, s3 = starts[:4]
+     connectors = [
+-      ((s0 - 1) * delta, (s1 - 1) * delta),
+-      ((s2 + 2) * delta, (s3 + 2) * delta),
+-      ((s0 + 2) * delta, (s2 - 1) * delta),
+-      ((s1 + 2) * delta, (s3 - 1) * delta),
++      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
++      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
++      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
++      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+     ]
++    # Optional detoured neighbor-like connectors to slightly diversify color usage
++    for i in range(len(starts) - 1):
++      a = delta * (starts[i] + 0.5)
++      b = delta * (starts[i + 1] - 0.5)
++      connectors.append((a, b))
++
+     S.extend(connectors)
+-    return S
++    T = S
+ 
+-  for _ in range(depth):
+-    T = apply_round(T, spine_starts)
++  # Phase 2 (micro-phase): light, capacity-safe long caps
++  if phase2_iters and len(T) < CAP - 6:
++    lo = min(l for l, r in T)
++    hi = max(r for l, r in T)
++    delta = max(1, hi - lo)
++    d2 = max(1, delta // 4)
+ 
+-  # If we already reached or are near the cap, skip phase 2 safely.
+-  if len(T) >= CAP - 16:
+-    return T
+-
+-  # Stage 2 (safeguarded): attempt up to phase2_iters micro steps using a smaller delta2.
+-  # To avoid harming the strong KT baseline, we:
+-  #  - require enough residual capacity,
+-  #  - use at most one light-touch micro step by default,
+-  #  - place micro additions as sparse long caps that do not densify the core "spine."
+-  def micro_caps(current_T, intensity=1):
+-    if not current_T:
+-      return []
+-    lo = min(l for l, r in current_T)
+-    hi = max(r for l, r in current_T)
+-    delta = max(1, hi - lo)
+-    d2 = max(1, delta // 3)
+-
+-    # Two very sparse long caps placed away from the densest overlap
+-    caps = [
++    micro_caps = [
+       (lo + 1 * d2, lo + 5 * d2),
+       (hi - 6 * d2, hi - 2 * d2),
++      (lo + 3 * d2, lo + 8 * d2),
+     ]
+-    # intensity>1 adds a symmetric mid cap pair (still light)
+-    if intensity > 1:
+-      mid = (lo + hi) // 2
+-      caps += [
+-        (mid - 2 * d2, mid + 2 * d2),
+-      ]
+-    return caps
++    # Guard against overshoot
++    room = CAP - len(T)
++    if room > 0:
++      micro_caps = micro_caps[:max(0, min(len(micro_caps), room))]
++      T.extend(micro_caps)
+ 
+-  # Compute how many safe micro intervals we can add
+-  # Respect requested phase2_iters, but safeguard with CAP and keep additions tiny.
+-  micro_steps = max(0, int(phase2_iters))
+-  # Each step adds at most 2–3 caps; plan conservatively.
+-  add_per_step = 2
+-  max_steps_by_cap = max(0, (CAP - len(T)) // add_per_step)
++  # Normalize to non-negative integers
++  if not T:
++    return []
+ 
+-  steps = min(micro_steps, max_steps_by_cap, 1)  # at most 1 guarded micro pass by default
+-  for k in range(steps):
+-    # keep micro intensity very low to avoid increasing omega
+-    caps = micro_caps(T, intensity=1 if k == 0 else 1)
+-    # capacity guard
+-    room = CAP - len(T)
+-    if room <= 0:
++  min_l = min(l for l, r in T)
++  if min_l < 0:
++    T = [(l - min_l, r - min_l) for (l, r) in T]
++
++  # Final integer intervals
++  intervals = []
++  for (l, r) in T:
++    li = int(round(l))
++    ri = int(round(r))
++    if ri <= li:
++      ri = li + 1
++    intervals.append((li, ri))
++    if len(intervals) >= CAP:
+       break
+-    if len(caps) > room:
+-      caps = caps[:room]
+-    T.extend(caps)
+ 
+-  return T
++  return intervals
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

@@ -1,0 +1,59 @@
+<NAME>extend_start_patterns_and_runtime_cap</NAME>
+<DESCRIPTION>Introduce more diverse start-pattern templates to disrupt periodic reuse and add a runtime cap to prevent runaway interval growth. Also gate the micro-phase to avoid unnecessary growth when already large.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Cycle through multiple start-pattern templates to break periodic reuse
+  start_patterns = [(2, 6, 10, 14), (1, 5, 9, 13), (3, 7, 11, 15), (2, 4, 8, 12)]
+=======
+  # Cycle through multiple start-pattern templates to break periodic reuse
+  start_patterns = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (2, 4, 8, 12),
+    (4, 8, 12, 16),
+    (0, 4, 8, 12),
+    (3, 6, 9, 12),
+    (1, 4, 7, 10)
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+=======
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+    if len(T) > 9800:
+      break
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # micro-phase: small-scale delta expansion to sprinkle long caps
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta2 = max(1, (hi - lo) // 4)
+  # create sparse long-range caps overlapping many active colors
+  micro = [(lo + delta2, lo + 5 * delta2), (hi - 6 * delta2, hi - 2 * delta2)]
+  for it in micro:
+    T.append(it)
+=======
+  # micro-phase: small-scale delta expansion to sprinkle long caps
+  # Apply only if there is ample remaining capacity to avoid wasteful growth
+  if len(T) < 9000:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta2 = max(1, (hi - lo) // 4)
+    # create sparse long-range caps overlapping many active colors
+    micro = [(lo + delta2, lo + 5 * delta2), (hi - 6 * delta2, hi - 2 * delta2)]
+    for it in micro:
+      T.append(it)
+>>>>>>> REPLACE
+</DIFF>

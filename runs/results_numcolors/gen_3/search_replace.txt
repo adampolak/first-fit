@@ -1,0 +1,101 @@
+<branching_expansion_with_params>
+</branching_expansion_with_params>
+
+<DESCRIPTION>
+I replace the current fixed 6-level, 4-branch recursive builder with a parameterized recursive builder that:
+- Adds parameters depth and branching (defaults chosen to keep total intervals <10000).
+- Uses starts spaced by 4 units (2,6,10,...) but allows more copies (branching) to increase FirstFit pressure.
+- Adds adjacent connectors plus a small number of cross connectors to couple colors across blocks while avoiding excessive clique growth.
+- Uses integer endpoints to avoid floating-point drift.
+
+This targeted edit only replaces the construct_intervals() function inside the editable EVOLVE block so the rest of the file (including run_experiment) stays intact. The evaluator may override depth/branching via kwargs. The goal is to improve the achieved competitive_ratio while keeping interval count reasonable.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+=======
+def construct_intervals(depth=4, branching=5):
+  """
+  Parameterized recursive construction inspired by Kierstead-Trotter / Figure 4.
+
+  Parameters:
+    depth (int): recursion depth (default 4). Keep moderate to limit intervals.
+    branching (int): number of scaled copies per level (default 5).
+
+  Returns:
+    list of (l, r) integer tuples representing open intervals in presentation order.
+  """
+  if depth <= 0:
+    return [(0, 1)]
+
+  T = [(0, 1)]
+  for _ in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    span = hi - lo
+    S = []
+    # starts: 2,6,10,... (spaced by 4) for branching copies
+    starts = [2 + 4 * i for i in range(branching)]
+    for s in starts:
+      base = s * span - lo
+      for (l, r) in T:
+        S.append((int(l + base), int(r + base)))
+    # adjacent connectors between blocks to propagate FF colors
+    for i in range(len(starts) - 1):
+      a = (1 + 4 * i) * span
+      b = (5 + 4 * i) * span
+      S.append((int(a), int(b)))
+    # a couple of cross connectors (keeps clique small but couples blocks)
+    if branching >= 3:
+      a = (4 * 0 + 4) * span
+      b = (4 * 2 + 9) * span
+      S.append((int(a), int(b)))
+    if branching >= 4:
+      a = (4 * 1 + 8) * span
+      b = (4 * 3 + 13) * span
+      S.append((int(a), int(b)))
+    T = S
+  return T
+>>>>>>> REPLACE
+</DIFF>

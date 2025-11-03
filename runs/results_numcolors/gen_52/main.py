@@ -1,0 +1,142 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+  """
+  Rotated four-block Kierstead–Trotter style expansion with adaptive depth cap
+  and optional micro-phase gadgets.
+
+  Returns a list of (l, r) integer tuples (open intervals) in the order they
+  should be presented to FirstFit.
+
+  Parameters:
+    max_intervals (int): hard cap on the total number of intervals produced.
+    depth (int): nominal recursion depth (will be adaptively capped to respect max_intervals).
+    rotate_starts (bool): rotate the four translated starts across rounds to disrupt repeating overlap patterns.
+    reverse_block_parity (bool): reverse the order of T for every odd block within a round to mix color usage.
+    interleave_blocks (bool): interleave blocks round-robin to maximize color mixing.
+    micro_phase (bool): append a small micro-phase at the end to sprinkle sparse long caps.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+  # Deterministic classic 4-block start patterns with rotation options
+  start_patterns = [
+    [2, 6, 10, 14],
+    [1, 5, 9, 13],
+    [3, 7, 11, 15],
+    [2, 4, 8, 12],
+  ]
+
+  # Seed with a single unit interval; keep small to allow many rounds within budget
+  T = [(0, 1)]
+
+  # Adaptive depth cap given max_intervals
+  depth = max(0, int(depth))
+  size = 1
+  allowed = 0
+  # Each round grows size -> 4*size + 4 (4 copies + 4 connectors)
+  while allowed < depth:
+    next_size = size * 4 + 4
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed
+
+  for round_idx in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+    # Build four translated blocks (with optional reversal to mix colors)
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in block_src]
+      blocks.append(block)
+
+    # Interleave blocks round-robin to maximize mixing of colors
+    S = []
+    if interleave_blocks:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      if round_idx % 2 == 1:
+        order = order[::-1]
+      krot = round_idx % len(order)
+      order = order[krot:] + order[:krot]
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # Deterministic connectors to propagate colors while avoiding large cliques
+    s0, s1, s2, s3 = starts[:4]
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+
+    T = S
+
+  # Optional micro-phase: sprinkle a few sparse long-range caps near the end
+  if micro_phase and len(T) + 8 <= max_intervals:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 4)
+    micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+    ]
+    for i, it in enumerate(micro):
+      insert_pos = len(T) - (i * 2 + 1)
+      if insert_pos < 0:
+        T.append(it)
+      else:
+        T.insert(insert_pos, it)
+
+  # Normalize to non-negative integers
+  if not T:
+    return []
+  min_l = min(l for l, r in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for l, r in T]
+
+  intervals = []
+  for (l, r) in T:
+    li = int(round(l))
+    ri = int(round(r))
+    if ri <= li:
+      ri = li + 1
+    intervals.append((li, ri))
+
+  if len(intervals) > max_intervals:
+    intervals = intervals[:max_intervals]
+
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

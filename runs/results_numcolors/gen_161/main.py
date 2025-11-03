@@ -1,0 +1,203 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1, rounds=6):
+  """
+  Construct a sequence of intervals on the real line, in the order presented to FirstFit,
+  to maximize FF colors divided by the clique number.
+
+  Inputs:
+    seed_count (int): kept for interface compatibility; default=1.
+    rounds (int): number of backbone rounds; default=6.
+
+  Returns:
+    intervals: list of (l, r) tuples (open intervals).
+  """
+
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+
+  # Four core KT starts; rotate them round-robin to diversify coupling
+  template_bank = [
+    (2, 6, 10, 14),  # T1: classic KT
+    (1, 5, 9, 13),   # T2: left-shifted
+    (3, 7, 11, 15),  # T3: right-shifted
+    (4, 8, 12, 16),  # T4: alternate
+  ]
+  core_starts = (2, 6, 10, 14)  # micro-gadgets use the canonical four-start scheme
+
+  # Optional translation growth multipliers; alternating helps long-range coupling
+  K_cycle = [1, 1, 2, 1]  # conservative: mostly 1, occasionally 2 for long-span hooks
+
+  # Seed with one unit interval (multi-seed tends to inflate omega too early)
+  T = [(0, 1)]
+
+  def thin_seed(current_T, max_seed):
+    """Evenly sample up to max_seed intervals for micro gadgets."""
+    n = len(current_T)
+    if n == 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    return current_T[::step][:max_seed]
+
+  def interleave_blocks(blocks):
+    """Interleave four blocks element-wise to increase FF pressure."""
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          S.append(blk[i])
+    return S
+
+  def apply_spine_round(current_T, starts, ridx, K=1, do_interleave=False):
+    """
+    Build one KT-style spine round with optional parity-based interleaving
+    and extended connectors. Returns the round output list.
+    """
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    deltaK = delta * max(1, int(K))
+
+    # Build four translated blocks; alternate internal order to impede color reuse
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base = s * deltaK - lo
+      src = current_T if ((ridx + b_idx) % 2 == 0) else list(reversed(current_T))
+      block = [(l + base, r + base) for (l, r) in src]
+      blocks.append(block)
+
+    # Assemble S via parity rule
+    S = interleave_blocks(blocks) if do_interleave else [x for blk in blocks for x in blk]
+
+    # Extended connectors at this scale (classic + cross3 + cross4)
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * deltaK, (s1 - 1) * deltaK),  # left cap
+      ((s2 + 2) * deltaK, (s3 + 2) * deltaK),  # right cap
+      ((s0 + 2) * deltaK, (s2 - 1) * deltaK),  # cross 1
+      ((s1 + 2) * deltaK, (s3 - 1) * deltaK),  # cross 2
+      ((s0 + 3) * deltaK, (s3 + 3) * deltaK),  # cross3 (longer)
+      ((s1 + 4) * deltaK, (s2 + 4) * deltaK),  # cross4 (extended)
+    ]
+    # Spread connectors through S by inserting after each block boundary where possible
+    # to enhance arrival-order effects without altering asymptotics.
+    # If we cannot place neatly, append at the end.
+    placed = 0
+    out = []
+    quarter = len(S) // 4 if len(S) >= 4 else 0
+    cut_points = [quarter, 2 * quarter, 3 * quarter]
+    cp_idx = 0
+    for idx, itv in enumerate(S):
+      out.append(itv)
+      if cp_idx < len(cut_points) and idx + 1 == cut_points[cp_idx]:
+        # insert up to two connectors at each cut
+        take = min(2, len(connectors) - placed)
+        out.extend(connectors[placed:placed + take])
+        placed += take
+        cp_idx += 1
+    # append any remaining connectors
+    if placed < len(connectors):
+      out.extend(connectors[placed:])
+
+    return out
+
+  def micro_gadget(current_T, round_id, budget):
+    """
+    Localized four-start micro gadget at half-scale with parity interleaving
+    opposite to the spine parity for this round. Includes cross3/cross4 and sparse caps.
+    """
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+    delta2 = max(1, G // 2)
+
+    # Thin seed capped to budget; keep small to guard omega
+    per_block_target = max(8, min(64, budget // 10))
+    U = thin_seed(current_T, per_block_target)
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+    blocks = []
+    for s in core_starts:
+      base = s * delta2 - ulo + glo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Internal reversal keyed to parity to break symmetry
+      if ((s // 2) ^ round_id) & 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave for even round_id; sequential for odd (opposite to spine typical)
+    M = interleave_blocks(blocks) if (round_id % 2 == 0) else [x for b in blocks for x in b]
+
+    s0, s1, s2, s3 = core_starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),
+      ((s1 + 4) * delta2 + glo, (s2 + 4) * delta2 + glo),
+    ]
+    M.extend(connectors)
+
+    # Sparse caps: two long and one mid cap
+    cap1 = (glo + (delta2 // 4), glo + int(1.75 * delta2))
+    cap2 = (glo + int(0.9 * delta2), glo + int(2.5 * delta2))
+    mid = glo + G // 2
+    cap3 = (mid - max(1, delta2 // 8), mid + max(1, delta2 // 8))
+    for cap in (cap1, cap2, cap3):
+      if cap[1] > cap[0]:
+        M.append(cap)
+
+    if len(M) > budget:
+      M = M[:budget]
+    return M
+
+  # Backbone with in-round micro towers
+  for ridx in range(max(1, int(rounds))):
+    # Predict next size; include a conservative overhead for micro gadgets
+    # Growth per spine round: n -> 4n + O(1). Reserve micro budget per round.
+    n = len(T)
+    # micro overhead target per round (small, omega-safe)
+    micro_target = 120 if n < 4000 else 64
+    predicted = 4 * n + 10 + micro_target
+    if predicted > CAP:
+      break
+
+    starts = template_bank[ridx % len(template_bank)]
+    K = K_cycle[ridx % len(K_cycle)]
+    do_interleave = (ridx % 2 == 0)  # parity-based interleaving on even rounds
+    S = apply_spine_round(T, starts, ridx=ridx, K=K, do_interleave=do_interleave)
+
+    # In-round micro gadget: conservative, capacity-aware
+    room = CAP - (len(S))
+    mg_budget = max(0, min(micro_target, room))
+    if mg_budget > 0:
+      M = micro_gadget(S, round_id=ridx, budget=mg_budget)
+      # Insert micro gadget after roughly half of S to maximize mixing
+      if M:
+        half = len(S) // 2
+        S = S[:half] + M + S[half:]
+
+    T = S
+
+    # Capacity guard
+    if len(T) >= CAP:
+      T = T[:CAP]
+      break
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

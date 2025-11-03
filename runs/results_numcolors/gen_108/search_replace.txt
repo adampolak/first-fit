@@ -1,0 +1,125 @@
+<NAME>improve_ff_with_delta2_and_adaptive_interleave</NAME>
+
+<DESCRIPTION>
+Introduce two targeted enhancements to boost FirstFit pressure while keeping omega in check:
+1) Add optional extra delta2-based extension rounds (extra_rounds) after the standard rounds to push FF further without increasing omega. These rounds use a smaller delta, reusing the existing rotated-block machinery and connectors.
+2) Introduce adaptive interleaving (adaptive_interleave) to disrupt regular reuse patterns every two rounds, providing deterministic diversity in block visitation order. This works in tandem with existing interleave_blocks toggle.
+
+Implementation plan:
+- Extend construct_intervals signature to accept extra_rounds and adaptive_interleave.
+- After the main rounds loop, run extra delta2-extension rounds if requested, using a fixed starter pattern and a reduced delta2.
+- Extend _interleave_blocks to support an adaptive interleave mode that flips the visitation order every two rounds, while preserving the existing non-adaptive behavior.
+- Update the call site to pass adaptive flag into the interleave routine.
+
+This keeps the changes localized (no rewrites of the entire framework) and compatible with the existing recursive four-start, four-connector design, while offering a potentially significant uplift in the combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                      depth=6,
+                      rotate_starts=True,
+                      reverse_block_parity=True,
+                      interleave_blocks=True,
+                      phase2_micro=False):
+=======
+def construct_intervals(max_intervals=9800,
+                      depth=6,
+                      rotate_starts=True,
+                      reverse_block_parity=True,
+                      interleave_blocks=True,
+                      phase2_micro=False,
+                      extra_rounds=0,
+                      adaptive_interleave=False):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        T = S
+=======
+        T = S
+
+        # Optional extra delta2 rounds to push FirstFit pressure further without increasing omega.
+        if extra_rounds > 0:
+            starts_ext = start_patterns[0]
+            for ext_idx in range(extra_rounds):
+                lo_ext = min(l for l, _ in T)
+                hi_ext = max(r for _, r in T)
+                delta_ext = hi_ext - lo_ext
+                if delta_ext <= 0:
+                    delta_ext = 1
+                delta2 = max(1, delta_ext // 2)
+                blocks_ext = _build_rotated_blocks(T, delta2, lo_ext, starts_ext, reverse_block_parity)
+                S_ext = _interleave_blocks(blocks_ext, ext_idx, interleave=interleave_blocks, adaptive=adaptive_interleave)
+                _add_connectors(S_ext, starts_ext, delta2)
+                T = S_ext
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def _interleave_blocks(blocks, round_idx, interleave=True):
+    """
+    Interleave blocks in a round-robin fashion to maximize cross-block overlap.
+    If interleave is False, concatenate blocks in order.
+    The visitation order is alternated every round to reduce predictable reuse.
+    """
+    if not interleave:
+        S = []
+        for blk in blocks:
+            S.extend(blk)
+        return S
+
+    maxlen = max((len(b) for b in blocks), default=0)
+    order = list(range(len(blocks)))
+    if round_idx % 2 == 1:
+        order = order[::-1]
+    S = []
+    for i in range(maxlen):
+        for idx in order:
+            blk = blocks[idx]
+            if i < len(blk):
+                S.append(blk[i])
+    return S
+=======
+def _interleave_blocks(blocks, round_idx, interleave=True, adaptive=False):
+    """
+    Interleave blocks in a round-robin fashion to maximize cross-block overlap.
+    If interleave is False, concatenate blocks in order.
+    The visitation order is alternated every round to reduce predictable reuse.
+    If adaptive is True, alternate interleave pattern every two rounds for diversity.
+    """
+    if not interleave:
+        S = []
+        for blk in blocks:
+            S.extend(blk)
+        return S
+
+    maxlen = max((len(b) for b in blocks), default=0)
+    order = list(range(len(blocks)))
+    if adaptive:
+        if (round_idx // 2) % 2 == 1:
+            order = order[::-1]
+    else:
+        if round_idx % 2 == 1:
+            order = order[::-1]
+    S = []
+    for i in range(maxlen):
+        for idx in order:
+            blk = blocks[idx]
+            if i < len(blk):
+                S.append(blk[i])
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Interleave or not
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+=======
+        # Interleave or not
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks, adaptive=adaptive_interleave)
+>>>>>>> REPLACE
+</DIFF>

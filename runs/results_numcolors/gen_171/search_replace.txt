@@ -1,0 +1,109 @@
+<NAME>parabolic_micro_option</NAME>
+<DESCRIPTION>Add an optional parabolic micro-phase hook to the spine, controlled by a new enable_parabolic flag. When enabled, a lightweight, self-contained micro-phase runs after the spine rounds to push FirstFit color usage without significantly increasing omega. The parabolic step is implemented inline to avoid large refactors and keeps compatibility with the existing micro-round pipeline.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        enable_parabolic=False):
+>>>>>>> REPLACE
+</DIFF>
+
+
+<DIFF>
+<<<<<<< SEARCH
+  """
+  Deterministic KT-style spine with a safeguarded two-phase scaffold.
+
+  Parameters:
+    rounds (int): main expansion depth; near 6 yields ~9556 intervals for a single-seed KT spine.
+    rotate_starts (bool): available but disabled in the safeguarded spine mode.
+    reverse_block_parity (bool): available but disabled in the safeguarded spine mode.
+    interleave_blocks (bool): available but disabled in the safeguarded spine mode.
+    phase2_iters (int): requested micro iterations; actual application is strictly capacity- and safety-gated.
+
+  Returns:
+    intervals: list of (l, r) integer tuples, open intervals, in FF presentation order.
+  """
+=======
+  """
+  Deterministic KT-style spine with a safeguarded two-phase scaffold.
+
+  Parameters:
+    rounds (int): main expansion depth; near 6 yields ~9556 intervals for a single-seed KT spine.
+    rotate_starts (bool): available but disabled in the safeguarded spine mode.
+    reverse_block_parity (bool): available but disabled in the safeguarded spine mode.
+    interleave_blocks (bool): available but disabled in the safeguarded spine mode.
+    phase2_iters (int): requested micro iterations; actual application is strictly capacity- and safety-gated.
+    enable_parabolic (bool): if True, applies an optional parabolic micro-phase after spine rounds to boost FF diversity.
+
+  Returns:
+    intervals: list of (l, r) integer tuples, open intervals, in FF presentation order.
+  """
+>>>>>>> REPLACE
+</DIFF>
+
+
+<DIFF>
+<<<<<<< SEARCH
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  return T
+=======
+  # Optional parabolic micro-phase to increase FF colors while controlling omega
+  if enable_parabolic:
+    room = CAP - len(T)
+    if room > 0:
+      # Lightweight inline parabolic micro-phase (no extra defs required)
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo if hi > lo else 1
+      # Simple three caps placed in a shallow parabolic pattern
+      cap1 = (lo + max(1, int(round(0.15 * delta))), lo + max(1, int(round(0.60 * delta))))
+      cap2 = (lo + max(1, int(round(0.25 * delta))), lo + max(1, int(round(0.80 * delta))))
+      cap3 = (lo + max(1, int(round(0.55 * delta))), lo + max(1, int(round(0.95 * delta))))
+      parabolic = [cap for cap in (cap1, cap2, cap3) if cap[1] > cap[0]]
+      if parabolic:
+        if len(parabolic) > room:
+          parabolic = parabolic[:room]
+        T.extend(parabolic)
+
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  return T
+>>>>>>> REPLACE
+</DIFF>

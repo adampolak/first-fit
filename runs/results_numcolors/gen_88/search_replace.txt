@@ -1,0 +1,193 @@
+<NAME>enhanced_two_phase_wave_expansion</NAME>
+
+<DESCRIPTION>
+Introduce a two-phase expansion idea to push FirstFit pressure further without increasing omega too much.
+- Extend the main construction with an extra optional post-phase (extra_rounds) that runs after the main depth rounds.
+- The post-phase uses rotated start-patterns to perturb color usage across already built blocks, strengthening cross-scale coupling.
+- Keeps deterministic behavior by cycling starts in a predictable way and reusing existing helper routines (_make_blocks, _interleave_blocks, connectors).
+- This change aims to increase the combined score by enabling additional FF pressure within the 9k-interval budget, while keeping the clique size controlled.
+
+No other structural changes beyond adding the extra post-phase phase and wiring a new parameter. This edit is self-contained and compatible with the rest of the code.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(depth=3):
+    """
+    Fractal KT-inspired construction with modular toggles.
+
+    Returns: list of (l, r) integer tuples representing open intervals.
+    """
+    # Global controls (deterministic toggles)
+    rotate_starts   = True
+    reverse_block_parity = True
+    interleave_blocks = True
+    micro_phase = True
+
+    # Start patterns (deterministic cycle)
+    start_patterns = [
+        [2, 6, 10, 14],  # classic four-block layout
+        [1, 5, 9, 13],   # left-shifted
+        [3, 7, 11, 15],  # right-shifted
+        [2, 4, 8, 12],   # compressed variant
+    ]
+
+    # Seed: a single unit interval; small to allow deeper rounds under cap
+    T = [(0, 1)]
+
+    MAX_INTERVALS = 9800  # safety cap
+
+    # Compute a safe depth given the MAX_INTERVALS budget
+    depth = max(0, int(depth))
+    allowed = 0
+    size = 1  # current number of intervals notionally
+    while allowed < depth:
+        next_size = size * 4 + 4  # 4 copies + 4 connectors (rough bound)
+        if next_size > MAX_INTERVALS:
+            break
+        size = next_size
+        allowed += 1
+    depth = allowed
+
+    for round_idx in range(depth):
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = hi - lo
+        if delta <= 0:
+            delta = 1
+
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+        blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+
+        # Deterministic four-connectors (caps) derived from the first four starts
+        s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+
+        T = S
+
+    # Optional micro-phase sprinkled at end
+    if micro_phase and len(T) + 8 <= MAX_INTERVALS:
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = max(1, hi - lo)
+        T = _append_micro_phase(T, lo, hi, delta, max_extra=8)
+
+    # Normalize and convert to integers
+    intervals = _normalize_to_int_intervals(T)
+
+    return intervals
+=======
+def construct_intervals(depth=3):
+    """
+    Fractal KT-inspired construction with modular toggles.
+
+    Returns: list of (l, r) integer tuples representing open intervals.
+    """
+    # Global controls (deterministic toggles)
+    rotate_starts   = True
+    reverse_block_parity = True
+    interleave_blocks = True
+    micro_phase = True
+
+    # Start patterns (deterministic cycle)
+    start_patterns = [
+        [2, 6, 10, 14],  # classic four-block layout
+        [1, 5, 9, 13],   # left-shifted
+        [3, 7, 11, 15],  # right-shifted
+        [2, 4, 8, 12],   # compressed variant
+    ]
+
+    # Seed: a single unit interval; small to allow deeper rounds under cap
+    T = [(0, 1)]
+
+    MAX_INTERVALS = 9800  # safety cap
+
+    # Compute a safe depth given the MAX_INTERVALS budget
+    depth = max(0, int(depth))
+    allowed = 0
+    size = 1  # current number of intervals notionally
+    while allowed < depth:
+        next_size = size * 4 + 4  # 4 copies + 4 connectors (rough bound)
+        if next_size > MAX_INTERVALS:
+            break
+        size = next_size
+        allowed += 1
+    depth = allowed
+
+    for round_idx in range(depth):
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = hi - lo
+        if delta <= 0:
+            delta = 1
+
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+        blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+
+        # Deterministic four-connectors (caps) derived from the first four starts
+        s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+
+        T = S
+
+    # Optional micro-phase sprinkled at end
+    if micro_phase and len(T) + 8 <= MAX_INTERVALS:
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = max(1, hi - lo)
+        T = _append_micro_phase(T, lo, hi, delta, max_extra=8)
+
+    # Normalize and convert to integers
+    intervals = _normalize_to_int_intervals(T)
+
+    # EXTRA PHASE: post-round two-phase expansion to strengthen FF pressure
+    EXTRA_ROUNDS = 2  # two additional post-rounds
+    if EXTRA_ROUNDS > 0:
+        for extra in range(EXTRA_ROUNDS):
+            lo = min(l for l, _ in T)
+            hi = max(r for _, r in T)
+            delta = hi - lo
+            if delta <= 0:
+                delta = 1
+            # Rotate starts more aggressively for extra phase
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+
+            blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+
+            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
+
+            # Deterministic connectors for extra phase (using a shuffled but deterministic mapping)
+            s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ]
+            S.extend(connectors)
+
+            T = S
+        intervals = _normalize_to_int_intervals(T)
+
+    return intervals
+>>>>>>> REPLACE
+</DIFF>

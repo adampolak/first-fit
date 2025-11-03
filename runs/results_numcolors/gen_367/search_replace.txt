@@ -1,0 +1,79 @@
+<NAME>
+add_cross4_and_long_connectors</NAME>
+
+<DESCRIPTION>
+1) Expanded the spine’s template_bank to six templates (adding compressed and gentle-pack variants) to diversify inter-block coupling.
+2) Enabled optional cross4 connectors on even and final spine rounds by passing `add_cross4=True` to `_apply_round`, tying distant spans and increasing color pressure without inflating ω.
+3) Inserted a short “cross-phase” after the spine: four long-range connectors at fractional positions (10%,25%,50%,75%) to bridge early and late intervals and further force FirstFit to open new colors before micro-phases.
+These targeted changes increase mixing across scales and boost FF usage while respecting the capacity guard.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Rotating four-start templates for the KT spine
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  # Rotating four-start templates for the KT spine (expanded to six for richer coupling)
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed left pair
+    (3, 5, 9, 13),   # gentle left pack
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    # Add cross4 connectors on even rounds and the final round to tie distant spans
+    add_cross4 = (ridx % 2 == 0) or (ridx == 5)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_cross4)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+=======
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+
+  # Cross-phase: insert long-range connectors to couple early and late color spans
+  lo, hi, delta = _span(T)
+  for frac in [0.1, 0.25, 0.5, 0.75]:
+    a = lo + int(round(frac * delta))
+    b = lo + int(round((1 - frac) * delta))
+    if b > a and len(T) < CAP:
+      T.append((a, b))
+>>>>>>> REPLACE
+</DIFF>

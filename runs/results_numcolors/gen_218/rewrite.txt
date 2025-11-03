@@ -1,0 +1,219 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1):
+  """
+  Construct a sequence of open intervals (l, r), integers, in the online presentation order
+  to maximize FirstFit colors relative to the clique number (omega), with a hard count CAP.
+
+  Returns:
+    list of (l, r) integer tuples
+  """
+
+  # Hard capacity guard
+  CAP = 9800
+
+  # Fixed rotating templates (four starts). These are used only to place translated blocks,
+  # while the rest of the planner focuses on window-weaves and in-stream connectors.
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+
+  # Base seed: keep a single unit interval to avoid early omega inflation
+  T = [(0, 1)]
+
+  # Helpers
+  def _span(TS):
+    lo = min(l for l, _ in TS)
+    hi = max(r for _, r in TS)
+    delta = hi - lo
+    return lo, hi, (delta if delta > 0 else 1)
+
+  def _predict_next_after_round(n, conn_overhead=8):
+    # Four blocks plus a handful of connectors
+    return 4 * n + conn_overhead
+
+  def _insert_connectors_stream(S, conns):
+    # Disperse connectors after quarter points to maximize arrival-order effects
+    if not S or not conns:
+      return S + conns
+    out = []
+    q = len(S) // 4
+    cuts = [q, 2 * q, 3 * q] if q > 0 else []
+    cidx = 0
+    did = 0
+    for i, itv in enumerate(S):
+      out.append(itv)
+      if cidx < len(cuts) and i + 1 == cuts[cidx]:
+        take = min(2, len(conns) - did)
+        if take > 0:
+          out.extend(conns[did:did + take])
+          did += take
+        cidx += 1
+    if did < len(conns):
+      out.extend(conns[did:])
+    return out
+
+  def _apply_backbone_round(current_T, starts, ridx):
+    # Compute current span and translate four blocks
+    lo, hi, delta = _span(current_T)
+    blocks = []
+    for b, s in enumerate(starts):
+      base = s * delta - lo
+      # Alternate internal order per block to suppress easy color reuse
+      src = current_T if ((ridx + b) % 2 == 0) else list(reversed(current_T))
+      blocks.append([(l + base, r + base) for (l, r) in src])
+
+    # Parity-based interleaving across rounds
+    if ridx % 2 == 0:
+      # Interleave for stronger mixing
+      S = []
+      m = max(len(bk) for bk in blocks)
+      for i in range(m):
+        for bk in blocks:
+          if i < len(bk):
+            S.append(bk[i])
+    else:
+      # Sequential on odd rounds; reverse block order for additional mixing
+      for bk in reversed(blocks):
+        for iv in bk:
+          S.append(iv)
+
+    # Connector families at the backbone scale
+    s0, s1, s2, s3 = starts
+    conns = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+      ((s0 + 4) * delta, (s3 + 4) * delta),  # cross4 (long)
+      ((s1 + 3) * delta, (s2 + 3) * delta),  # cross3 (mid)
+    ]
+    # Ensure all connectors are valid (r > l)
+    conns = [(a, b) for (a, b) in conns if b > a]
+    S = _insert_connectors_stream(S, conns)
+    return S
+
+  # Phase 1: Parity-mixed backbone weave, capacity-guarded
+  MAX_ROUNDS = 6
+  for ridx in range(MAX_ROUNDS):
+    # Predict size growth conservatively
+    if _predict_next_after_round(len(T), conn_overhead=12) > CAP:
+      break
+    starts = TEMPLATE_BANK[ridx % 4]
+    T = _apply_backbone_round(T, starts, ridx)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+
+  # Early exit if near capacity
+  if len(T) >= CAP - 16:
+    return T
+
+  # Micro toolset
+  def _thin_seed(seq, max_seed):
+    n = len(seq)
+    if n == 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    return seq[::step][:max_seed]
+
+  def _build_micro_windows(current_T, window_fracs, seed_cap, add_connectors=True, pin_mode=False):
+    # Build micro blocks by translating a thin seed into multiple windows
+    if not current_T:
+      return []
+    glo, ghi, G = _span(current_T)
+    # Seed control to keep omega tame
+    U = _thin_seed(current_T, seed_cap)
+    if not U:
+      return []
+    ulo = min(l for l, _ in U)
+
+    blocks = []
+    # Optional pin mode: shrink each seed member to a short "pin" around its midpoint
+    if pin_mode:
+      eps = max(1, G // 512)
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = []
+        for idx, (l, r) in enumerate(U):
+          mid = (l + r) // 2
+          L = mid + base - (eps // 2) + (idx % 3)
+          R = L + eps
+          if R > L:
+            block.append((L, R))
+        blocks.append(block)
+    else:
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        blocks.append(block)
+
+    # Interleave with reversed order depending on the window parity to diversify mixing
+    order = list(range(len(blocks)))
+    if len(order) >= 2:
+      order = [0, 2, 1, 3][:len(blocks)]  # a fixed diverse interleave order
+    micro = []
+    m = max(len(bk) for bk in blocks) if blocks else 0
+    for i in range(m):
+      for idx in order:
+        bk = blocks[idx]
+        if i < len(bk):
+          micro.append(bk[i])
+
+    # Fractional-span connectors at the micro scale
+    if add_connectors:
+      mc = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+      for a, b in mc:
+        if b > a:
+          micro.append((a, b))
+    return micro
+
+  # Phase 2A: First micro round (classic windows), capacity-guarded
+  room = CAP - len(T)
+  if room > 8:
+    window_set_A = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+    seed_cap_A = max(8, min(32, len(T) // 300))
+    microA = _build_micro_windows(T, window_set_A, seed_cap_A, add_connectors=True, pin_mode=False)
+    if microA:
+      if len(microA) > room:
+        microA = microA[:room]
+      T.extend(microA)
+
+  # Early exit if near capacity
+  if len(T) >= CAP - 16:
+    return T
+
+  # Phase 2B: Second guarded micro round (distinct windows, pin towers), capacity-guarded
+  room = CAP - len(T)
+  if room > 8:
+    window_set_B = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+    seed_cap_B = max(8, min(24, len(T) // 400))
+    microB = _build_micro_windows(T, window_set_B, seed_cap_B, add_connectors=True, pin_mode=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      # Insert Phase B micro mid-stream to enhance mixing rather than appending
+      mid = len(T) // 2
+      T = T[:mid] + microB + T[mid:]
+
+  # Final CAP trim
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

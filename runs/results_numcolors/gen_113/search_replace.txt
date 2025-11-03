@@ -1,0 +1,59 @@
+<NAME>
+ladder_microphase_and_block_reversal
+</NAME>
+
+<DESCRIPTION>
+I propose two tightly scoped changes that aim to increase FirstFit usage without inflating the clique number too much:
+
+1) Block-level reversal during the KT spine:
+   - When cloning the current gadget into the four translated blocks each round, reverse the internal order of T for alternating blocks (dependent on round index and block index).
+   - This preserves the geometric set of intervals but perturbs the arrival order deterministically, which typically increases FF pressure via cross-block color coupling while leaving omega unchanged.
+
+2) Replace the two overlapping long caps in the micro-phase with a 4-interval “ladder” chain:
+   - The old two caps overlapped heavily, raising omega in the densest region.
+   - The new ladder consists of four long intervals that overlap consecutively (I1∩I2, I2∩I3, I3∩I4) but avoid triple overlaps (I1∩I3=∅ and I2∩I4=∅).
+   - Each ladder interval overlaps many earlier colors (long spans), encouraging FF to allocate additional colors, while the micro set’s own clique contribution is bounded (≤2 extra due to at-most-pairwise overlaps). This follows known lower-bound heuristics: use staggered caps that form chains to push FF upward without creating large cliques.
+
+These edits retain the strong KT spine structure, keep total intervals unchanged at the spine, and only replace the final two caps with four well-designed ladder intervals to improve FF/omega balance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+=======
+    blocks = []
+    for bi, start in enumerate(starts):
+      # Alternate clone orientation across blocks and rounds to increase FF mixing
+      block_T = T if ((round_idx + bi) % 2 == 0) else list(reversed(T))
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in block_T])
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  # Micro-phase: add two long sparse caps to boost late FirstFit color usage
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  # cap across almost entire span but avoid increasing omega
+  cap1 = (lo + 0.1 * delta, lo + 0.9 * delta)
+  cap2 = (lo + 0.2 * delta, lo + 0.8 * delta)
+  T.append(cap1)
+  T.append(cap2)
+  return T
+=======
+  # Micro-phase: a 4-interval "ladder" chain to push FF colors while keeping micro-clique small.
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  # Ladder intervals chosen so that I1∩I3 = ∅ and I2∩I4 = ∅ (consecutive overlaps only).
+  ladder = [
+    (lo + 0.12 * delta, lo + 0.58 * delta),  # I1
+    (lo + 0.30 * delta, lo + 0.74 * delta),  # I2 (overlaps I1)
+    (lo + 0.56 * delta, lo + 0.90 * delta),  # I3 (overlaps I2)
+    (lo + 0.78 * delta, lo + 0.98 * delta),  # I4 (overlaps I3)
+  ]
+  T.extend(ladder)
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

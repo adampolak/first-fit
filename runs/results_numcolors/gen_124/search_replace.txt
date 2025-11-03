@@ -1,0 +1,85 @@
+<NAME>
+even_interleave_plus_delta_stacking
+</NAME>
+
+<DESCRIPTION>
+I propose three targeted changes aligning with recursive KT-style gadgets and cross-scale coupling to push FirstFit while keeping omega controlled:
+
+1) Alternate interleaving on even spine rounds: This raises FF pressure via cross-block mixing without inflating the clique number much. It mirrors effective patterns in prior strong variants and in KT-inspired constructions.
+
+2) Scale-aware micro-rounds: Set the micro scale based on round_id (G//2, then G//3, then G//4). This introduces a recursive stack of thinner waves that overlap many active colors but are sparse enough to avoid large new cliques. I also add a long-range cross4 connector at the micro scale to couple distant colors, a proven tactic in the literature for frustrating FF reuse.
+
+3) Add a third micro-round at the smallest scale: A final thin wave improves color coupling across layers with minimal omega impact, leveraging the “tower and cap” idea.
+
+These changes are minimal, deterministic, respect CAP, and build directly on the current scaffold. They should increase the combined score by nudging FF upward more than omega via structured interleaving and multi-scale connectors.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Keep sequential order every round (disabling interleaving lowers omega)
+    T = apply_round(T, spine_starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Alternate interleaving on even rounds to increase FF pressure without large omega spikes
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0))
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    # Use delta2 at half-scale to avoid expanding the global span too aggressively.
+    delta2 = max(1, G // 2)
+=======
+    # Use a round-dependent reduced scale to avoid expanding span while adding coupling.
+    # round_id: 0 -> G//2, 1 -> G//3, >=2 -> G//4
+    div = 2 if round_id == 0 else (3 if round_id == 1 else 4)
+    delta2 = max(1, G // div)
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+=======
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+      ((s0 + 4) * delta2 + glo, (s3 + 4) * delta2 + glo),  # cross4 (additional long-range coupler)
+    ]
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  return T
+=======
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Optional third micro round at an even smaller scale to add gentle late pressure
+  remaining = CAP - len(T)
+  mr3 = micro_round(T, round_id=2, budget=max(0, remaining))
+  if mr3:
+    room = CAP - len(T)
+    if len(mr3) > room:
+      mr3 = mr3[:room]
+    T.extend(mr3)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,277 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1):
+  """
+  KT-like spine with CAP-aware density multiplier, deterministic round decisions,
+  parity interleaving, conservative cross-scale connectors, and two micro-phases.
+
+  Input:
+    seed_count (int): retained for compatibility (not extensively used here).
+  Output:
+    list of (l, r) tuples (open intervals) in the order presented to FirstFit.
+  """
+
+  # Hard capacity guard
+  CAP = 9800
+
+  # Templates (four strong starts)
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+
+  # Single deterministic base seed (used to derive per-round flags reproducibly)
+  BASE_SEED = 0x9e3779b1
+
+  # Small deterministic integer hash to derive per-round flags (no randomness)
+  def det_hash(x):
+    # mix bits (simple integer mixing)
+    x = (x ^ (x >> 16)) * 0x45d9f3b
+    x = (x ^ (x >> 16)) * 0x45d9f3b
+    x = x ^ (x >> 16)
+    return x & 0xFFFFFFFF
+
+  # Starting seed intervals (single short unit interval ensures controlled omega)
+  T = [(0, 1)] if seed_count <= 1 else [(i * 3, i * 3 + 1) for i in range(min(seed_count, 10))]
+
+  # Helper: compute span info
+  def span_info(seq):
+    lo = min(l for l, r in seq)
+    hi = max(r for l, r in seq)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    return lo, hi, delta
+
+  # Append classic four connectors for a given starts and delta (conservative)
+  def append_classic_connectors(S, starts, delta):
+    s0, s1, s2, s3 = starts
+    # left cap, right cap, two crosses
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))
+
+  # Conservative long connector generator (only append when room permits)
+  def long_cross_connector(starts, delta):
+    s0, _, _, s3 = starts
+    return ((s0 + 4) * delta, (s3 + 4) * delta)
+
+  # Apply one spine round with deterministic choices
+  def apply_spine_round(current_T, starts, round_index, K=1.0):
+    lo, hi, delta = span_info(current_T)
+
+    # Build base translated blocks from the current seed
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for l, r in current_T]
+      blocks.append(block)
+
+    # CAP-aware density multiplier K: duplicate blocks up to floor(K) times,
+    # and possibly one fractional extra translated copy if capacity allows.
+    # We don't change span geometry (all duplicates are identical copies positioned together),
+    # but their ordering is interleaved to increase FF pressure.
+    dup = int(max(1, K))
+    fractional = K - dup
+    # replicate each block `dup` times; fractional ignored for guarantee simplicity
+    expanded_blocks = []
+    for b in blocks:
+      for _ in range(dup):
+        expanded_blocks.append(list(b))
+
+    # Determine interleaving/reversal flags deterministically from BASE_SEED and round_index
+    code = det_hash(BASE_SEED + round_index)
+    do_interleave = ((code >> 0) & 1) == 1  # toggled per round
+    reverse_order = ((code >> 1) & 1) == 1
+    # also flip by parity to ensure consistent behavior across experiments
+    if (round_index % 2) == 0:
+      do_interleave = not do_interleave
+    else:
+      reverse_order = not reverse_order
+
+    # Build S using interleaving or sequential concatenation
+    S = []
+    if do_interleave:
+      maxlen = max(len(b) for b in expanded_blocks) if expanded_blocks else 0
+      order = list(range(len(expanded_blocks)))
+      if reverse_order:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          blk = expanded_blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      blks = list(reversed(expanded_blocks)) if reverse_order else expanded_blocks
+      for blk in blks:
+        S.extend(blk)
+
+    # Append classic connectors for this scale if capacity allows
+    append_classic_connectors(S, starts, delta)
+
+    return S
+
+  # Conservative policy: try to run up to 6 spine rounds but stop early if CAP would exceed
+  MAX_ROUNDS = 6
+  # Use a modest spine density multiplier slightly >1 to increase block repetition
+  # but ensure we don't blow CAP quickly. Will be enforced by size checks below.
+  SPINE_K = 1.25
+
+  for ridx in range(MAX_ROUNDS):
+    # Predict size growth roughly: each round approximately multiplies size by 4 * dup + connectors
+    dup = int(max(1, int(SPINE_K)))
+    predicted = len(T) * (4 * dup) + 4
+    if predicted > CAP:
+      break
+    starts = TEMPLATE_BANK[ridx % len(TEMPLATE_BANK)]
+    # Apply one spine round with deterministic flags and K
+    S = apply_spine_round(T, starts, ridx, K=SPINE_K)
+    # Capacity guard: ensure adding S won't immediately overflow; if it would, truncate S conservatively
+    room = CAP - len(T)
+    if len(S) > room:
+      S = S[:room]
+    T = S
+    # If we've reached near capacity, stop early
+    if len(T) >= CAP - 64:
+      break
+
+  # If near capacity return the spine result trimmed
+  if len(T) >= CAP - 128:
+    if len(T) > CAP:
+      T = T[:CAP]
+    return T
+
+  # --- Micro-phase A: three long-range caps appended near tail to interact with many colors ---
+  lo, hi, delta = span_info(T)
+  span = max(1, hi - lo)
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * span)))
+    R = lo + max(1, int(round(b_frac * span)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  # Insert caps near the end (so they overlap many previously assigned colors)
+  for i, c in enumerate(caps):
+    if len(T) >= CAP:
+      break
+    # place caps interleaved toward the tail: insert between the last few items to maximize overlap
+    insert_pos = max(0, len(T) - (2 * i + 1))
+    T.insert(insert_pos, c)
+
+  # Early capacity check
+  if len(T) >= CAP - 64:
+    if len(T) > CAP:
+      T = T[:CAP]
+    return T
+
+  # --- Micro-phase B: thin delta2 micro-round(s) using evenly spaced seed U ---
+  def build_delta_micro(current_T, budget, window_fracs, interleave_reverse=False, seed_offset=0, include_long=False):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin evenly spaced seed U (deterministic stride)
+    seed_sz = max(8, min(36, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    start_idx = seed_offset % stride
+    U = [current_T[i] for i in range(start_idx, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for l, r in U]
+      blocks.append(block)
+
+    # Interleave blocks (optionally reversed order for mixing)
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if interleave_reverse:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Add fractional-span connectors at micro scale (couple colors without inflating omega)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Optional long cross at micro scale (conservative)
+    if include_long:
+      a = glo + int(round(0.18 * G))
+      b = glo + int(round(0.84 * G))
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Primary micro-phase windows
+  windows_primary = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+  room = CAP - len(T)
+  if room > 8:
+    micro1 = build_delta_micro(T, room, windows_primary, interleave_reverse=False, seed_offset=1, include_long=False)
+    if micro1:
+      if len(micro1) > room:
+        micro1 = micro1[:room]
+      T.extend(micro1)
+
+  # Secondary micro-phase with alternate windows and reverse interleaving
+  windows_alt = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+  room = CAP - len(T)
+  if room > 8:
+    micro2 = build_delta_micro(T, room, windows_alt, interleave_reverse=True, seed_offset=3, include_long=True)
+    if micro2:
+      if len(micro2) > room:
+        micro2 = micro2[:room]
+      T.extend(micro2)
+
+  # Cross-scale conservative connector: append one long cross for the last executed template scale if room permits
+  room = CAP - len(T)
+  if room > 0:
+    try:
+      # approximate last starts used by the last spine round; fallback to classic
+      last_round_index = max(0, min(MAX_ROUNDS - 1, len(T) % MAX_ROUNDS))
+      last_starts = TEMPLATE_BANK[last_round_index % len(TEMPLATE_BANK)]
+    except Exception:
+      last_starts = TEMPLATE_BANK[0]
+    lo, hi, delta = span_info(T)
+    connector = long_cross_connector(last_starts, delta)
+    if connector[1] > connector[0] and len(T) < CAP:
+      T.append(connector)
+
+  # Final trim (just in case)
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

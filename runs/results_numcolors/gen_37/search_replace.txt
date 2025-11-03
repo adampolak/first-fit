@@ -1,0 +1,44 @@
+<NAME>
+add_micro_connectors
+</NAME>
+
+<DESCRIPTION>
+Introduce two extra “micro” connector intervals during each main expansion round to create additional overlapping waves without raising the global clique number. These small-scale caps near the current min and max force FirstFit to open new colors more aggressively at each scale, boosting FF pressure while only adding 2 intervals per round (12 total).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Append connectors in a color-chaining order
+    for (a, b) in connectors:
+      S.append((a, b))
+
+    T = S
+=======
+    # Append connectors in a color-chaining order
+    for (a, b) in connectors:
+      S.append((a, b))
+
+    # Extra micro connectors to intensify FirstFit pressure at this scale
+    d2 = max(1, delta // 4)
+    # local caps near current min and max to overlap multiple clones
+    S.append((lo + d2, lo + 4 * d2))
+    S.append((hi - 4 * d2, hi - d2))
+
+    T = S
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+enable_phase2_by_default
+</NAME>
+
+<DESCRIPTION>
+Activate the small-scale “phase-2” gadget by default (setting phase2_iters=2) to sprinkle extra long-range connectors once the main rounds finish. This adds a handful of well-placed intervals at a lower scale, further disrupting color reuse without pushing the overall count beyond the limit.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+-def construct_intervals(rounds=6, rotate_starts=True, reverse_block_parity=True, phase2_iters=0):
++def construct_intervals(rounds=6, rotate_starts=True, reverse_block_parity=True, phase2_iters=2):
+>>>>>>> REPLACE
+</DIFF>

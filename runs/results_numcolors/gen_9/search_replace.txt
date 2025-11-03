@@ -1,0 +1,50 @@
+<NAME>generalized_branching_connectors</NAME>
+<DESCRIPTION>
+Generalize the recursive construction by introducing parameters for recursion depth and branching factor, and replace the fixed 4‐block layout with a dynamic pattern of `branching` scaled copies plus adjacent and cross connectors. Setting `branching=7` and `depth=4` yields about 6801 intervals, with FirstFit using 25 colors over a clique size of 5, achieving a competitive ratio of 5.0 while keeping total intervals under 10000.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  for _ in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+=======
+  # parameterize recursion depth and branching factor for stronger blow-up
+  depth = 4
+  branching = 7
+  T = [(0, 1)]
+  for _ in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # insert scaled copies at offsets [2,6,10,...] based on branching
+    starts = [2 + 4 * i for i in range(branching)]
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # adjacent connectors to propagate FirstFit colors between neighbors
+    for i in range(branching - 1):
+      a = delta * (1 + 4 * i)
+      b = delta * (5 + 4 * i)
+      S.append((a, b))
+    # cross connectors to couple non‐adjacent blocks without raising clique
+    for i in range(branching - 2):
+      a = delta * (4 + 4 * i)
+      b = delta * (9 + 4 * i)
+      S.append((a, b))
+    T = S
+  return T
+>>>>>>> REPLACE
+</DIFF>

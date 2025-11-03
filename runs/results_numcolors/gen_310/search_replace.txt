@@ -1,0 +1,82 @@
+<NAME>
+enforce_deterministic_interleave_with_per_round_seed
+</NAME>
+
+<DESCRIPTION>
+Two small, targeted edits:
+
+1) Add a centralized per-round seed helper (_per_round_seed) and an ENFORCE_INTERLEAVE flag immediately after CAP/BASE_SEED. This lets per-round decisions be reproducible and provides a single place to toggle enforced interleaving.
+
+2) Replace the Stage-1 KT round loop to (a) always interleave blocks (do_interleave=True) for stronger cross-scale mixing and (b) derive reverse_order deterministically from the per-round seed. This preserves capacity checks and deterministic round_seed usage for _apply_round while increasing mixing pressure on FirstFit.
+
+Both edits are localized and capacity-aware; they should improve FF pressure without increasing omega significantly.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    CAP = 9800
+    BASE_SEED = 7  # small deterministic seed used to derive per-round mixing flags
+
+    # Deterministic rotate templates
+    template_bank = [
+        (2, 6, 10, 14),  # classic KT
+        (1, 5, 9, 13),   # left-shifted
+        (3, 7, 11, 15),  # right-shifted
+        (4, 8, 12, 16),  # stretched-right
+    ]
+=======
+    CAP = 9800
+    BASE_SEED = 7  # small deterministic seed used to derive per-round mixing flags
+
+    # Centralized per-round seed derivation (keeps decisions reproducible)
+    def _per_round_seed(base, ridx):
+        # small LCG-like mix to produce a stable 16-bit round value
+        return (base * 1664525 + ridx * 1013904223) & 0xFFFF
+
+    # Option to force interleaving on every KT round (empirically helpful)
+    ENFORCE_INTERLEAVE = True
+
+    # Deterministic rotate templates
+    template_bank = [
+        (2, 6, 10, 14),  # classic KT
+        (1, 5, 9, 13),   # left-shifted
+        (3, 7, 11, 15),  # right-shifted
+        (4, 8, 12, 16),  # stretched-right
+    ]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Stage 1: six KT-style rounds with deterministic per-round interleaving derived from BASE_SEED
+    for ridx in range(6):
+        starts = template_bank[ridx % len(template_bank)]
+        nxt_size = 4 * len(T) + 4
+        if nxt_size > CAP:
+            break
+        # derive deterministic per-round flags from BASE_SEED and round index
+        round_val = (BASE_SEED * 31 + ridx * 17) & 0xFFFF
+        do_interleave = (round_val % 2 == 0)  # deterministic, but not simply parity of ridx
+        reverse_order = ((round_val // 2) % 2 == 1)
+        # supply round_seed to _apply_round to rotate interleaving order deterministically
+        T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order, round_seed=round_val)
+        if len(T) >= CAP:
+            return T[:CAP]
+=======
+    # Stage 1: six KT-style rounds with deterministic per-round mixing
+    for ridx in range(6):
+        starts = template_bank[ridx % len(template_bank)]
+        nxt_size = 4 * len(T) + 4
+        if nxt_size > CAP:
+            break
+        # derive deterministic per-round seed and use it for all per-round choices
+        round_val = _per_round_seed(BASE_SEED, ridx)
+        # enforce interleaving on every KT round for stronger cross-scale mixing
+        do_interleave = True if ENFORCE_INTERLEAVE else ((round_val % 2) == 0)
+        # use a bit derived from round_val to deterministically flip block order occasionally
+        reverse_order = ((round_val >> 3) & 1) == 1
+        # supply round_seed to _apply_round to rotate interleaving order deterministically
+        T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order, round_seed=round_val)
+        if len(T) >= CAP:
+            return T[:CAP]
+>>>>>>> REPLACE
+
+</DIFF>

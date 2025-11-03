@@ -1,0 +1,153 @@
+<NAME>
+six_template_spine_two_pass_budget_connectors
+</NAME>
+
+<DESCRIPTION>
+I introduce three targeted changes to boost FirstFit while keeping the clique number at or below 10, inspired by spine-based KT constructions and multi-pass micro-phases:
+
+1) Six-template spine rotation: Expand the start template bank from 4 to 6 patterns and fix a deterministic rotation order (0,2,4,1,3,5). This couples colors across scales more aggressively without increasing omega, aligning with proven KT-style backbones.
+
+2) Two-pass, CAP-aware micro-phase budgeting: Instead of letting the first micro-phase consume the entire remaining budget (leaving nothing for the alternate phase), split the capacity deterministically into two portions (55% and 45%). This ensures both distinct window families are realized, increasing FF pressure through structured, non-overlapping fractional windows.
+
+3) Deterministic long-range connectors appended after the spine: Add a small, gated pack of 4 long-range connectors before micro-phases. These couple distant color classes with minimal omega risk and have been effective in prior top-performing constructions.
+
+Additionally, I refine the alternate micro-phase window family to use non-overlapping windows relative to the primary family, reducing mutual interference while maintaining low omega. All changes are capacity-safe and deterministic; they preserve the code’s structure and run within the given CAP.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  template_bank = [
+    (2, 6, 10, 14),  # T1: classic KT
+    (1, 5, 9, 13),   # T2: left-shifted
+    (3, 7, 11, 15),  # T3: right-shifted
+    (4, 8, 12, 16),  # T4: stretched-right
+    (2, 4, 8, 12),   # T5: compressed-left pair
+    (3, 5, 9, 13),   # T6: gentle left pack
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  # Deterministic six-template rotation order to strengthen cross-scale coupling
+  spine_order = (0, 2, 4, 1, 3, 5)
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[spine_order[ridx]]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+=======
+  # Deterministic long-range connectors appended after the spine
+  # These are sparse and gated to avoid omega blow-up while increasing FF coupling.
+  if len(T) <= CAP - 6:
+    lo, hi, _ = _span(T)
+    span = max(1, hi - lo)
+    connector_pack = [
+      (lo + int(round(0.06 * span)), lo + int(round(0.34 * span))),
+      (lo + int(round(0.20 * span)), lo + int(round(0.62 * span))),
+      (lo + int(round(0.38 * span)), lo + int(round(0.86 * span))),
+      (lo + int(round(0.12 * span)), lo + int(round(0.94 * span))),
+    ]
+    for c in connector_pack:
+      if c[1] > c[0]:
+        if len(T) >= CAP:
+          break
+        T.append(c)
+
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    if not alt:
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+    else:
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+=======
+    if not alt:
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+    else:
+      # Alternate windows chosen to be non-overlapping with primary windows
+      window_fracs = [(0.18, 0.28), (0.48, 0.58), (0.70, 0.80), (0.88, 0.96)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase B: one safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room, alt=False)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Micro-phase C: alternate window family + long cross (guarded, optional)
+  room = CAP - len(T)
+  if enable_alt_microphase and room > 8:
+    micro_alt = build_micro_delta_round(T, room, alt=True)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+=======
+  # Two-pass, CAP-aware micro-phase budgeting anchored to the current span
+  room = CAP - len(T)
+  if room > 8:
+    budget1 = int(0.55 * room)
+    budget1 = max(8, min(budget1, room))
+    budget2 = room - budget1
+
+    # Pass 1: primary windows
+    micro1 = build_micro_delta_round(T, budget1, alt=False)
+    if micro1:
+      if len(micro1) > budget1:
+        micro1 = micro1[:budget1]
+      T.extend(micro1)
+
+    # Pass 2: alternate windows with long cross
+    room2 = CAP - len(T)
+    if enable_alt_microphase and room2 > 8 and budget2 > 0:
+      budget2 = min(budget2, room2)
+      micro2 = build_micro_delta_round(T, budget2, alt=True)
+      if micro2:
+        if len(micro2) > budget2:
+          micro2 = micro2[:budget2]
+        T.extend(micro2)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "name 'LONG_CONNECTOR_ENABLED' is not defined"
+}

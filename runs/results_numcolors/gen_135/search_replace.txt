@@ -1,0 +1,70 @@
+<NAME>
+diversified_spine_and_micro_enhancement
+</NAME>
+
+<DESCRIPTION>
+Enable two micro‐rounds, rotate among multiple KT‐spine templates each round, and add cross3/cross4 connectors in the micro‐round to boost FirstFit pressure without increasing ω.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+=======
+  # Respect requested phase2_iters but guard to at most two micro-rounds.
+  steps = min(max(0, int(phase2_iters)), 2)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd rounds keep sequential order
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0))
+=======
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd keep sequential; optionally rotate starts
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    T = apply_round(T, starts, do_interleave=(ridx % 2 == 0))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    micro.extend(connectors)
+=======
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+      (glo + int(round(0.14 * G)), glo + int(round(0.70 * G))),  # cross 3
+      (glo + int(round(0.38 * G)), glo + int(round(0.88 * G))),  # cross 4
+    ]
+    micro.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>

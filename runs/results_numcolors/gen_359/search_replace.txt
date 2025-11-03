@@ -1,0 +1,28 @@
+<NAME>
+add_final_fractional_connectors</NAME>
+
+<DESCRIPTION>
+Introduces a lightweight micro-phase E before the final capacity trim: three fractional connectors at quarter, mid, and three-quarter positions of the current span. These final connectors subtly tie together distant colors, boosting FirstFit pressure without significantly increasing omega. They are added only if there is remaining capacity, preserving the CAP guard.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Final capacity trim
+  if len(T) > CAP: T = T[:CAP]
+=======
+  # Micro-phase E: final fractional connectors to tie quarter points
+  room = CAP - len(T)
+  if room > 0:
+    glo_, hi_, delta_ = _span(T)
+    connectors_q = [
+      (glo_ + delta_ // 4, hi_ - delta_ // 4),
+      (glo_ + delta_ // 2 - delta_ // 8, glo_ + delta_ // 2 + delta_ // 8),
+      (glo_ + 3 * delta_ // 4 - 1, hi_ - 1),
+    ]
+    for c in connectors_q:
+      if len(T) < CAP:
+        T.append(c)
+  # Final capacity trim
+  if len(T) > CAP: T = T[:CAP]
+>>>>>>> REPLACE
+</DIFF>

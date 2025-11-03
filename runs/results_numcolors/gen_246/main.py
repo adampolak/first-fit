@@ -1,0 +1,178 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2):
+    """
+    Hybrid KT-spine with alternating interleaving/reversal,
+    followed by two micro-phase rounds: windowed and delta-driven.
+    """
+    CAP = 9800
+    # Four-start templates
+    template_bank = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+    ]
+    # Seed
+    T = [(0, 1)]
+    # Helpers
+    def _span(seq):
+        lo = min(l for l, _ in seq)
+        hi = max(r for _, r in seq)
+        d = hi - lo
+        return lo, hi, d if d > 0 else 1
+
+    def _apply_round(cur, starts, do_inter, rev):
+        lo, hi, delta = _span(cur)
+        # build blocks
+        blocks = []
+        for s in starts:
+            base = s * delta - lo
+            blk = [(l + base, r + base) for (l, r) in cur]
+            blocks.append(blk)
+        # assemble
+        S = []
+        if do_inter:
+            order = list(range(4))
+            if rev:
+                order.reverse()
+            maxlen = max(len(b) for b in blocks)
+            for i in range(maxlen):
+                for idx in order:
+                    b = blocks[idx]
+                    if i < len(b):
+                        S.append(b[i])
+        else:
+            seq = list(reversed(blocks)) if rev else blocks
+            for b in seq:
+                S.extend(b)
+        # classic connectors
+        s0, s1, s2, s3 = starts
+        S.extend([
+            ((s0 - 1) * delta, (s1 - 1) * delta),
+            ((s2 + 2) * delta, (s3 + 2) * delta),
+            ((s0 + 2) * delta, (s2 - 1) * delta),
+            ((s1 + 2) * delta, (s3 - 1) * delta),
+        ])
+        return S
+
+    # Stage 1: KT backbone
+    for ridx in range(rounds):
+        if 4 * len(T) + 4 > CAP:
+            break
+        starts = (template_bank[ridx % len(template_bank)]
+                  if rotate_starts else template_bank[0])
+        do_int = interleave_blocks and (ridx % 2 == 0)
+        rev = reverse_block_parity and (ridx % 2 == 1)
+        T = _apply_round(T, starts, do_int, rev)
+    if len(T) >= CAP - 16:
+        return T
+
+    # Shared thin‐seed helper
+    def thin_seed(cur, max_sz):
+        n = len(cur)
+        if n == 0 or max_sz < 1:
+            return []
+        step = max(1, n // max_sz)
+        return [cur[i] for i in range(0, n, step)][:max_sz]
+
+    # Micro-phase A: fractional-window wave
+    def build_micro_windows(cur, budget, iter_id):
+        lo, hi, _ = _span(cur)
+        G = hi - lo if hi > lo else 1
+        shift = (iter_id % 3) * 0.02
+        base_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+        fracs = [(min(0.9, a + shift), min(0.95, b + shift)) for a, b in base_fracs]
+        seed = max(8, min(40, len(cur) // 200))
+        U = thin_seed(cur, seed)
+        if not U:
+            return []
+        ulo = min(l for l, _ in U)
+        blocks = []
+        for i, (fa, fb) in enumerate(fracs):
+            win_lo = lo + int(round(fa * G))
+            base = win_lo - ulo
+            blk = [(l + base, r + base) for (l, r) in U]
+            if (i + iter_id) % 2:
+                blk.reverse()
+            blocks.append(blk)
+        order = list(range(4))
+        if iter_id % 2:
+            order.reverse()
+        micro = []
+        maxlen = max(len(b) for b in blocks)
+        for i in range(maxlen):
+            for idx in order:
+                b = blocks[idx]
+                if i < len(b):
+                    micro.append(b[i])
+        # connectors
+        con = [
+            (lo + int(0.08 * G), lo + int(0.30 * G)),
+            (lo + int(0.60 * G), lo + int(0.92 * G)),
+            (lo + int(0.26 * G), lo + int(0.56 * G)),
+            (lo + int(0.44 * G), lo + int(0.78 * G)),
+        ]
+        for a, b in con:
+            if b > a:
+                micro.append((a, b))
+        return micro[:budget]
+
+    # Micro-phase B: thin delta-driven
+    def build_micro_delta(cur, budget, iter_id):
+        lo, hi, _ = _span(cur)
+        G = hi - lo if hi > lo else 1
+        d2 = max(1, G // 2)
+        seed = max(8, min((budget // 6), len(cur) // 200))
+        U = thin_seed(cur, seed)
+        if not U:
+            return []
+        ulo = min(l for l, _ in U)
+        blocks = []
+        for j, s in enumerate((2, 6, 10, 14)):
+            base = s * d2 - ulo
+            blk = [(l + base, r + base) for (l, r) in U]
+            if (j + iter_id) % 2:
+                blk.reverse()
+            blocks.append(blk)
+        micro = []
+        maxlen = max(len(b) for b in blocks)
+        for i in range(maxlen):
+            for b in blocks:
+                if i < len(b):
+                    micro.append(b[i])
+        con = []
+        for s0, s1 in ((2, 6), (10, 14)):
+            # two caps per half
+            con.append(((s0 - 1) * d2 + lo, (s1 - 1) * d2 + lo))
+            con.append(((s0 + 2) * d2 + lo, (s1 + 2) * d2 + lo))
+        micro.extend(con)
+        return micro[:budget]
+
+    # Apply up to two micro‐phases
+    for iter_id in range(min(phase2_iters, 2)):
+        room = CAP - len(T)
+        if room <= 8:
+            break
+        if iter_id == 0:
+            wave = build_micro_windows(T, room, iter_id)
+        else:
+            wave = build_micro_delta(T, room, iter_id)
+        if not wave:
+            break
+        T.extend(wave[:CAP - len(T)])
+
+    # Final trim
+    if len(T) > CAP:
+        T = T[:CAP]
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

@@ -1,0 +1,143 @@
+<NAME>
+cap_aware_two_pass_and_ladder
+</NAME>
+
+<DESCRIPTION>
+I introduce a CAP-aware two-pass micro-phase budgeting and replace the heavy pin flood with a sparse ladder of disjoint long-range connectors. The goals are:
+- Reserve capacity explicitly for an alternate micro-phase to diversify windows and arrival order, increasing FirstFit pressure without inflating omega.
+- Replace the dense pin phase with 6 disjoint ladder connectors placed in off-center windows to avoid the spine’s peak clique region, thus coupling many active colors without increasing the maximum clique.
+- Augment the final connectors with two short edge-biased segments to improve late-stage color forcing while staying disjoint enough to keep omega near 10.
+
+These changes align with heuristics: keep a low-omega spine and inject waves of intervals that mutually avoid forming larger cliques, engineer arrival order, and append a small number of deterministic long-range connectors. The two-pass budgeting ensures the alt-phase gets meaningful room (instead of being starved), and the disjoint ladder connectors provide a late-stage bump in FF colors without raising omega beyond the target. Overall, this should improve the combined score by lifting the FF count while keeping omega bounded, and fits within CAP discipline.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase B: one safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room, alt=False)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+=======
+  # Micro-phase B: CAP-aware first micro-round; reserve budget for later phases
+  room = CAP - len(T)
+  if room > 8:
+    budgetB = max(16, int(room * 0.55))
+    micro = build_micro_delta_round(T, budgetB, alt=False)
+    if micro:
+      if len(micro) > budgetB:
+        micro = micro[:budgetB]
+      T.extend(micro)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase C: alternate window family + long cross (guarded, optional)
+  room = CAP - len(T)
+  if enable_alt_microphase and room > 8:
+    micro_alt = build_micro_delta_round(T, min(128, room), alt=True)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+=======
+  # Micro-phase C: alternate window family + long cross (guarded, with explicit budget)
+  room = CAP - len(T)
+  if enable_alt_microphase and room > 8:
+    budgetC = max(24, min(room - 8, int(room * 0.35), 512))
+    micro_alt = build_micro_delta_round(T, budgetC, alt=True)
+    if micro_alt:
+      if len(micro_alt) > budgetC:
+        micro_alt = micro_alt[:budgetC]
+      T.extend(micro_alt)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase D: tower pins (short, staggered intervals) to increase FF pressure
+  # without inflating omega; placed in four interior windows and spaced to be disjoint.
+  room = CAP - len(T)
+  if room > 8:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+    eps = max(1, G // 4096)
+    windows = [0.14, 0.31, 0.66, 0.83]
+    max_per_win = max(4, min(64, room // max(1, len(windows))))
+    stride = max(2 * eps + 3, 3)
+    pins = []
+    for wi, w in enumerate(windows):
+      base = glo + int(round(w * G))
+      start = base - (max_per_win // 2) * stride + (wi % 3)
+      for j in range(max_per_win):
+        L = start + j * stride
+        R = L + eps
+        if R > L:
+          pins.append((L, R))
+    if pins:
+      if len(pins) > room:
+        pins = pins[:room]
+      T.extend(pins)
+=======
+  # Micro-phase D: sparse ladder of disjoint long-range connectors (off-center windows)
+  # to couple many active colors without stacking at the spine's peak clique region.
+  room = CAP - len(T)
+  if room > 6:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+    # Six disjoint windows away from the central peak to avoid omega spikes
+    win_fracs = [(0.10, 0.18), (0.28, 0.36), (0.46, 0.52),
+                 (0.62, 0.68), (0.76, 0.82), (0.88, 0.94)]
+    ladder = []
+    for (fa, fb) in win_fracs:
+      a = glo + int(round(fa * G))
+      b = glo + int(round(fb * G))
+      if b > a:
+        ladder.append((a, b))
+    if ladder:
+      ladder = ladder[:min(len(ladder), room)]
+      T.extend(ladder)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase E: final fractional connectors to tie quarter points
+  room = CAP - len(T)
+  if room > 0:
+    glo_, hi_, delta_ = _span(T)
+    connectors_q = [
+      (glo_ + delta_ // 4, hi_ - delta_ // 4),
+      (glo_ + delta_ // 2 - delta_ // 8, glo_ + delta_ // 2 + delta_ // 8),
+      (glo_ + 3 * delta_ // 4 - 1, hi_ - 1),
+    ]
+    for c in connectors_q:
+      if len(T) < CAP:
+        T.append(c)
+=======
+  # Micro-phase E: final fractional connectors; add two short edge-biased segments
+  room = CAP - len(T)
+  if room > 0:
+    glo_, hi_, delta_ = _span(T)
+    connectors_q = [
+      (glo_ + delta_ // 4, hi_ - delta_ // 4),
+      (glo_ + delta_ // 2 - delta_ // 8, glo_ + delta_ // 2 + delta_ // 8),
+      (glo_ + 3 * delta_ // 4 - 1, hi_ - 1),
+      (glo_ + delta_ // 12, glo_ + delta_ // 5),
+      (glo_ + 9 * delta_ // 10, glo_ + 11 * delta_ // 12),
+    ]
+    for c in connectors_q:
+      if len(T) < CAP:
+        T.append(c)
+>>>>>>> REPLACE
+
+</DIFF>

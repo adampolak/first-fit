@@ -1,0 +1,221 @@
+<NAME>
+parity_interleave_plus_dual_micro
+</NAME>
+
+<DESCRIPTION>
+I introduce two coordinated modifications that have empirically raised FirstFit in KT-style backbones while keeping omega controlled:
+
+1) Strengthen the spine’s arrival-order engineering with parity-based interleaving on all rounds and internal block reversals. On odd rounds, we now interleave but reverse block order and flip inner order of alternating blocks, coupling colors across blocks more aggressively without changing the underlying intersection structure. Additionally, in the final two rounds, add two sparse “cross4” connectors that bridge distant towers to amplify late-stage mixing; these are integer-aligned to avoid span drift and kept to just two to avoid inflating omega.
+
+2) Upgrade the micro-phase: increase seed density slightly to better sample active colors, and add a second micro-phase with distinct windows and reversed interleaving. Both micro phases remain strictly capacity-guarded, use fractional-span connectors, and are sized modestly to avoid increasing the clique number.
+
+These changes are targeted, deterministic, and preserve capacity constraints while aiming to push FF higher via improved color coupling and arrival scheduling.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Six KT-style rounds with deterministic parity interleaving
+  for round_idx in range(6):
+    starts = template_bank[round_idx % 4]
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+    # build translated blocks
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+    S = []
+    # interleave blocks on even rounds, sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+=======
+  # Six KT-style rounds with enhanced parity interleaving and sparse late cross4 connectors
+  for round_idx in range(6):
+    starts = template_bank[round_idx % 4]
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+    # build translated blocks with parity-based internal reversals to disrupt FF reuse
+    blocks = []
+    for idx, start in enumerate(starts):
+      base = delta * start - lo
+      src = T[::-1] if ((round_idx + idx) % 2 == 1) else T
+      blocks.append([(base + l, base + r) for l, r in src])
+    S = []
+    # Interleave on all rounds; odd rounds use reversed block order to increase mixing
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if round_idx % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for j in order:
+        blk = blocks[j]
+        if i < len(blk):
+          S.append(blk[i])
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    # Sparse late cross4 connectors to couple distant towers (last two rounds only)
+    if round_idx >= 4:
+      connectors.extend([
+        (delta * (s0 + 1), delta * (s3 - 1)),
+        (delta * (s1 - 1), delta * (s2 + 1)),
+      ])
+    for a, b in connectors:
+      if b > a:
+        S.append((a, b))
+    T = S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase B: a thin delta2 micro-round (capacity-guarded) to increase FF colors without raising omega much
+  if len(T) < CAP - 16:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = ghi - glo if ghi > glo else 1
+
+    # Thin seed of current T (small and evenly spaced)
+    seed_sz = max(8, min(32, len(T) // 300))
+    stride = max(1, len(T) // max(1, seed_sz))
+    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+
+    if U:
+      ulo = min(l for l, r in U)
+
+      # Four windows across the global span (stay inside to avoid omega spikes)
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_blocks = []
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        micro_blocks.append(block)
+
+      # Interleave the micro-blocks
+      micro = []
+      maxlen = max(len(b) for b in micro_blocks)
+      for i in range(maxlen):
+        for blk in micro_blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+
+      # Fractional-span connectors at the delta2 scale
+      micro_connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+      for a, b in micro_connectors:
+        if b > a:
+          micro.append((a, b))
+
+      # Capacity guard
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+=======
+  # Micro-phase B and C: two thin delta2 rounds with distinct windows and interleaving, capacity-guarded
+  if len(T) < CAP - 16:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = ghi - glo if ghi > glo else 1
+
+    def build_micro(U, window_fracs, reverse_blocks=False, reverse_order=False):
+      if not U:
+        return []
+      ulo = min(l for l, r in U)
+      # Build blocks anchored at windows
+      blocks = []
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        blk = [(l + base, r + base) for (l, r) in U]
+        if reverse_blocks:
+          blk = list(reversed(blk))
+        blocks.append(blk)
+      # Interleave blocks
+      micro = []
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      if reverse_order:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          b = blocks[idx]
+          if i < len(b):
+            micro.append(b[i])
+      # Fractional-span connectors at global scale
+      connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+      for a, b in connectors:
+        if b > a:
+          micro.append((a, b))
+      return micro
+
+    # Slightly denser thin seed to increase active-color sampling
+    seed_sz = max(12, min(40, len(T) // 280))
+    stride = max(1, len(T) // max(1, seed_sz))
+    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+
+    # Micro-phase B: original windows, forward order
+    micro_B = []
+    if U:
+      window_fracs_B = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_B = build_micro(U, window_fracs_B, reverse_blocks=False, reverse_order=False)
+
+    # Apply micro B under capacity
+    room = CAP - len(T)
+    if room > 0 and micro_B:
+      if len(micro_B) > room:
+        micro_B = micro_B[:room]
+      T.extend(micro_B)
+
+    # Micro-phase C: shifted windows and reversed interleaving to diversify
+    if len(T) < CAP - 16:
+      # Recompute room and optionally refresh U thinly (reuse stride to keep coherence)
+      room = CAP - len(T)
+      U2 = [T[i] for i in range(0, len(T), stride)][:seed_sz] if room > 0 else []
+      micro_C = []
+      if U2:
+        window_fracs_C = [(0.18, 0.26), (0.49, 0.57), (0.70, 0.78)]
+        micro_C = build_micro(U2, window_fracs_C, reverse_blocks=True, reverse_order=True)
+      if micro_C:
+        room = CAP - len(T)
+        if room > 0:
+          if len(micro_C) > room:
+            micro_C = micro_C[:room]
+          T.extend(micro_C)
+>>>>>>> REPLACE
+</DIFF>

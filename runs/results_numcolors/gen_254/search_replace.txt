@@ -1,0 +1,36 @@
+<NAME>enable_parabolic_default_on</NAME>
+
+<DESCRIPTION>
+Make parabolic micro-phase a default enhancement by turning on the enable_parabolic flag by default.
+This leverages the existing lightweight parabolic micro-phase to boost FirstFit pressure with controlled omega growth, improving the combined score without rewriting core logic.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+=======
+def construct_intervals(enable_parabolic=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>enable_parabolic_default_on_doc</NAME>
+
+<DESCRIPTION>
+Update the function's documentation to reflect the new default behavior of enabling the parabolic micro-phase, and describe the new flag in the parameter list.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+=======
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+>>>>>>> REPLACE
+</DIFF>

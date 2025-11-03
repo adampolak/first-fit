@@ -1,0 +1,93 @@
+<NAME>
+classic_four_block_six_rounds
+</NAME>
+
+<DESCRIPTION>
+Switch to the proven six-round, four-copy Kierstead–Trotter style construction with sequential block ordering and four connectors per round. This mirrors the best prior performer that achieved a competitive ratio ≈ 2.57 under the 10k budget. Concretely:
+- Reduce starts to four per round using a deterministic 4-pattern cycle.
+- Set defaults to depth=6, no interleaving, and no reversal parity.
+- Adjust the growth recurrence to size -> 4*size + 4 to fit exactly six rounds within the cap (9556 intervals).
+- Suppress the micro-phase unless we fail to reach six rounds to avoid disrupting the delicate FF pressure that the classic construction provides.
+
+These targeted changes aim to restore and improve the FF/omega ratio while respecting the interval budget.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=5,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=True,
+                        reverse_block_parity=False,
+                        interleave_blocks=False,
+                        micro_phase=False):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Deterministic bank of start-pattern templates (4-block offsets) with 7 copies each round
+  start_patterns = [
+    [2, 6, 10, 14, 18, 22, 26],  # classic extended
+    [1, 5, 9, 13, 17, 21, 25],   # left-shifted
+    [3, 7, 11, 15, 19, 23, 27],  # right-shifted
+    [2, 4, 8, 12, 16, 20, 24],   # compressed variant
+  ]
+=======
+  # Deterministic four-pattern cycle (four starts per round)
+  start_patterns = [
+    (2, 6, 10, 14),  # classic 4-wave
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (2, 4, 8, 12),   # compressed variant
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Adaptive depth cap given max_intervals
+  depth = max(0, int(depth))
+  size = 1
+  allowed = 0
+  # Each round roughly grows size -> size*7 + 11 (7 copies + 11 connectors)
+  while allowed < depth:
+    next_size = size * 7 + 11
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed if allowed > 0 else 0
+=======
+  # Adaptive depth cap given max_intervals (prefer six rounds if budget allows)
+  depth = max(6, int(depth))
+  size = 1
+  allowed = 0
+  # Each round grows size via size -> 4*size + 4 (four translated copies + four connectors)
+  while allowed < depth:
+    next_size = size * 4 + 4
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed if allowed > 0 else 0
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  if micro_phase and len(T) + 8 <= max_intervals:
+=======
+  if micro_phase and depth < 6 and len(T) + 8 <= max_intervals:
+>>>>>>> REPLACE
+
+</DIFF>

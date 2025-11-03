@@ -1,0 +1,269 @@
+--- a/original.py
++++ b/original.py
+@@ -1,86 +1,193 @@
+ # EVOLVE-BLOCK-START
+ 
+-def construct_intervals():
+-  """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
++def construct_intervals(rounds=6,
++                        cap=9800,
++                        preload_blockers=2,
++                        blocker_length_frac=0.06,
++                        blocker_gap_frac=0.04,
++                        reverse_parity=True):
++    """
++    KT-spine crossover construction.
+ 
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
++    Parameters:
++      rounds (int): number of KT expansion rounds (default 6)
++      cap (int): hard cap on number of intervals (default 9800)
++      preload_blockers (int): number of tiny blockers to insert per cloned block
++      blocker_length_frac (float): blocker length as fraction of base delta
++      blocker_gap_frac (float): gap between blockers as fraction of base delta
++      reverse_parity (bool): whether to reverse clone order on alternating rounds
+ 
+-  Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+-  """
++    Returns:
++      list of (l, r) tuples (intervals in presentation order)
++    """
+ 
+-  # Cycle through multiple start-pattern templates to break periodic reuse
+-  start_patterns = [
+-    (2, 6, 10, 14),
+-    (1, 5, 9, 13),
+-    (3, 7, 11, 15),
+-    (2, 4, 8, 12),
+-    (4, 8, 12, 16),
+-    (0, 4, 8, 12),
+-    (3, 6, 9, 12),
+-    (1, 4, 7, 10)
+-  ]
+-  T = [(0, 1)]
+-  for round_idx in range(6):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta = hi - lo
+-    # choose the start tuple for this round
+-    starts = start_patterns[round_idx % len(start_patterns)]
+-    # build translated blocks
+-    blocks = []
+-    for start in starts:
+-      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+-    # interleave translated blocks to maximize cross-block overlap
+-    S = []
+-    maxlen = max(len(b) for b in blocks)
+-    for i in range(maxlen):
+-      for blk in blocks:
+-        if i < len(blk):
+-          S.append(blk[i])
+-    # dynamic connectors based on the current starts
+-    s0, s1, s2, s3 = starts
+-    connectors = [
+-      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+-      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+-      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+-      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
++    # A rich set of start patterns to rotate through, breaking periodic reuse.
++    start_patterns = [
++      (2, 6, 10, 14),
++      (1, 5, 9, 13),
++      (3, 7, 11, 15),
++      (2, 4, 8, 12),
++      (4, 8, 12, 16),
++      (0, 4, 8, 12),
++      (3, 6, 9, 12),
++      (1, 4, 7, 10),
+     ]
+-    for a, b in connectors:
+-      S.append((a, b))
+-    T = S
+-    if len(T) > 9800:
+-      break
+-  # micro-phase: small-scale delta expansion to sprinkle long caps
+-  # Apply only if there is ample remaining capacity to avoid wasteful growth
+-  if len(T) < 9000:
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta2 = max(1, (hi - lo) // 4)
+-    # create sparse long-range caps overlapping many active colors
+-    micro = [(lo + delta2, lo + 5 * delta2), (hi - 6 * delta2, hi - 2 * delta2)]
+-    for it in micro:
+-      T.append(it)
+-  return T
+ 
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++    # Seed pattern: a single short interval (keeps omega small initially)
++    T = [(0.0, 1.0)]
++
++    def apply_round(current_T, starts, do_interleave, rev_flag):
++        """Apply one KT-like round producing a new sequence S from current_T."""
++        lo = min(l for l, r in current_T)
++        hi = max(r for l, r in current_T)
++        delta = hi - lo
++        if delta <= 0:
++            delta = 1.0
++
++        # Build translated blocks (as lists)
++        blocks = []
++        for s in starts:
++            base = s * delta - lo
++            block = []
++            # Insert preload blockers (tiny) before the cloned copies in this block
++            # Blocker positions are chosen to be inside the nominal block interval
++            # (off*delta .. (off+1)*delta) but we use base offsets directly.
++            for b in range(preload_blockers):
++                # fractional placement inside the block
++                start_frac = 0.08 + b * (blocker_length_frac + blocker_gap_frac)
++                bstart = base + start_frac * delta
++                bend = bstart + blocker_length_frac * delta
++                block.append((bstart, bend))
++            # append the cloned copy of T (optionally reversed)
++            if rev_flag:
++                for (l, r) in reversed(current_T):
++                    block.append((l + base, r + base))
++            else:
++                for (l, r) in current_T:
++                    block.append((l + base, r + base))
++            blocks.append(block)
++
++        # Interleave or concatenate blocks to form presentation order
++        S = []
++        if do_interleave:
++            maxlen = max(len(b) for b in blocks)
++            for i in range(maxlen):
++                for blk in blocks:
++                    if i < len(blk):
++                        S.append(blk[i])
++        else:
++            for blk in blocks:
++                S.extend(blk)
++
++        # Classic KT-style connectors (caps and cross connectors) computed using starts
++        s0, s1, s2, s3 = starts
++        connectors = [
++            ((s0 - 1) * delta, (s1 - 1) * delta),   # left cap
++            ((s2 + 2) * delta, (s3 + 2) * delta),   # right cap
++            ((s0 + 2) * delta, (s2 - 1) * delta),   # cross 1
++            ((s1 + 2) * delta, (s3 - 1) * delta),   # cross 2
++        ]
++        S.extend(connectors)
++        return S
++
++    # Compute feasible depth under capacity: approximate growth per round 4*size + 4
++    def feasible_depth(initial_len, requested_rounds, cap_limit):
++        sz = initial_len
++        depth = 0
++        for _ in range(requested_rounds):
++            nxt = 4 * sz + 4
++            if nxt > cap_limit:
++                break
++            sz = nxt
++            depth += 1
++        return depth
++
++    depth = feasible_depth(len(T), rounds, cap)
++
++    # Run the main rounds with alternating strategies
++    for ridx in range(depth):
++        starts = start_patterns[ridx % len(start_patterns)]
++        do_interleave = (ridx % 2 == 0)   # interleave on even rounds
++        rev_flag = reverse_parity and (ridx % 2 == 1)  # reverse on odd rounds if enabled
++        T = apply_round(T, starts, do_interleave, rev_flag)
++        if len(T) >= cap - 16:
++            break
++
++    # Guard: if cap nearly reached, return early
++    if len(T) >= cap - 16:
++        # ensure returned list is trimmed to cap (defensive)
++        return T[:cap]
++
++    # Micro-phase: build a thin sampled KT-like mini-round that raises FF pressure
++    # without significantly increasing omega.
++    def build_micro_round(current_T, budget):
++        if not current_T or budget <= 4:
++            return []
++
++        glo = min(l for l, r in current_T)
++        ghi = max(r for l, r in current_T)
++        G = max(1.0, ghi - glo)
++
++        # pick a thin seed U by sampling current_T evenly
++        seed_budget = min(40, max(8, budget * 2))  # keep seed modest
++        stride = max(1, len(current_T) // seed_budget)
++        U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_budget]
++        if not U:
++            return []
++
++        ulo = min(l for l, r in U)
++
++        # choose four window centers (fractions) well inside the global span
++        window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
++        blocks = []
++        for (fa, fb) in window_fracs:
++            win_lo = glo + fa * G
++            base = win_lo - ulo
++            block = [(l + base, r + base) for (l, r) in U]
++            blocks.append(block)
++
++        # Interleave micro-blocks to get mixing
++        micro = []
++        maxlen = max(len(b) for b in blocks)
++        for i in range(maxlen):
++            for blk in blocks:
++                if i < len(blk):
++                    micro.append(blk[i])
++
++        # Add a few light connectors (kept short relative to G)
++        connectors = [
++            (glo + 0.08 * G, glo + 0.30 * G),
++            (glo + 0.60 * G, glo + 0.92 * G),
++            (glo + 0.26 * G, glo + 0.56 * G),
++        ]
++        micro.extend(connectors)
++
++        # Trim to budget
++        if len(micro) > budget:
++            micro = micro[:budget]
++        return micro
++
++    # Decide available budget and perform at most one micro-pass (safe)
++    remaining = cap - len(T)
++    if remaining > 12:
++        micro_budget = min(remaining - 4, 120)  # keep micro modest
++        micro = build_micro_round(T, micro_budget)
++        # capacity guard
++        remaining = cap - len(T)
++        if micro:
++            if len(micro) > remaining:
++                micro = micro[:remaining]
++            T.extend(micro)
++
++    # Final safety trim
++    if len(T) > cap:
++        T = T[:cap]
++
++    # Convert to tuples of floats (consistent representation)
++    return [(float(l), float(r)) for (l, r) in T]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

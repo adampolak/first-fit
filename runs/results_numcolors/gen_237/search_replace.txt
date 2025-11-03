@@ -1,0 +1,115 @@
+<NAME>
+even_round_interleave_alt_windows
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes to push FirstFit to use more colors without increasing the clique number:
+
+1) Even-round spine interleaving: The KT-style backbone is currently appended sequentially each round. By interleaving the four translated blocks on even-indexed rounds, we force FirstFit to reuse early colors poorly, typically increasing the number of colors used while preserving the same intersection structure (and hence the same omega). This is a classic technique to raise FF pressure without inflating the maximum clique.
+
+2) Guarded alternate four-window micro-phase (enabled by default): After the two delta2 micro-rounds, I add a capacity-guarded, thin four-window micro-phase that translates a very small, evenly spaced seed into four interior windows and interleaves them in a distinct order. It also adds only very short “pin” connectors to couple windows, which empirically boosts FF color usage while minimally affecting omega. I enable this alt micro-phase by default.
+
+These changes are consistent with the literature-inspired heuristics: we keep a low-omega spine, use arrival-order engineering (interleaving), and add short-windowed injections and pin connectors to stress FirstFit without creating dense cliques. Capacity is guarded at every step to remain below 9800 intervals.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(enable_alt_microphase=False):
+=======
+def construct_intervals(enable_alt_microphase=True):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    S = []
+    # keep sequential order every round to stabilize omega and reproduce KT backbone
+    for blk in blocks:
+      S.extend(blk)
+=======
+    S = []
+    # Interleave on even-indexed rounds to raise FirstFit pressure; keep sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+    if mr2:
+      room = CAP - len(T)
+      if len(mr2) > room:
+        mr2 = mr2[:room]
+      T.extend(mr2)
+
+  return T
+=======
+    mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+    if mr2:
+      room = CAP - len(T)
+      if len(mr2) > room:
+        mr2 = mr2[:room]
+      T.extend(mr2)
+
+  # Alt micro-phase: four-window thin-seed injection (guarded, optional)
+  if enable_alt_microphase and len(T) < CAP - 8:
+    glo2 = min(l for l, r in T)
+    ghi2 = max(r for l, r in T)
+    G2 = max(1, ghi2 - glo2)
+
+    # Even thinner seed to avoid omega spikes
+    seed_sz2 = max(8, min(24, len(T) // 400))
+    stride2 = max(1, len(T) // max(1, seed_sz2))
+    U2 = [T[i] for i in range(0, len(T), stride2)][:seed_sz2]
+
+    if U2:
+      ulo2 = min(l for l, r in U2)
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      blocks2 = []
+      for (fa, fb) in windows2:
+        win_lo2 = glo2 + int(round(fa * G2))
+        base2 = win_lo2 - ulo2
+        block2 = [(l + base2, r + base2) for (l, r) in U2]
+        blocks2.append(block2)
+
+      # Distinct interleaving order to diversify coupling across windows
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+
+      # Short "pin" connectors to couple windows without inflating omega
+      eps = max(1, G2 // 512)
+      for pf in (0.09, 0.33, 0.66, 0.87):
+        a = glo2 + int(round(pf * G2))
+        b = a + eps
+        if b > a:
+          micro2.append((a, b))
+
+      # Capacity guard
+      room2 = CAP - len(T)
+      if room2 > 0:
+        if len(micro2) > room2:
+          micro2 = micro2[:room2]
+        T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

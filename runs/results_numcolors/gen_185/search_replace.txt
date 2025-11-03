@@ -1,0 +1,122 @@
+<NAME>
+micro_phase_enhancements
+</NAME>
+
+<DESCRIPTION>
+Increase micro-phase aggressiveness while keeping capacity safeguards:
+- Raise default micro rounds from 1 to 2 to allow an extra delta2 micro round.
+- Enable optional parabolic micro-phase by default to exploit late-stage caps.
+- Sample a slightly larger thin seed (len//200 instead of //300) to give micro-blocks more diversity while still bounded.
+- Add an extra long-range "cross4" connector in micro rounds when budget allows (budget>20) to improve cross-block coupling and FF pressure.
+- Slightly relax seed size bounds to allow more micro-intervals when budget is available.
+
+These targeted changes are small, deterministic, and respect the CAP guard, aiming to boost FirstFit pressure without significantly increasing omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        enable_parabolic=False):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        enable_parabolic=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Sample a thin seed from current_T, evenly spaced to diversify structure.
+    # Keep it small and bounded by budget.
+    max_seed_by_budget = max(8, min(32, (budget - 4) // 4))
+    max_seed_by_len = max(8, len(current_T) // 300)
+    seed_sz = min(max_seed_by_budget, max_seed_by_len, 32)
+    seed_sz = max(8, seed_sz)
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+=======
+    # Sample a thin seed from current_T, evenly spaced to diversify structure.
+    # Keep it bounded by budget but allow slightly larger samples when safe.
+    max_seed_by_budget = max(8, min(40, max(8, (budget - 4) // 3)))
+    # Relaxed sampling density for richer micro-blocks (was //300)
+    max_seed_by_len = max(8, len(current_T) // 200)
+    seed_sz = min(max_seed_by_budget, max_seed_by_len, 40)
+    seed_sz = max(8, seed_sz)
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    micro.extend(connectors)
+=======
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add an extra long-range cross4 connector when budget allows to couple colors
+    if budget > 20:
+      connectors.append((glo + int(round(0.02 * G)), glo + int(round(0.98 * G))))
+    micro.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+=======
+  # Respect requested phase2_iters but guard to at most two micro-rounds.
+  steps = min(max(0, int(phase2_iters)), 2)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,77 @@
+<NAME>
+crossscale_interleave_caps
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted changes inspired by cross-scale coupling techniques from the KT constructions and the connector strategies often used to push FirstFit while keeping omega controlled.
+
+1) Interleave every backbone round with alternating block order. Continuous interleaving tends to prevent FirstFit from recycling small colors across rounds and layers, increasing its pressure without necessarily creating larger cliques, because the KT translation structure is preserved and connectors remain the classic four per round.
+
+2) Add a small, deterministic set of cross-scale connectors spanning approximately 4–6 delta-units at the macro scale. Instead of requiring access to the exact per-round delta, we implement them as fractional-span caps positioned in the middle bands of the global span. This mirrors the 4–6 delta heuristic while remaining robust to the absolute scaling after multiple rounds. The new connectors are few (max 6), capacity-guarded, and placed before the micro phases so they can help couple colors across the subsequent micro blocks. They complement the existing near-tail caps and the micro phases without materially increasing omega due to their limited number and mid-span placement.
+
+These changes maintain determinism and capacity discipline and are compatible with the existing code structure. The rest of the program remains intact and runnable.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on every round to maximize color mixing; reverse block order on odd rounds
+    do_inter = True
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for c in caps:
+    if len(T) >= CAP:
+      break
+    T.append(c)
+=======
+  for c in caps:
+    if len(T) >= CAP:
+      break
+    T.append(c)
+
+  # Cross-scale connectors: deterministic mid-span caps approximating 4–6 delta spans.
+  # Insert a few connectors that bridge middle bands to couple layers without inflating omega.
+  if len(T) < CAP - 8:
+    lo_cs, hi_cs, _ = _span(T)
+    G = max(1, hi_cs - lo_cs)
+    def frac_iv(a, b):
+      L = lo_cs + int(round(a * G))
+      R = lo_cs + int(round(b * G))
+      if R <= L:
+        R = L + 1
+      return (L, R)
+    cross_caps = [
+      frac_iv(0.14, 0.38),
+      frac_iv(0.22, 0.46),
+      frac_iv(0.30, 0.54),
+      frac_iv(0.38, 0.62),
+      frac_iv(0.46, 0.70),
+      frac_iv(0.54, 0.78),
+    ]
+    # Append conservatively up to capacity
+    for cc in cross_caps:
+      if len(T) >= CAP:
+        break
+      if cc[1] > cc[0]:
+        T.append(cc)
+>>>>>>> REPLACE
+</DIFF>

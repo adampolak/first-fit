@@ -1,0 +1,383 @@
+--- a/original.py
++++ b/original.py
+@@ -1,172 +1,266 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(seed_count=1):
+   """
+   Construct a sequence of intervals on the real line, in the order presented to FirstFit,
+-  to maximize FF colors divided by the clique number.
++  to maximize FF(online)/omega(overlap) under a hard capacity limit.
++
+   Returns:
+-    intervals: list of (l, r) tuples (open intervals).
++    list[(l, r)]: open intervals (l, r) with integer endpoints, in arrival order.
+   """
+ 
+-  # Capacity guard to keep total intervals < 10000
++  # Global configuration
+   CAP = 9800
+-
+-  # Rotating four-start templates for the KT spine
+-  template_bank = [
++  ROUNDS = 6
++  # Start templates for KT-like rounds (rotated deterministically)
++  TEMPLATE_BANK = [
+     (2, 6, 10, 14),  # classic KT
+     (1, 5, 9, 13),   # left-shifted
+     (3, 7, 11, 15),  # right-shifted
+     (4, 8, 12, 16),  # stretched-right
+   ]
+-
+-  # Seed with a single unit interval; multi-seed tends to inflate omega too early
++  # Two deterministic micro-phase window families
++  MICRO_WINDOWS_A = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
++  MICRO_WINDOWS_B = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
++
++  # Seed: single unit interval is safest for omega control
+   T = [(0, 1)] if seed_count <= 1 else [(0, 1)]
+ 
+-  # Helpers
+-  def _span(current_T):
+-    lo = min(l for l, r in current_T)
+-    hi = max(r for l, r in current_T)
+-    delta = hi - lo
+-    if delta <= 0:
+-      delta = 1
+-    return lo, hi, delta
+-
+-  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+-    lo, hi, delta = _span(current_T)
+-
+-    # Build four translated blocks
++  # ------------------------
++  # Utilities (pure helpers)
++  # ------------------------
++  def span_delta(seq):
++    lo = min(l for l, _ in seq)
++    hi = max(r for _, r in seq)
++    d = hi - lo
++    if d <= 0:
++      d = 1
++    return lo, hi, d
++
++  def build_blocks(base_T, starts):
++    """Translate base_T by integer multiples of delta according to starts."""
++    lo, hi, delta = span_delta(base_T)
+     blocks = []
+     for s in starts:
+-      base = s * delta - lo
+-      block = [(l + base, r + base) for (l, r) in current_T]
+-      blocks.append(block)
+-
+-    # Interleaving policy (round-robin across blocks)
++      shift = s * delta - lo
++      blocks.append([(l + shift, r + shift) for (l, r) in base_T])
++    return blocks, delta
++
++  def interleave_blocks(blocks, reverse=False):
++    """Round-robin interleave blocks; optional reversal of block order to break symmetry."""
++    order = list(range(len(blocks)))
++    if reverse:
++      order.reverse()
+     S = []
+-    if do_interleave:
+-      order = list(range(4))
+-      if reverse_order:
+-        order.reverse()
+-      maxlen = max(len(b) for b in blocks)
+-      for i in range(maxlen):
+-        for idx in order:
+-          blk = blocks[idx]
+-          if i < len(blk):
+-            S.append(blk[i])
+-    else:
+-      if reverse_order:
+-        blocks = list(reversed(blocks))
+-      for blk in blocks:
+-        S.extend(blk)
+-
+-    # Classic four connectors
++    maxlen = max(len(b) for b in blocks)
++    for i in range(maxlen):
++      for idx in order:
++        blk = blocks[idx]
++        if i < len(blk):
++          S.append(blk[i])
++    return S
++
++  def flatten_blocks(blocks, reverse=False):
++    """Sequentially append blocks; optional reversal of block order."""
++    if reverse:
++      blocks = list(reversed(blocks))
++    S = []
++    for blk in blocks:
++      S.extend(blk)
++    return S
++
++  def classic_connectors(starts, delta):
++    """Four classical connectors that induce strong FirstFit pressure while keeping omega modest."""
+     s0, s1, s2, s3 = starts
+-    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+-    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+-    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+-    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+-    return S
+-
+-  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+-  for ridx in range(6):
+-    # Predict next size: sz -> 4*sz + 4
+-    if 4 * len(T) + 4 > CAP:
+-      break
+-    starts = template_bank[ridx % len(template_bank)]
+-    # Interleave on even rounds, reverse block order on odd rounds
+-    do_inter = (ridx % 2 == 0)
+-    rev = (ridx % 2 == 1)
+-    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+-
+-  # Early exit if nearly at capacity
+-  if len(T) >= CAP - 8:
+-    return T
+-
+-  # Micro-phase A: add three long-range caps to boost FF pressure (capacity-safe)
+-  lo, hi, _ = _span(T)
+-  span = max(1, hi - lo)
+-  def cap_at(a_frac, b_frac):
+-    L = lo + max(1, int(round(a_frac * span)))
+-    R = lo + max(1, int(round(b_frac * span)))
++    return [
++      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
++      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
++      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
++      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
++    ]
++
++  def cross4_connector(starts, delta):
++    """
++    Long-range connector at ~+4 delta to couple distant blocks without exploding omega.
++    Only one per round for safety.
++    """
++    s0, _, _, s3 = starts
++    a = (s0 + 4) * delta
++    b = (s3 + 4) * delta
++    if b <= a:  # should not happen given s3 > s0, but keep safe
++      b = a + 1
++    return (a, b)
++
++  def insert_near_tail(seq, intervals):
++    """Insert intervals near the tail to shape late-stage FF behavior."""
++    out = list(seq)
++    for i, iv in enumerate(intervals):
++      pos = len(out) - (i * 2 + 1)
++      if pos < 0:
++        out.append(iv)
++      else:
++        out.insert(pos, iv)
++    return out
++
++  def clamp01(x):
++    return max(0.0, min(1.0, float(x)))
++
++  def make_cap(lo, span, a_frac, b_frac):
++    L = lo + max(1, int(round(clamp01(a_frac) * span)))
++    R = lo + max(1, int(round(clamp01(b_frac) * span)))
+     if R <= L:
+       R = L + 1
+     return (L, R)
+-  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+-  for c in caps:
++
++  def thin_even_seed(seq, max_seed, lower_bound=8, upper_bound=48):
++    """Evenly-spaced thin seed bounded for safety."""
++    n = len(seq)
++    if n == 0:
++      return []
++    target = max(lower_bound, min(upper_bound, max_seed))
++    step = max(1, n // target)
++    seed = seq[::step][:target]
++    if not seed:  # fallback when n < target
++      seed = list(seq)
++    return seed
++
++  def deterministic_shift_tag(seq):
++    """Compute a small deterministic shift in [0, 0.06] from the current sequence signature."""
++    # Use a simple hash-like accumulator over endpoints (deterministic)
++    acc = 0
++    for (l, r) in (seq[::max(1, len(seq)//256)]):  # sample to bound time
++      acc = (acc * 1315423911) ^ (l + 31 * r)
++      acc &= 0x7fffffff
++    return (acc % 7) * 0.01  # {0.00, 0.01, ..., 0.06}
++
++  # -------------------------
++  # Stage 1: KT-style backbone
++  # -------------------------
++  for ridx in range(ROUNDS):
++    # Predict growth: sz -> 4*sz + 4; early stop if exceeding CAP
++    if 4 * len(T) + 4 > CAP:
++      break
++    starts = TEMPLATE_BANK[ridx % len(TEMPLATE_BANK)]
++    blocks, delta = build_blocks(T, starts)
++    # Parity-based assembly: even -> interleave; odd -> sequential reversed
++    if ridx % 2 == 0:
++      S = interleave_blocks(blocks, reverse=False)
++    else:
++      S = flatten_blocks(blocks, reverse=True)
++    # Classic connectors
++    S.extend(classic_connectors(starts, delta))
++    # Add a guarded cross4 only on odd rounds (safer for omega)
++    if ridx % 2 == 1:
++      S.append(cross4_connector(starts, delta))
++    T = S
+     if len(T) >= CAP:
+-      break
+-    T.append(c)
+-
+-  # Micro-phase B: thin delta2-style fractional-window round(s), capacity-guarded
+-  def build_micro_delta_round(current_T, budget):
++      T = T[:CAP]
++      return T
++
++  # If near capacity, return backbone
++  if len(T) >= CAP - 16:
++    return T
++
++  # ---------------------------------------------
++  # Tail cap injection (sparse, capacity-guarded)
++  # ---------------------------------------------
++  lo, hi, d = span_delta(T)
++  span = max(1, hi - lo)
++  tail_caps = [
++    make_cap(lo, span, 0.08, 0.60),
++    make_cap(lo, span, 0.25, 0.75),
++    make_cap(lo, span, 0.75, 0.92),
++  ]
++  room = CAP - len(T)
++  if room > 0:
++    T = insert_near_tail(T, tail_caps[:room])
++
++  if len(T) >= CAP - 16:
++    return T
++
++  # ------------------------------------
++  # Stage 2: fractional-window micro A/B
++  # ------------------------------------
++  def micro_round(current_T, window_fracs, iter_tag=0, add_long_bridge=False, budget=0):
+     if not current_T or budget <= 8:
+       return []
+ 
+-    glo = min(l for l, r in current_T)
+-    ghi = max(r for l, r in current_T)
++    glo = min(l for l, _ in current_T)
++    ghi = max(r for _, r in current_T)
+     G = max(1, ghi - glo)
+ 
+-    # Thin, evenly spaced seed
+-    seed_sz = max(8, min(32, len(current_T) // 300))
+-    stride = max(1, len(current_T) // max(1, seed_sz))
+-    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
++    # Thin seed sizing: depend on current_T size, bounded for safety
++    seed_sz = max(8, min(40, len(current_T) // 250))
++    U = thin_even_seed(current_T, seed_sz, lower_bound=8, upper_bound=40)
+     if not U:
+       return []
+ 
+-    ulo = min(l for l, r in U)
+-
+-    # Four windows across the span (stay inside to control omega)
+-    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+-
+-    # Build translated micro-blocks aligned to these windows
++    ulo = min(l for l, _ in U)
++
++    # Deterministic per-round shift to diversify windows without RNG
++    shift = deterministic_shift_tag(current_T) + (iter_tag % 3) * 0.01
++    # Clamp shifted windows and build blocks
+     blocks = []
+     for (fa, fb) in window_fracs:
+-      win_lo = glo + int(round(fa * G))
++      a = clamp01(fa + shift)
++      b = clamp01(fb + shift)
++      # Keep windows well inside the span to avoid omega spikes
++      a = max(0.05, min(0.90, a))
++      b = max(0.10, min(0.95, b))
++      win_lo = glo + int(round(a * G))
+       base = win_lo - ulo
+-      block = [(l + base, r + base) for (l, r) in U]
+-      blocks.append(block)
+-
+-    # Interleave micro-blocks to maximize FF mixing
+-    micro = []
+-    maxlen = max(len(b) for b in blocks)
+-    for i in range(maxlen):
+-      for blk in blocks:
+-        if i < len(blk):
+-          micro.append(blk[i])
+-
+-    # Fractional-span connectors at the micro scale
++      blk = [(l + base, r + base) for (l, r) in U]
++      # Alternate internal reversal to fight FF reuse
++      if ((int(round(a * 100)) // 5) + iter_tag) % 2 == 1:
++        blk = list(reversed(blk))
++      blocks.append(blk)
++
++    # Interleaving with parity-based order
++    order_rev = (iter_tag % 2 == 1)
++    micro = interleave_blocks(blocks, reverse=order_rev)
++
++    # Deterministic connectors across windows (fractional-span analog)
+     micro_connectors = [
+       (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+       (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+       (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+       (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+     ]
+-    for a, b in micro_connectors:
++    if add_long_bridge:
++      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
++    for (a, b) in micro_connectors:
+       if b > a:
+         micro.append((a, b))
+ 
+-    # Trim to available budget
+-    if len(micro) > budget:
++    if budget and len(micro) > budget:
+       micro = micro[:budget]
+     return micro
+ 
+-  # One safeguarded micro-round (empirically strong for 2.30-tier results)
++  # Execute Micro A (primary)
+   room = CAP - len(T)
+   if room > 8:
+-    micro = build_micro_delta_round(T, room)
+-    if micro:
+-      if len(micro) > room:
+-        micro = micro[:room]
+-      T.extend(micro)
+-
+-  # Final capacity trim
++    microA = micro_round(T, MICRO_WINDOWS_A, iter_tag=0, add_long_bridge=False, budget=room)
++    if microA:
++      if len(microA) > room:
++        microA = microA[:room]
++      T.extend(microA)
++
++  # Execute Micro B (secondary, distinct windows), capacity-guarded
++  room = CAP - len(T)
++  if room > 8:
++    microB = micro_round(T, MICRO_WINDOWS_B, iter_tag=1, add_long_bridge=True, budget=room)
++    if microB:
++      if len(microB) > room:
++        microB = microB[:room]
++      T.extend(microB)
++
++  # Final trim for capacity
+   if len(T) > CAP:
+     T = T[:CAP]
+-
+   return T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

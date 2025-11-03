@@ -1,0 +1,49 @@
+<NAME>
+increase_cap
+</NAME>
+
+<DESCRIPTION>
+Raise the overall capacity from 9560 to 9800 so that the micro‐extension phase can actually run after the six spine rounds, providing additional intervals to boost FirstFit pressure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  CAP = 9560
+=======
+  CAP = 9800
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+allow_micro_phase
+</NAME>
+
+<DESCRIPTION>
+Relax the early exit condition so that Stage 2 micro‐rounds execute whenever we have not fully hit the capacity, instead of requiring a 16‐interval gap.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if len(T) >= CAP - 16:
+    return T
+=======
+  if len(T) >= CAP:
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+increase_micro_seed
+</NAME>
+
+<DESCRIPTION>
+Boost the thin‐seed size in micro rounds by using a larger minimum and a coarser division (budget//8 instead of //12), so each micro phase injects more interleaved structure and connectors.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    per_block_target = max(8, min(64, budget // 12))
+=======
+    per_block_target = max(16, min(64, budget // 8))
+>>>>>>> REPLACE
+</DIFF>

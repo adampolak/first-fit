@@ -1,0 +1,115 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(max_intervals=9800, depth=6, micro_phase=True):
+    """
+    Two-phase modular expansion to maximize FirstFit colors / omega ratio.
+    - max_intervals: cap on output size
+    - depth: total rounds (split 4 primary + remainder secondary)
+    - micro_phase: whether to append final micro-intervals
+    Returns: list of (l, r) integer intervals in arrival order.
+    """
+    # Seed with four disjoint unit intervals ("color spine")
+    T = [(0.0,1.0), (2.0,3.0), (4.0,5.0), (6.0,7.0)]
+    
+    # Eight deterministic 4-start patterns (cycles every 8 rounds)
+    start_patterns = [
+        [2,5,8,11],
+        [3,6,9,12],
+        [1,4,7,10],
+        [2,4,6,8],
+        [3,5,7,9],
+        [1,3,5,7],
+        [2,6,10,14],
+        [1,5,9,13],
+    ]
+    # Four-interval connector gadget templates
+    connector_templates = [
+        [(1,5),(12,16),(4,9),(8,13)],
+        [(0.5,4.5),(11,15),(3.5,8.5),(7,12)],
+        [(1,4),(6,9),(3,7),(9,13)],
+        [(2,6),(7,11),(0,3),(10,14)],
+    ]
+    
+    def expand_phase(T, rounds, half_scale=False):
+        """Expand T for `rounds` rounds, optionally at half scale."""
+        for i in range(rounds):
+            lo = min(l for l,r in T)
+            hi = max(r for l,r in T)
+            delta = hi - lo if hi > lo else 1.0
+            span = delta * (0.5 if half_scale else 1.0)
+            # pick pattern & template
+            pat = start_patterns[i % len(start_patterns)]
+            tmpl = connector_templates[i % len(connector_templates)]
+            # build translated blocks with alternating inner order
+            blocks = []
+            for idx, s in enumerate(pat):
+                base = T if (idx % 2 == 0) else list(reversed(T))
+                shift = span * s - lo
+                blocks.append([(l+shift, r+shift) for l,r in base])
+            # interleaving variation: forward/reverse every two rounds
+            forward = ((i//2) % 2 == 0)
+            order = list(range(len(blocks)))
+            if not forward:
+                order.reverse()
+            S = []
+            m = max(len(b) for b in blocks)
+            for j in range(m):
+                for idx in order:
+                    if j < len(blocks[idx]):
+                        S.append(blocks[idx][j])
+            # connectors: scaled gadget
+            for (a,b) in tmpl:
+                S.append((span*a, span*b))
+            # short caps: between odd-index starts
+            for s in pat[1::2]:
+                mid = span * s
+                w = 0.3 * span
+                S.append((mid - 0.5*w, mid + 0.5*w))
+            T = S
+        return T
+    
+    def add_micro_phase(T):
+        """Append tiny intervals at fractional positions."""
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        span = hi - lo if hi > lo else 1.0
+        for frac in (0.25, 0.5, 0.75):
+            c = lo + frac*span
+            w = 0.1*span
+            T.append((c - 0.5*w, c + 0.5*w))
+        return T
+    
+    def normalize(T):
+        """Shift to non-negative, round to ints, cap at max_intervals."""
+        if not T:
+            return []
+        min_l = min(l for l,r in T)
+        if min_l < 0:
+            T = [(l - min_l, r - min_l) for l,r in T]
+        intervals = []
+        for (l,r) in T:
+            li = int(round(l))
+            ri = int(round(r))
+            if ri <= li:
+                ri = li + 1
+            intervals.append((li, ri))
+        return intervals[:max_intervals]
+    
+    # Phase 1: primary expansion (first 4 rounds)
+    rounds1 = min(depth, 4)
+    T = expand_phase(T, rounds1, half_scale=False)
+    # Phase 2: secondary expansion at half scale
+    rounds2 = max(0, depth - rounds1)
+    if rounds2 > 0:
+        T = expand_phase(T, rounds2, half_scale=True)
+    # Micro-phase
+    if micro_phase:
+        T = add_micro_phase(T)
+    # Final normalize & cap
+    return normalize(T)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

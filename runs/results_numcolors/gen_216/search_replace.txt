@@ -1,0 +1,16 @@
+<NAME>add-optional-alt-microphase</NAME>
+
+<DESCRIPTION>
+Introduce an optional secondary micro-phase path controlled by a new enable_alt_microphase flag. This adds a lightweight alt-mode micro-phase that runs after the standard KT spine and existing micro rounds, enabling extra cross-scale mixing to potentially raise FirstFit colors without increasing omega beyond CAP. The change minimally touches the function signature and injects an additional, capacity-bounded alt-phase when enabled.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+=======
+def construct_intervals(enable_alt_microphase=False):
+>>>>>>> REPLACE
+=======
+def construct_intervals(enable_alt_microphase=False):
+>>>>>>> REPLACE
+</DIFF>

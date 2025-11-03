@@ -1,0 +1,71 @@
+<NAME>six_template_spine_and_backbone_connectors</NAME>
+<DESCRIPTION>
+Propose two coordinated improvements to the current deterministic KT-spine code:
+
+1) Expand the rotating template bank from 4 to 6 templates to enrich the geometry of the spine, increasing opportunities for FirstFit to be pressured into using more colors without raising the clique number (omega). This leverages the recommended approach of expanding the spine template bank to enhance color mixing while preserving determinism.
+
+2) Introduce a lightweight Stage-1.5 enhancement that injects a small set of long-range backbone connectors after the spine construction. These connectors cross the backbone to couple colors across distant parts of the interval sequence, boosting FirstFit pressure and color usage while keeping CAP and omega in check. The change is conservative (at most four new connectors) and respects the existing capacity guard.
+
+Both changes are designed to work together: more template diversity in the spine increases inherent mixing, and the targeted long-range connectors further disrupt color reuse without inflating the clique beyond control.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed-left
+    (3, 5, 9, 13),   # gentle-left
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+
+  # Stage 1.5: optional long-range backbone connectors to raise mixing
+  room = CAP - len(T)
+  if room > 4:
+    lo, hi, delta = _span(T)
+    G = max(1, hi - lo)
+    long_connectors = [
+      (lo + int(round(0.15 * G)), hi - int(round(0.15 * G))),
+      (lo + int(round(0.25 * G)), hi - int(round(0.25 * G))),
+      (lo + int(round(0.45 * G)), hi - int(round(0.45 * G))),
+      (lo + int(round(0.65 * G)), hi - int(round(0.65 * G))),
+    ]
+    for a, b in long_connectors:
+      if len(T) >= CAP:
+        break
+      if b > a:
+        T.append((a, b))
+>>>>>>> REPLACE
+</DIFF>

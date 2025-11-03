@@ -1,0 +1,147 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=3):
+    """
+    Hybrid rotated-interleaved Kierstead-Trotter inspired construction.
+
+    - Rotated four-block start patterns to vary overlap geometry across rounds.
+    - Optional reversal of every other block to mix color usage.
+    - Interleaving of intervals from different blocks so FirstFit sees
+      many overlapping active colors and is forced to create new colors.
+    - Connector "caps" that couple blocks without creating a large clique.
+    - Micro-phase sprinkling of a few long sparse caps at the end to further
+      stress FirstFit.
+    - Integer arithmetic and adaptive depth limit to keep total intervals < 10000.
+
+    Parameters:
+      depth (int): nominal recursion depth (default 3). If depth is too large,
+                   it will be reduced to keep the total number of intervals
+                   below a safety cap.
+
+    Returns: list of (l, r) integer tuples (open intervals) in presentation order.
+    """
+    depth = max(0, int(depth))
+    # Safety cap: keep total intervals under this (a little under 10000).
+    MAX_INTERVALS = 9800
+
+    # Strategies / toggles (picked deterministically to combine the best parts)
+    rotate_starts = True
+    reverse_block_parity = True
+    interleave_blocks = True
+    micro_phase = True
+
+    # A small cycle of start patterns (recover classical Figure 4 pattern
+    # but rotate it across rounds to break periodicity).
+    start_patterns = [
+        [2, 6, 10, 14],  # classic
+        [1, 5, 9, 13],   # left-shifted
+        [3, 7, 11, 15],  # right-shifted
+        [2, 4, 8, 12],   # compressed variant
+    ]
+
+    # Base seed
+    T = [(0, 1)]
+
+    # Reduce the effective depth if the naive growth would exceed MAX_INTERVALS.
+    # We approximate growth as size_{k+1} = 4*size_k + 4 (4 copies plus 4 connectors).
+    allowed = 0
+    size = 1
+    while allowed < depth:
+        next_size = size * 4 + 4
+        if next_size > MAX_INTERVALS:
+            break
+        size = next_size
+        allowed += 1
+    depth = allowed
+
+    for round_idx in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        if delta <= 0:
+            delta = 1
+
+        # Choose start pattern for this round
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+
+        # Build the four translated blocks (possibly reversing every other block).
+        blocks = []
+        for b_idx, s in enumerate(starts):
+            block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+            # Shift so that the leftmost point of this copy becomes s*delta.
+            shift = s * delta - lo
+            block = [(l + shift, r + shift) for (l, r) in block_src]
+            blocks.append(block)
+
+        # Interleave the blocks (round-robin) to present intervals from
+        # different blocks in alternating order; this increases FirstFit pressure.
+        S = []
+        if interleave_blocks:
+            maxlen = max(len(b) for b in blocks)
+            order = list(range(len(blocks)))
+            # alternate the block visitation order every other round
+            if round_idx % 2 == 1:
+                order = order[::-1]
+            for i in range(maxlen):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+
+        # Deterministic connector/cap formulas derived from chosen starts.
+        # These link blocks without creating a large clique but propagate colors.
+        s0, s1, s2, s3 = starts
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),
+            ((s2 + 2) * delta, (s3 + 2) * delta),
+            ((s0 + 2) * delta, (s2 - 1) * delta),
+            ((s1 + 2) * delta, (s3 - 1) * delta),
+        ]
+        S.extend(connectors)
+
+        T = S
+
+    # Optional tiny second phase: sprinkle a few sparse long-range caps to
+    # further stress FirstFit without blowing up the clique number or count.
+    if micro_phase and len(T) + 8 <= MAX_INTERVALS:
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = max(1, hi - lo)
+        d2 = max(1, delta // 4)
+        micro = [
+            (lo + 1 * d2, lo + 5 * d2),
+            (hi - 6 * d2, hi - 2 * d2),
+            (lo + 3 * d2, lo + 8 * d2),
+            (hi - 8 * d2, hi - 3 * d2),
+        ]
+        # Insert micro gadgets interleaved near the end to maximize pressure.
+        # We insert them in alternating order to touch many active colors.
+        for i, interval in enumerate(micro):
+            insert_pos = len(T) - (i * 2 + 1)
+            if insert_pos < 0:
+                T.append(interval)
+            else:
+                T.insert(insert_pos, interval)
+
+    # Normalize coordinates to be non-negative integers (keeps presentation tidy).
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+        T = [(l - min_l, r - min_l) for l, r in T]
+
+    # Ensure integer endpoints
+    intervals = [(int(l), int(r)) for l, r in T]
+    return intervals
+
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals(**kwargs)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

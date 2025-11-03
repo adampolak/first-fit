@@ -1,0 +1,19 @@
+<NAME>parabolic_caps_toggle</NAME>
+<DESCRIPTION>Introduce an optional, lightweight parabolic cap injection at the end of the construction. This adds three end-cap intervals with endpoints following a parabolic-like distribution across the current span, designed to further stress FirstFit without significantly increasing the omega (clique) or the total interval count. Controlled by a new boolean parameter parabolic_caps (default False) so existing runs remain unchanged. This provides an additional knob to push FF colors while respecting CAP.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+  def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        parabolic_caps=False):
+>>>>>>> REPLACE
+</DIFF>

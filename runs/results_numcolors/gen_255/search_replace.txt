@@ -1,0 +1,112 @@
+<NAME>omega_bound_param_and_omega_cap_guard_v3</NAME>
+<DESCRIPTION>Add a configurable omega_bound parameter to cap the offline clique size (omega) and wire simple gating into tail-cap and micro-round construction. Introduces a sweep-line helper _omega_of(intervals) and hooks to enforce omega_bound during cap additions and delta-scale micro phases.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        seed_count=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        seed_count=1,
+                        omega_bound=5):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>omega_of_helper_insertion</NAME>
+<DESCRIPTION>Insert a sweep-line based helper _omega_of(intervals) to compute the maximum number of overlapping intervals (the clique number) for a given set of intervals. This is used to gate cap additions and micro-phases under omega_bound.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Apply one KT-style round: translate blocks, optionally interleave/reverse, append connectors
+  def _apply_kt_round(current_T, starts, do_interleave=False, reverse_order=False):
+=======
+  # New helper: compute omega (maximum overlap) for a set of intervals
+  def _omega_of(intervals):
+    events = []
+    for a, b in intervals:
+      if b <= a:
+        continue
+      events.append((a, 1))
+      events.append((b, -1))
+    events.sort(key=lambda e: (e[0], -e[1]))
+    c = 0
+    m = 0
+    for _, d in events:
+      c += d
+      if c > m:
+        m = c
+    return m
+
+  # Apply one KT-style round: translate blocks, optionally interleave/reverse, append connectors
+  def _apply_kt_round(current_T, starts, do_interleave=False, reverse_order=False):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>tailcap_omega_guard</NAME>
+<DESCRIPTION>Guard the tail caps addition by enforcing the omega_bound using the new _omega_of helper. Only append a cap if it does not push the clique size beyond the specified bound.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  tail_caps = [
+    _cap_at(lo, delta, 0.08, 0.60),
+    _cap_at(lo, delta, 0.25, 0.75),
+    _cap_at(lo, delta, 0.75, 0.92)
+  ]
+  # Capacity-guarded insertion
+  room = CAP - len(T)
+  if room > 0:
+    for cap in tail_caps[:room]:
+      T.append(cap)
+=======
+  tail_caps = [
+    _cap_at(lo, delta, 0.08, 0.60),
+    _cap_at(lo, delta, 0.25, 0.75),
+    _cap_at(lo, delta, 0.75, 0.92)
+  ]
+  # Capacity-guarded insertion with omega guard
+  room = CAP - len(T)
+  if room > 0:
+    for cap in tail_caps[:room]:
+      if _omega_of(T + [cap]) <= omega_bound:
+        T.append(cap)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>omega_bound_micro_gating</NAME>
+<DESCRIPTION>Apply omega-bound gating to delta-scale micro rounds: trim or drop micro blocks to ensure maximum overlap does not exceed omega_bound, using the _omega_of helper.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+    # trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+
+    # Omega-bound gating: ensure micro blocks do not push omega beyond omega_bound
+    if micro:
+      combined = current_T + micro
+      if _omega_of(combined) > omega_bound:
+        k = len(micro)
+        while k > 0:
+          if _omega_of(current_T + micro[:k]) <= omega_bound:
+            micro = micro[:k]
+            break
+          k -= 1
+        if k == 0:
+          micro = []
+
+    return micro
+>>>>>>> REPLACE
+</DIFF>

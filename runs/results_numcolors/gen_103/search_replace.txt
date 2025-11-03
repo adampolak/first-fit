@@ -1,0 +1,26 @@
+<NAME>one_more_round_if_budget_allows</NAME>
+<DESCRIPTION>Allow an extra expansion round when budget permits by increasing the target_rounds passed to the cap routine by 1. This deterministic extension can push the construction to a denser FF pattern without enlarging omega beyond the cap, given the current seed and connectors.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    rounds_allowed, _ = _rounds_allowed_under_cap(
+        max_intervals=max_intervals,
+        base_size=base_size,
+        per_round_copies=4,
+        per_round_connectors=4,
+        target_rounds=int(depth)
+    )
+    if rounds_allowed <= 0:
+        return [(0, 1)]
+=======
+    rounds_allowed, _ = _rounds_allowed_under_cap(
+        max_intervals=max_intervals,
+        base_size=base_size,
+        per_round_copies=4,
+        per_round_connectors=4,
+        target_rounds=int(depth) + 1
+    )
+    if rounds_allowed <= 0:
+        return [(0, 1)]
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,380 @@
+--- a/original.py
++++ b/original.py
+@@ -1,154 +1,232 @@
+ # EVOLVE-BLOCK-START
+ 
+-def construct_intervals(rounds=3,
+-                        seed_lo=0.0,
+-                        seed_scale=1.0,
+-                        rotate_starts=True,
+-                        reverse_block_parity=True,
+-                        interleave_blocks=True,
+-                        phase2_micro=True):
+-  """
+-  Improved recursive wave construction.
+-
+-  Key changes vs. the previous simple replicator:
+-  - Seed with four disjoint unit intervals to create a richer initial color spine.
+-  - Rotate among several deterministic 4-start patterns to diversify geometry between rounds.
+-  - Cycle a small bank of 4-interval connector templates (Figure-4 style).
+-  - Alternate inner block order (reverse every other block) and vary block insertion order by round.
+-  - Insert short bridges between translated blocks and sparse short caps.
+-  - Optional small micro-phase appended at the end to sprinkle intervals that touch many existing blocks.
+-
+-  Parameters:
+-    rounds: number of recursive expansion rounds (default 3)
+-    seed_lo / seed_scale: knobs to shift/scale seed placement
+-    rotate_starts, reverse_block_parity, interleave_blocks, phase2_micro: toggles for behavior
+-
+-  Returns:
+-    intervals: list of tuples (l, r) as open intervals in presentation order.
+-  """
+-  # Seed with several disjoint unit intervals (a small "spine" to raise early-color diversity)
+-  T = [
+-    (seed_lo + 0.0 * seed_scale, seed_lo + 1.0 * seed_scale),
+-    (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+-    (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+-    (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)
+-  ]
+-
+-  # Deterministic rotation of 4-start patterns (keeps per-round branching small)
+-  start_patterns = [
+-    (2, 6, 10, 14),
+-    (1, 5, 9, 13),
+-    (3, 7, 11, 15),
+-    (2, 4, 8, 12),
+-  ]
+-
+-  # Small bank of 4-interval connector templates (Figure-4 style gadgets)
+-  template_bank = [
+-    ((1, 5), (12, 16), (4, 9), (8, 13)),
+-    ((0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)),
+-    ((1, 4), (6, 9), (3, 7), (9, 13)),
+-    ((2, 6), (7, 11), (0, 3), (10, 14))
+-  ]
+-
+-  for round_idx in range(rounds):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    span = hi - lo if hi > lo else 1.0
+-
+-    # choose deterministic start-pattern/template for this round
+-    starts = list(start_patterns[round_idx % len(start_patterns)]) if rotate_starts else list(start_patterns[0])
+-    template = template_bank[round_idx % len(template_bank)]
+-
+-    S = []
+-
+-    # rotate block insertion order to perturb arrival ordering each round
+-    if round_idx % 4 == 0:
+-      block_order = starts
+-    elif round_idx % 4 == 1:
+-      block_order = list(reversed(starts))
+-    elif round_idx % 4 == 2:
+-      block_order = starts[1:] + starts[:1]
++from typing import List, Tuple
++
++# Basic helpers
++def max_overlap(intervals: List[Tuple[float, float]]) -> int:
++    """Compute maximum number of intervals covering a point (open intervals).
++    Treat intervals as [l, r) for event counting determinism."""
++    events = []
++    for l, r in intervals:
++        # ensure well-formed
++        if r <= l:
++            r = l + 1e-6
++        events.append((l, 1))
++        events.append((r, -1))
++    events.sort()
++    cur = 0
++    mx = 0
++    for t, delta in events:
++        cur += delta
++        if cur > mx:
++            mx = cur
++    return mx
++
++def simulate_firstfit(intervals: List[Tuple[float, float]]) -> List[int]:
++    """Simulate FirstFit coloring on given interval sequence (ordered).
++    Returns list of assigned colors (1-based)."""
++    n = len(intervals)
++    colors = [0] * n
++    # For each interval i, compute set of colors used by intervals j < i that overlap it
++    # naive O(n^2) approach; acceptable for n ~ few thousands
++    for i in range(n):
++        l_i, r_i = intervals[i]
++        used = set()
++        for j in range(i):
++            l_j, r_j = intervals[j]
++            # intervals are open; consider overlap if they share interior points
++            if not (r_j <= l_i or r_i <= l_j):
++                used.add(colors[j])
++        # find smallest positive integer not in used
++        c = 1
++        while c in used:
++            c += 1
++        colors[i] = c
++    return colors
++
++def competitive_ratio_stats(intervals: List[Tuple[float, float]]):
++    """Return (FF_colors, OPT_clique) for current sequence."""
++    colors = simulate_firstfit(intervals)
++    ff = max(colors) if colors else 0
++    opt = max_overlap(intervals)
++    return ff, opt
++
++def canonicalize_interval(iv: Tuple[float, float]) -> Tuple[float, float]:
++    l, r = iv
++    if r <= l:
++        r = l + 1e-6
++    return (float(l), float(r))
++
++def generate_candidates(existing: List[Tuple[float, float]],
++                        grid_step=5.0,
++                        lengths=(1.0, 2.0, 4.0),
++                        max_candidates=120):
++    """Deterministic candidate generation anchored to interesting positions.
++    - endpoints of existing intervals
++    - coarse grid
++    Returns a list of candidate intervals (l, r) to test, deterministic order."""
++    points = set()
++    # include endpoints
++    for l, r in existing:
++        points.add(l)
++        points.add(r)
++        # midpoints to aim inside existing ranges
++        points.add((l + r) / 2.0)
++    # add grid points spanning the current domain
++    if existing:
++        min_l = min(l for l, r in existing)
++        max_r = max(r for l, r in existing)
+     else:
+-      # another deterministic shuffle
+-      block_order = starts[2:] + starts[:2]
+-
+-    # Build translated copies with alternating inner order for T to reduce color reuse
+-    for i, st in enumerate(block_order):
+-      base = T if not reverse_block_parity or ((round_idx + i) % 2 == 0) else list(reversed(T))
+-      shift = span * st - lo
+-      for (l, r) in base:
+-        S.append((l + shift, r + shift))
+-
+-      # short bridge overlapping tail of this block and head of next block to couple colors
+-      if i + 1 < len(block_order):
+-        nxt = block_order[i + 1]
+-        bstart = span * (st + 0.5) - lo
+-        bend = span * (nxt + 0.5) - lo
+-        left = min(bstart, bend) + 0.02 * span
+-        right = max(bstart, bend) - 0.02 * span
+-        if right > left:
+-          # keep bridge short relative to span so we don't blow up omega
+-          S.append((left, right))
+-
+-    # Add the 4-interval connector gadget (scaled by current span)
+-    for (a, b) in template:
+-      S.append((span * a, span * b))
+-
+-    # Add sparse short caps between blocks to press color usage without creating large cliques
+-    max_st = max(starts)
+-    step = max(2, int(max(1, max_st // 3)))
+-    for j in range(2, max_st, step):
+-      a = span * (j - 0.35)
+-      b = span * (j + 0.55)
+-      # trim slightly to keep them short
+-      S.append((a + 0.01 * span, b - 0.01 * span))
+-
+-    # adopt interleaving strategy (round-robin consumption) if requested
+-    if interleave_blocks:
+-      # perform a light interleaving pass to further mix the order
+-      interleaved = []
+-      block_len = max(1, len(T))
+-      # slice S into blocks of block_len then emit round-robin
+-      slices = [S[k:k + block_len] for k in range(0, len(S), block_len)]
+-      maxslice = max(len(sl) for sl in slices) if slices else 0
+-      for pos in range(maxslice):
+-        for sl in slices:
+-          if pos < len(sl):
+-            interleaved.append(sl[pos])
+-      T = interleaved
+-    else:
+-      T = S
+-
+-  # Optional small micro-phase appended at the end:
+-  # sprinkle a few short intervals that touch many of the existing translated blocks.
+-  if phase2_micro:
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    span = max(1.0, hi - lo)
+-    micros = []
+-    # place a few tiny caps at fractional positions that often intersect many blocks
+-    for frac in (0.22, 0.5, 0.78):
+-      center = lo + frac * span
+-      w = 0.06 * span
+-      micros.append((center - 0.5 * w, center + 0.5 * w))
+-    # append micro-phase intervals near the end (so they are presented late)
+-    T.extend(micros)
+-
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++        min_l, max_r = 0.0, grid_step * 10.0
++    # extend a bit to allow growth
++    min_l -= grid_step * 2
++    max_r += grid_step * 2
++    # add grid positions
++    k = int((max_r - min_l) / grid_step) + 1
++    for i in range(k + 1):
++        points.add(min_l + i * grid_step)
++    pts_sorted = sorted(points)
++    candidates = []
++    # deterministic scanning: try placing intervals centered at these points with given lengths
++    for center in pts_sorted:
++        for L in lengths:
++            l = center - 0.5 * L
++            r = center + 0.5 * L
++            iv = canonicalize_interval((l, r))
++            candidates.append(iv)
++            if len(candidates) >= max_candidates:
++                return candidates
++    return candidates
++
++def add_interval_greedy(seed: List[Tuple[float, float]],
++                        budget_total: int,
++                        target_opt: int = 10,
++                        max_steps: int = 2000):
++    """Adaptive greedy adversary:
++    At each step propose candidates and pick the one that maximizes FF/OPT (ratio),
++    subject to the global OPT <= target_opt. Stop when budget reached or no improving candidate.
++    """
++    intervals = list(seed)
++    best_ff, best_opt = competitive_ratio_stats(intervals)
++    best_ratio = (best_ff / best_opt) if best_opt > 0 else float(best_ff)
++    steps = 0
++
++    # To encourage progression, prefer candidates that increase FF or ratio.
++    while len(intervals) < budget_total and steps < max_steps:
++        steps += 1
++        # generate candidate pool deterministically
++        cand_pool = generate_candidates(intervals,
++                                        grid_step=max(1.0, max(1.0, (max((r for _, r in intervals), default=10.0) - min((l for l, _ in intervals), default=0.0)) / 40.0)),
++                                        lengths=(0.8, 1.5, 3.0, 6.0),
++                                        max_candidates=200)
++        # Evaluate candidates
++        best_local = None  # tuple (new_ratio, ff, opt, candidate)
++        # deterministic iteration order already from pool
++        for cand in cand_pool:
++            # skip duplicates or trivially overlapping exactly same as existing
++            if cand in intervals:
++                continue
++            trial = intervals + [cand]
++            opt_trial = max_overlap(trial)
++            if opt_trial > target_opt:
++                continue  # violates final OPT constraint
++            ff_trial = max(simulate_firstfit(trial)) if trial else 0
++            # compute ratio; if opt_trial==0 treat carefully
++            ratio = (ff_trial / opt_trial) if opt_trial > 0 else float(ff_trial)
++            # We prefer larger ratio; tie-break deterministically by smaller candidate center then smaller length
++            cand_center = (cand[0] + cand[1]) / 2.0
++            cand_len = cand[1] - cand[0]
++            key = (ratio, ff_trial, -opt_trial, -cand_len, -cand_center)
++            # store best_local in terms of ratio, break ties deterministically
++            if best_local is None or key > best_local[0]:
++                best_local = (key, ratio, ff_trial, opt_trial, cand)
++        # if no valid candidate found, break
++        if best_local is None:
++            break
++        # if best_local does not improve ratio significantly, we still might accept if it increases FF
++        chosen = best_local[4]
++        chosen_ratio = best_local[1]
++        chosen_ff = best_local[2]
++        chosen_opt = best_local[3]
++
++        # acceptance criteria:
++        # accept if ratio improves at least slightly, or ff increases and opt doesn't increase
++        improve = False
++        if chosen_ratio > best_ratio + 1e-9:
++            improve = True
++        elif chosen_ff > best_ff and chosen_opt <= best_opt:
++            improve = True
++
++        # also accept some neutral moves early to seed structure (if intervals very small)
++        if not improve and len(intervals) < max(30, budget_total // 20):
++            improve = True
++
++        if not improve:
++            # no beneficial move found, stop
++            break
++
++        # commit chosen
++        intervals.append(chosen)
++        best_ff = chosen_ff
++        best_opt = chosen_opt
++        best_ratio = chosen_ratio
++
++    return intervals
++
++def construct_intervals(rounds=1, seed_lo=0.0, seed_scale=1.0, budget=2000):
++    """
++    Construct adversarial sequence by greedy, simulation-driven search.
++    - rounds, seed params preserved for API compatibility (not heavily used here).
++    - budget: max number of intervals to produce (keeps under global limits).
++    Returns list of (l, r) intervals (open).
++    """
++    # seed: a small structured beginning that encourages color fragmentation:
++    # create a few short overlapping cliques staggered in time.
++    seed = []
++    base = seed_lo
++    # create 6 small cliques of size 3..6 (but keep global OPT <= 10)
++    clique_sizes = [3, 4, 5, 3, 5, 4]
++    offset = 0.0
++    for k in clique_sizes:
++        # all k intervals overlap at center offset + 0.5
++        center = offset + 0.5
++        span = 1.0 + 0.2 * k
++        for i in range(k):
++            # slightly jitter endpoints deterministically
++            shift = (i * 0.12)
++            l = center - span / 2.0 + shift
++            r = center + span / 2.0 + shift
++            seed.append(canonicalize_interval((l, r)))
++        offset += span * 0.9 + 0.5
++
++    # ensure seed respects OPT <= 10
++    if max_overlap(seed) > 10:
++        # fallback: trim until OK (deterministic trimming)
++        while max_overlap(seed) > 10 and seed:
++            seed.pop()
++
++    # run adaptive greedy extension
++    intervals = add_interval_greedy(seed, budget_total=budget, target_opt=10, max_steps=2500)
++
++    # final normalization: shift to non-negative and round coordinates to modest precision
++    if not intervals:
++        return []
++    min_l = min(l for l, r in intervals)
++    if min_l < 0:
++        intervals = [(l - min_l, r - min_l) for l, r in intervals]
++
++    # final defensive rounding to make intervals look nicer
++    final = []
++    for l, r in intervals:
++        # ensure at least tiny positive length
++        if r <= l + 1e-9:
++            r = l + 1e-3
++        # round to 6 decimals
++        final.append((round(float(l), 6), round(float(r), 6)))
++    return final
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

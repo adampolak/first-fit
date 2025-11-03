@@ -1,0 +1,158 @@
+--- a/original.py
++++ b/original.py
+@@ -1,86 +1,149 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(seed_count=1):
+   """
+   Construct a sequence of intervals of real line,
+   in the order in which they are presented to FirstFit,
+   so that it maximizes the number of colors used by FirstFit
+   divided by the maximum number of intervals that cover a single point
+ 
+   The initial implementation uses the construction from
+   Figure 4 in https://arxiv.org/abs/1506.00192
+ 
+   Returns:
+     intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+   """
+ 
+-  # Use the classic fixed start-pattern to preserve strong KT coupling
+-  starts = (2, 6, 10, 14)
++  # Capacity guard to keep the total count under 10000 and allow a micro-phase
++  CAP = 9800
++
++  # Rotate among four strong start-pattern templates to couple colors across scales
++  template_bank = [
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (4, 8, 12, 16),
++  ]
++
+   # Seed with multiple disjoint unit intervals if requested (new capability)
+   if seed_count <= 1:
+     T = [(0, 1)]
+   else:
+     step = 3
+     T = [(i * step, i * step + 1) for i in range(seed_count)]
++
++  # Six KT-style rounds with deterministic parity interleaving
+   for round_idx in range(6):
++    starts = template_bank[round_idx % 4]
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+-    delta = hi - lo
+-    # build translated blocks in sequence (no interleaving)
++    delta = hi - lo if hi > lo else 1
++    # build translated blocks
+     blocks = []
+     for start in starts:
+       blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+     S = []
+     # interleave blocks on even rounds, sequential on odd rounds
+     if round_idx % 2 == 0:
+       maxlen = max(len(b) for b in blocks)
+       for i in range(maxlen):
+         for blk in blocks:
+           if i < len(blk):
+             S.append(blk[i])
+     else:
+       for blk in blocks:
+         S.extend(blk)
+-    # connectors based on the fixed starts
++    # connectors based on the active starts
+     s0, s1, s2, s3 = starts
+     connectors = [
+       (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+       (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+       (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+       (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+     ]
+     for a, b in connectors:
+       S.append((a, b))
+     T = S
+-  # Micro-phase: add three long-range caps to boost late FirstFit color usage while controlling omega
++
++  # Micro-phase A: add three long-range caps to boost late FirstFit color usage while controlling omega
+   lo = min(l for l, r in T)
+   hi = max(r for l, r in T)
+   delta = hi - lo if hi > lo else 1
+   def cap_at(a_frac, b_frac):
+     l0 = lo + max(1, int(round(a_frac * delta)))
+     r0 = lo + max(1, int(round(b_frac * delta)))
+     return (l0, r0)
+   capA = cap_at(0.08, 0.60)
+   capB = cap_at(0.25, 0.75)
+   capC = cap_at(0.75, 0.92)
+   for cap in (capA, capB, capC):
+     if cap[1] > cap[0]:
+       T.append(cap)
++
++  # Micro-phase B: a thin delta2 micro-round (capacity-guarded) to increase FF colors without raising omega much
++  if len(T) < CAP - 16:
++    glo = min(l for l, r in T)
++    ghi = max(r for l, r in T)
++    G = ghi - glo if ghi > glo else 1
++
++    # Thin seed of current T (small and evenly spaced)
++    seed_sz = max(8, min(32, len(T) // 300))
++    stride = max(1, len(T) // max(1, seed_sz))
++    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
++
++    if U:
++      ulo = min(l for l, r in U)
++
++      # Four windows across the global span (stay inside to avoid omega spikes)
++      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
++      micro_blocks = []
++      for (fa, fb) in window_fracs:
++        win_lo = glo + int(round(fa * G))
++        base = win_lo - ulo
++        block = [(l + base, r + base) for (l, r) in U]
++        micro_blocks.append(block)
++
++      # Interleave the micro-blocks
++      micro = []
++      maxlen = max(len(b) for b in micro_blocks)
++      for i in range(maxlen):
++        for blk in micro_blocks:
++          if i < len(blk):
++            micro.append(blk[i])
++
++      # Fractional-span connectors at the delta2 scale
++      micro_connectors = [
++        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
++        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
++        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
++        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
++      ]
++      for a, b in micro_connectors:
++        if b > a:
++          micro.append((a, b))
++
++      # Capacity guard
++      room = CAP - len(T)
++      if room > 0:
++        if len(micro) > room:
++          micro = micro[:room]
++        T.extend(micro)
++
+   return T
+ 
+   # return [  # Figure 3, OPT=2, FF=4
+   #   (2,3),
+   #   (6,7),
+   #   (10,11),
+   #   (14,15),
+   #   (1,5),
+   #   (12,16),
+   #   (4,9),
+   #   (8,13),
+   # ]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

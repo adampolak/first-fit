@@ -1,0 +1,250 @@
+# EVOLVE-BLOCK-START
+
+import math
+
+def _estimate_depth_by_cap(initial_size, cap, pattern_bank, template_bank, max_depth_hint):
+    """
+    Conservative estimate of how many main rounds we can run without exceeding cap.
+    Uses the actual pattern sizes from pattern_bank and template counts.
+    """
+    size = initial_size
+    depth = 0
+    for r in range(max_depth_hint):
+        starts_len = len(pattern_bank[r % len(pattern_bank)])
+        est_next = size * starts_len + 8 + len(template_bank[r % len(template_bank)])
+        if est_next > cap:
+            break
+        size = est_next
+        depth += 1
+    return depth
+
+
+def construct_intervals(depth=3,
+                        cap=9800,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_micro=False):
+    """
+    Improved adversarial interval sequence generator for FirstFit.
+    Parameters are preserved from the original implementation.
+    Returns a list of (l, r) integer tuples (open intervals) in the presentation order.
+    """
+
+    # Safety and parameter normalization
+    MAX_CAP = max(1, int(cap))
+    depth = max(0, int(depth))
+
+    # Seed with multiple disjoint unit-ish intervals (helps early mixing)
+    T = [
+        (0.0, 1.0),
+        (2.5, 3.5),
+        (5.0, 6.0),
+        (7.5, 8.5)
+    ]
+
+    # A diverse bank of start-patterns (used cyclically)
+    pattern_bank = [
+        (2, 6, 10, 14),                 # classic 4-wave
+        (1, 5, 9, 13),                  # left-shifted
+        (3, 7, 11, 15),                 # right-shifted
+        (2, 4, 8, 12),                  # compressed
+        (2, 5, 8, 11, 14),              # staggered 5-wave
+        (2, 7, 12, 17),                 # wider gaps
+        (2, 3, 4, 5, 6, 7),             # dense local cluster
+        (2, 6, 10, 14, 18, 22)          # extended 6-wave
+    ]
+
+    # Small template bank of connector gadgets (relative coordinates)
+    template_bank = [
+        [(1, 5), (12, 16), (4, 9), (8, 13)],
+        [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
+        [(1, 4), (6, 9), (3, 7), (9, 13)],
+        [(2, 6), (7, 11), (0, 3), (10, 14)],
+        [(1, 3), (3.5, 6.5), (6, 9), (9.5, 12.5)],
+        [(0.2, 1.2), (2.2, 3.2), (4.2, 5.2)]
+    ]
+
+    # Conservative estimate of usable main rounds given the cap
+    est_rounds = _estimate_depth_by_cap(len(T), MAX_CAP, pattern_bank, template_bank, max_depth_hint=max(10))
+    rounds_main = min(depth, est_rounds) if est_rounds > 0 else min(depth, 1)
+
+    # Build main rounds adaptively
+    for round_idx in range(rounds_main):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo if hi > lo else 1.0
+
+        # Choose starts (possibly rotated)
+        starts = list(pattern_bank[round_idx % len(pattern_bank)]) if rotate_starts else list(pattern_bank[0])
+
+        # To be conservative with cap, limit starts used in a round when cap is small
+        max_starts_allowed = 8
+        if len(starts) > max_starts_allowed:
+            starts = starts[:max_starts_allowed]
+
+        # Alternate interleaving order every two rounds to break periodic reuse
+        if ((round_idx // 2) % 2) == 0:
+            order_starts = list(starts)
+        else:
+            order_starts = list(reversed(starts))
+
+        # Build translated blocks
+        blocks = []
+        for b_idx, s in enumerate(order_starts):
+            block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+            shift = delta * s - lo
+            block = []
+            # append clones (preserving relative order inside the block)
+            for (l, r) in block_src:
+                block.append((l + shift, r + shift))
+            # Light micro-cap inside some blocks to couple colors locally
+            if (b_idx % 3) == 0:
+                # small short interval inside the block region (keeps locality)
+                if block:
+                    b_left = block[0][0]
+                    b_right = block[-1][1]
+                    seg = max(0.1, (b_right - b_left) * 0.15)
+                    block.append((b_left + seg, b_left + 2 * seg))
+            blocks.append(block)
+
+        # Interleave blocks round-robin (or concatenate)
+        S = []
+        if interleave_blocks and blocks:
+            maxlen = max(len(b) for b in blocks)
+            # rotate the visiting order each round a bit to diversify linking
+            order = list(range(len(blocks)))
+            krot = round_idx % len(order)
+            order = order[krot:] + order[:krot]
+            for i in range(maxlen):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+
+        # Add short connectors only between adjacent blocks to avoid producing a large clique
+        for i in range(len(order_starts) - 1):
+            sa = order_starts[i]
+            sb = order_starts[i + 1]
+            left = delta * (sa + 0.85) - lo
+            right = delta * (sb + 0.15) - lo
+            # make connector short relative to block spacing
+            c_left = min(left, right) - 0.02 * delta
+            c_right = max(left, right) + 0.02 * delta
+            S.append((c_left, c_right))
+
+        # Add the selected gadget/template (scaled) to S to couple colors across the block
+        template = template_bank[round_idx % len(template_bank)]
+        for (a, b) in template:
+            S.append((delta * a - lo, delta * b - lo))
+
+        # Optionally add a couple of localized spines (short to medium length, not spanning all blocks)
+        if round_idx % 2 == 0 and order_starts:
+            # short spine near the first and last block, but kept local so omega does not blow up
+            s_first = order_starts[0]
+            s_last = order_starts[-1]
+            spine1_l = delta * (s_first + 0.2) - lo
+            spine1_r = delta * (s_first + 1.0) - lo
+            spine2_l = delta * (s_last - 1.0) - lo
+            spine2_r = delta * (s_last - 0.2) - lo
+            S.append((spine1_l, spine1_r))
+            S.append((spine2_l, spine2_r))
+
+        # Truncate if we're approaching the cap to remain safe
+        if len(S) > MAX_CAP - 8:
+            S = S[:max(0, MAX_CAP - 8)]
+
+        T = S
+
+        # If small or empty, break
+        if not T:
+            break
+
+    # Two-phase small-delta filler (if there is remaining requested depth)
+    second_phase_rounds = max(0, depth - rounds_main)
+    if second_phase_rounds > 0 and T:
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo if hi > lo else 1.0
+        delta2 = max(1.0, math.floor(delta / 2.0))
+        # run up to 3 micro rounds (or fewer depending on cap)
+        micro_rounds = min(3, second_phase_rounds)
+        for r in range(micro_rounds):
+            starts_small = pattern_bank[(rounds_main + r) % len(pattern_bank)]
+            # reduce number of starts to keep micro-phase small and local
+            starts_small = list(starts_small)[:min(6, len(starts_small))]
+            S2 = []
+            for i, s in enumerate(starts_small):
+                source = T if (i % 2 == 0) else list(reversed(T))
+                # use reduced shift factor to keep these copies overlapping in interesting ways
+                shift = (delta2 * s - lo) * 0.5
+                for (l, rr) in source:
+                    S2.append((l + shift, rr + shift))
+            # include a tiny template to disturb FirstFit a little more
+            tiny_template = template_bank[(rounds_main + r) % len(template_bank)]
+            for (a, b) in tiny_template[:2]:
+                S2.append((delta2 * a - lo, delta2 * b - lo))
+            if len(S2) > MAX_CAP - 4:
+                S2 = S2[:max(0, MAX_CAP - 4)]
+            T = S2
+            if not T:
+                break
+
+    # Optional micro-phase sprinkling long sparse caps near the end to pressure FirstFit
+    if phase2_micro and T:
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = max(1.0, hi - lo)
+        # plan up to a few caps, as many as cap allows
+        max_caps = min(12, max(0, MAX_CAP - len(T)))
+        insert_pos = max(0, len(T) - (max_caps * 2 + 1))
+        for m in range(max_caps):
+            a = lo + (m + 1) * span * 0.08
+            b = a + span * 0.14
+            cap_interval = (a, b)
+            if insert_pos >= len(T):
+                T.append(cap_interval)
+            else:
+                T.insert(insert_pos, cap_interval)
+            insert_pos += 1
+
+    # Final normalization to non-negative integer endpoints
+    if not T:
+        return []
+
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+        T = [(l - min_l, r - min_l) for l, r in T]
+
+    # Ensure a minimum length so integer rounding does not collapse intervals
+    normalized = []
+    for (l, r) in T:
+        if r - l < 0.5:
+            r = l + 0.5
+        li = int(round(l))
+        ri = int(round(r))
+        if ri <= li:
+            ri = li + 1
+        normalized.append((li, ri))
+
+    # Deduplicate and respect MAX_CAP
+    out = []
+    seen = set()
+    for (li, ri) in normalized:
+        if len(out) >= MAX_CAP:
+            break
+        if (li, ri) in seen:
+            continue
+        seen.add((li, ri))
+        out.append((li, ri))
+
+    return out
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

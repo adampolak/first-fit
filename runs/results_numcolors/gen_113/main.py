@@ -1,0 +1,81 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  starts = (2, 6, 10, 14)
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    # build translated blocks in sequence (no interleaving)
+    blocks = []
+    for bi, start in enumerate(starts):
+      # Alternate clone orientation across blocks and rounds to increase FF mixing
+      block_T = T if ((round_idx + bi) % 2 == 0) else list(reversed(T))
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in block_T])
+    S = []
+    # interleave blocks on even rounds, sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # connectors based on the fixed starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+  # Micro-phase: a 4-interval "ladder" chain to push FF colors while keeping micro-clique small.
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  # Ladder intervals chosen so that I1∩I3 = ∅ and I2∩I4 = ∅ (consecutive overlaps only).
+  ladder = [
+    (lo + 0.12 * delta, lo + 0.58 * delta),  # I1
+    (lo + 0.30 * delta, lo + 0.74 * delta),  # I2 (overlaps I1)
+    (lo + 0.56 * delta, lo + 0.90 * delta),  # I3 (overlaps I2)
+    (lo + 0.78 * delta, lo + 0.98 * delta),  # I4 (overlaps I3)
+  ]
+  T.extend(ladder)
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

@@ -1,0 +1,70 @@
+<NAME>six_template_bank</NAME>
+<DESCRIPTION>Expand the KT spine template bank from 4 to 6 templates to improve color-mixing opportunities while keeping connectors robust. The KT connectors will still use the first four templates, allowing the extra two templates to enrich diversity without breaking compatibility. This targets higher FirstFit color usage without inflating omega.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shift
+    (3, 7, 11, 15),  # right-shift
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shift
+    (3, 7, 11, 15),  # right-shift
+    (4, 8, 12, 16),  # stretched-right
+    (0, 4, 8, 12),   # compressed-left
+    (1, 4, 9, 13),   # extra varied
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>kt_connectors_robust_for_multi_template</NAME>
+<DESCRIPTION>Make the KT-connector appender robust to a longer template bank. Use the first four entries for the connectors if available; otherwise fall back to a safe default. This preserves compatibility with 6 templates while keeping behavior stable.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _append_kt_connectors(S, starts, delta, lo):
+    s0, s1, s2, s3 = starts
+    # scale by delta and shift by lo to keep integer coordinates consistent
+    S.append(((s0 - 1) * delta + lo, (s1 - 1) * delta + lo))  # left cap
+    S.append(((s2 + 2) * delta + lo, (s3 + 2) * delta + lo))  # right cap
+    S.append(((s0 + 2) * delta + lo, (s2 - 1) * delta + lo))  # cross 1
+    S.append(((s1 + 2) * delta + lo, (s3 - 1) * delta + lo))  # cross 2
+=======
+  def _append_kt_connectors(S, starts, delta, lo):
+    if len(starts) >= 4:
+      s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+    else:
+      s0, s1, s2, s3 = 2, 6, 10, 14
+    S.append(((s0 - 1) * delta + lo, (s1 - 1) * delta + lo))  # left cap
+    S.append(((s2 + 2) * delta + lo, (s3 + 2) * delta + lo))  # right cap
+    S.append(((s0 + 2) * delta + lo, (s2 - 1) * delta + lo))  # cross 1
+    S.append(((s1 + 2) * delta + lo, (s3 - 1) * delta + lo))  # cross 2
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>seed_expansion_to_six</NAME>
+<DESCRIPTION>When seed_count > 1, allow up to six seeds and slightly larger step spacing to spread seeds more widely. This enhances early coupling diversity while keeping CAP/omega in check. Default behavior remains unchanged for seed_count <= 1.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    # deterministic sparse multi-seed, limit to avoid early clique blow-up
+    seeds = min(4, max(1, int(seed_count)))
+    step = 3
+    T = [(i * step, i * step + 1) for i in range(seeds)]
+=======
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    # deterministic sparse multi-seed, limit to avoid early clique blow-up
+    seeds = min(6, max(2, int(seed_count)))
+    step = 4
+    T = [(i * step, i * step + 1) for i in range(seeds)]
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,184 @@
+<NAME>
+micro_shrinker_and_pins
+</NAME>
+
+<DESCRIPTION>
+I replace the micro-phase builder to inject many short "pin" intervals and double localized blockers per block, while trimming potentially clique-inflating long connectors. The idea is to keep the KT spine intact (which provides a long, low-omega backbone) and then apply a shrinker inside the micro rounds so that every cloned interval becomes very short relative to the micro scale. This stabilizes omega while the order-engineered blockers and interleaving continue to push FirstFit to introduce new colors.
+
+Concretely:
+- In micro_round:
+  - Increase the sample slightly and shrink each cloned interval to a short epsilon window around its midpoint (epsilon = max(1, delta//64)).
+  - Add two short blockers per block (near the left and right interior), placed first in arrival order, to consume low colors early.
+  - Retain interleaving with rotated order to couple across blocks.
+  - Reduce micro connectors to the two “cap” connectors only, dropping cross connectors and the long-range extra to avoid unnecessary omega inflation at the micro scale.
+
+- In the final phase:
+  - Replace long caps with short micro-pins at spread positions (quarters and mid). These avoid inflating omega, yet can add pressure in dense regions late without undoing the micro-phase gains.
+
+This preserves determinism and capacity while targeting a higher FF/omega ratio: more FF pressure via added blockers and interleaving, less omega growth via aggressive shrinking and safer connector selection.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def micro_round(curr, rid, scale_div, extras, budget_hint):
+        lo = min(l for l, _ in curr)
+        hi = max(r for _, r in curr)
+        G = max(1, hi - lo)
+        delta = max(1, G // scale_div)
+
+        # adaptive sample size: increase floor so micro gadgets exert stronger FF pressure
+        per_floor = 12
+        per = min(128, max(per_floor, budget_hint // 10, len(curr) // 80))
+        U = thin_seed(curr, per)
+        if not U:
+            return []
+
+        # build blocks with parity‐reversal and deterministic rotation to diversify interactions
+        starts = (2, 6, 10, 14)
+        ulo = min(l for l, _ in U)
+        blocks = []
+        for idx, s in enumerate(starts):
+            base = s * delta - ulo
+            blk = [(l + base, r + base) for (l, r) in U]
+            if (s // 2) % 2 == rid % 2:
+                blk.reverse()
+            # insert a tiny localized blocker at the start of each block to consume small colors
+            if blk:
+                # small offset inside block; keep as float until normalization
+                b_l = blk[0][0] + 0.1 * (delta if delta > 1 else 1)
+                b_r = b_l + 1.0
+                blk.insert(0, (b_l, b_r))
+            blocks.append(blk)
+
+        # Interleave with a rotated order to improve cross-block coupling
+        out = []
+        order_idx = list(range(len(blocks)))
+        krot = rid % len(order_idx)
+        order_idx = order_idx[krot:] + order_idx[:krot]
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for idx in order_idx:
+                b = blocks[idx]
+                if i < len(b):
+                    out.append(b[i])
+
+        # connectors: classic + extras, and optionally a long-range tie when budget allows
+        s0, s1, s2, s3 = starts
+        con = [
+            ((s0 - 1) * delta + lo, (s1 - 1) * delta + lo),
+            ((s2 + 2) * delta + lo, (s3 + 2) * delta + lo),
+            ((s0 + 2) * delta + lo, (s2 - 1) * delta + lo),
+            ((s1 + 2) * delta + lo, (s3 - 1) * delta + lo),
+        ]
+        for (i, da, j, db) in extras:
+            con.append(((starts[i] + da) * delta + lo, (starts[j] + db) * delta + lo))
+
+        if budget_hint > 50:
+            # long-range extra to couple many colors across the micro gadget
+            con.append(((s0 + 4) * delta + lo, (s3 + 4) * delta + lo))
+
+        out.extend(con)
+        return out
+=======
+    def micro_round(curr, rid, scale_div, extras, budget_hint):
+        lo = min(l for l, _ in curr)
+        hi = max(r for _, r in curr)
+        G = max(1, hi - lo)
+        delta = max(1, G // scale_div)
+
+        # adaptive sample size: slightly larger sample to strengthen micro pressure
+        per_floor = 16
+        per = min(192, max(per_floor, budget_hint // 10, len(curr) // 64))
+        U = thin_seed(curr, per)
+        if not U:
+            return []
+
+        # build blocks with parity-reversal and deterministic rotation; then shrink
+        starts = (2, 6, 10, 14)
+        ulo = min(l for l, _ in U)
+        eps = max(1, delta // 64)  # micro pin length
+        blocks = []
+        for idx, s in enumerate(starts):
+            base = s * delta - ulo
+            raw_blk = [(l + base, r + base) for (l, r) in U]
+            if (s // 2) % 2 == rid % 2:
+                raw_blk.reverse()
+
+            # two localized blockers to preoccupy small colors inside the block
+            blockers = []
+            if raw_blk:
+                left_anchor = int(raw_blk[0][0] + max(1, delta // 10))
+                right_anchor = int(raw_blk[-1][1] - max(1, delta // 8))
+                blockers.append((left_anchor, left_anchor + eps))
+                if right_anchor - eps > left_anchor:
+                    blockers.append((right_anchor, right_anchor + eps))
+
+            # shrink each interval in the block to a short "pin" to limit omega
+            shrunk = []
+            for (l, r) in raw_blk:
+                mid = (l + r) // 2
+                L = mid - eps // 2
+                R = L + eps
+                if R > L:
+                    shrunk.append((L, R))
+
+            # present blockers first in order to consume smaller colors early
+            if blockers:
+                shrunk = blockers + shrunk
+            blocks.append(shrunk)
+
+        # Interleave with a rotated order to improve cross-block coupling
+        out = []
+        order_idx = list(range(len(blocks)))
+        krot = rid % len(order_idx)
+        order_idx = order_idx[krot:] + order_idx[:krot]
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for idx in order_idx:
+                b = blocks[idx]
+                if i < len(b):
+                    out.append(b[i])
+
+        # connectors: keep only the two cap connectors at micro scale to avoid omega blow-up
+        s0, s1, s2, s3 = starts
+        con = [
+            ((s0 - 1) * delta + lo, (s1 - 1) * delta + lo),  # left cap
+            ((s2 + 2) * delta + lo, (s3 + 2) * delta + lo),  # right cap
+        ]
+        out.extend(con)
+        return out
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    # Phase 3: final sparse caps
+    if len(intervals) < CAP:
+        lo = min(l for l, _ in intervals)
+        hi = max(r for _, r in intervals)
+        G = max(1, hi - lo)
+        d = max(1, G//3)
+        caps = [
+            (lo + d, lo + 4*d),
+            (hi - 5*d, hi - 2*d),
+            ((lo+hi)//2 - 2*d, (lo+hi)//2 + 3*d),
+        ]
+        rem = CAP - len(intervals)
+        intervals.extend(caps[:rem])
+=======
+    # Phase 3: final micro-pins (short caps) to avoid inflating omega
+    if len(intervals) < CAP:
+        lo = min(l for l, _ in intervals)
+        hi = max(r for _, r in intervals)
+        G = max(1, hi - lo)
+        step = max(1, G // 9)
+        eps = max(1, step // 8)
+        centers = [lo + 2 * step, (lo + hi) // 2, hi - 2 * step, lo + 5 * step]
+        pins = []
+        for c in centers:
+            L = int(c - eps // 2)
+            R = L + int(eps)
+            if R > L:
+                pins.append((L, R))
+        rem = CAP - len(intervals)
+        intervals.extend(pins[:rem])
+>>>>>>> REPLACE
+
+</DIFF>

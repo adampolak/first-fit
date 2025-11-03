@@ -1,0 +1,334 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2):
+  """
+  Braided, parity-driven KT-style spine plus dual micro-phase pulses.
+
+  Inputs (kept for API compatibility):
+    rounds (int): desired spine depth (adaptively capped to capacity).
+    rotate_starts (bool): rotate 4-start templates across rounds.
+    reverse_block_parity (bool): reverse per-block order on odd blocks.
+    interleave_blocks (bool): interleave blocks on even rounds.
+    phase2_iters (int): up to 2 micro iterations in phase A; phase B is a second, distinct window set.
+
+  Returns:
+    intervals: list of (l, r) integer tuples (open intervals) in FirstFit arrival order.
+  """
+
+  # Global capacity guard
+  CAP = 9800
+
+  # Deterministic global seed
+  BASE_SEED = 0xC0FFEE
+
+  # Four-start template bank (rotated deterministically)
+  TEMPLATES = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (2, 4, 8, 12),   # compressed
+  ]
+
+  # Utility: span and delta
+  def span_delta(T):
+    lo = min(l for l, _ in T)
+    hi = max(r for _, r in T)
+    d = hi - lo
+    if d <= 0:
+      d = 1
+    return lo, hi, d
+
+  # Utility: linear congruential generator (deterministic)
+  def lcg(x):
+    return (x * 1103515245 + 12345) & 0x7FFFFFFF
+
+  # Size predictor: sz -> 4*sz + 4 connectors
+  def predict_next_size(sz):
+    return 4 * sz + 4
+
+  # Determine max spine rounds within CAP
+  def max_rounds_within_cap(initial_size, want_rounds):
+    sz = initial_size
+    done = 0
+    for _ in range(max(0, int(want_rounds))):
+      nxt = predict_next_size(sz)
+      if nxt > CAP:
+        break
+      sz = nxt
+      done += 1
+    return done
+
+  # Add classic connectors; optionally add a cross4 connector
+  def append_connectors(S, starts, delta, lo_offset=0, add_cross4=False, scale=1):
+    s0, s1, s2, s3 = starts
+    a = ((s0 - 1) * delta * scale + lo_offset, (s1 - 1) * delta * scale + lo_offset)
+    b = ((s2 + 2) * delta * scale + lo_offset, (s3 + 2) * delta * scale + lo_offset)
+    c = ((s0 + 2) * delta * scale + lo_offset, (s2 - 1) * delta * scale + lo_offset)
+    d = ((s1 + 2) * delta * scale + lo_offset, (s3 - 1) * delta * scale + lo_offset)
+    S.extend([a, b, c, d])
+    if add_cross4:
+      e = ((s0 + 4) * delta * scale + lo_offset, (s3 + 4) * delta * scale + lo_offset)
+      S.append(e)
+
+  # Add a sparse long-range cross connector layer across distant scales
+  def append_cross_range_connectors(S, delta, lo_offset=0, klist=(4, 5, 6)):
+    # Choose a tiny set of long connectors; keep sparse to avoid omega blow-up
+    # These couple far blocks without creating big cliques near any single point.
+    for k in klist[:2]:  # keep just two to stay safe
+      L = lo_offset + (k - 3) * delta
+      R = lo_offset + (k + 1) * delta
+      if R > L:
+        S.append((L, R))
+
+  # Build a spine round with parity braiding and optional density K
+  def apply_spine_round(current_T, starts, ridx, use_interleave=True, reverse_block_order=False, K=1, allow_cross4=False):
+    lo, hi, delta = span_delta(current_T)
+
+    # Build translated blocks; reverse every odd block if requested
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      src = current_T[::-1] if (reverse_block_order and (b_idx % 2 == 1)) else current_T
+      base = s * delta * K - lo
+      block = [(int(l + base), int(r + base)) for (l, r) in src]
+      blocks.append(block)
+
+    # Ordering: even rounds interleave, odd rounds sequential (reversed order)
+    S = []
+    if use_interleave and (ridx % 2 == 0):
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      # small round-based rotation
+      krot = (ridx // 2) % len(order)
+      order = order[krot:] + order[:krot]
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      seq = list(reversed(blocks)) if (ridx % 2 == 1) else blocks
+      for blk in seq:
+        S.extend(blk)
+
+    # Classic connectors; cross4 only on late rounds
+    append_connectors(S, starts, delta, lo_offset=0, add_cross4=allow_cross4, scale=K)
+
+    # Late rounds: add a tiny long-range cross layer
+    if allow_cross4:
+      append_cross_range_connectors(S, delta * K, lo_offset=0, klist=(4, 6, 5))
+
+    return S
+
+  # Thin, evenly-spaced sample from T
+  def thin_seed(T, kmax):
+    n = len(T)
+    if n == 0 or kmax <= 0:
+      return []
+    step = max(1, n // kmax)
+    return T[::step][:kmax]
+
+  # Build a micro-phase at half-scale with windowed translations and sparse connectors
+  def build_micro_phase(current_T, seed, round_id, budget, alt_windows=False, add_cross4=False):
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, _ in current_T)
+    ghi = max(r for _, r in current_T)
+    G = max(1, ghi - glo)
+    delta2 = max(1, G // 2)
+
+    # Derive a small seed deterministically, bounded to keep omega low
+    ssz = max(12, min(96, len(current_T) // 240))
+    U = thin_seed(current_T, ssz)
+    if not U:
+      return []
+
+    ulo = min(l for l, _ in U)
+
+    # Window families
+    if not alt_windows:
+      # primary, with a tiny deterministic shift
+      shift = ((seed ^ (round_id * 137)) % 7) * 0.01  # 0..0.06
+      windows = [
+        (0.10 + shift, 0.20 + shift),
+        (0.32 + shift, 0.42 + shift),
+        (0.55 + shift, 0.65 + shift),
+        (0.78 + shift, 0.88 + shift),
+      ]
+    else:
+      # alternate, fixed
+      windows = [
+        (0.05, 0.15),
+        (0.28, 0.38),
+        (0.60, 0.70),
+        (0.82, 0.92),
+      ]
+
+    # Clamp and sort windows
+    wf = []
+    for a, b in windows:
+      a = max(0.03, min(0.95, a))
+      b = max(a + 0.01, min(0.97, b))
+      wf.append((a, b))
+
+    # Build translated blocks per window with parity-based reversals
+    blocks = []
+    for j, (fa, fb) in enumerate(wf):
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(int(l + base), int(r + base)) for (l, r) in U]
+      # reverse half of the blocks depending on tag to break alignment
+      tag = ((seed >> 3) + round_id + j + (1 if alt_windows else 0)) % 2
+      if tag == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave policy: even round_id -> forward; odd -> reverse order of blocks
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if round_id % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Add localized connectors at delta2 scale (relative to glo)
+    starts = (2, 6, 10, 14)
+    append_connectors(micro, starts, delta2, lo_offset=glo, add_cross4=add_cross4, scale=1)
+
+    # Occasionally add a single long-range micro connector
+    if add_cross4 and (seed % 3 == 1):
+      L = glo + int(0.18 * G)
+      R = glo + int(0.84 * G)
+      if R > L:
+        micro.append((L, R))
+
+    # Sparse long caps to increase overlap diversity but remain safe
+    mid = glo + G // 2
+    extra_caps = [
+      (glo + max(1, delta2 // 5), glo + max(2, int(1.6 * delta2))),
+      (glo + max(1, int(0.9 * delta2)), glo + max(3, int(2.6 * delta2))),
+      (mid - max(1, delta2 // 8),     mid + max(1, delta2 // 8)),
+    ]
+    for (a, b) in extra_caps:
+      if b > a:
+        micro.append((a, b))
+
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Tiny tail sprinkling: a few long caps near the end
+  def sprinkle_tail_caps(T, how_many=3):
+    if how_many <= 0 or not T:
+      return T
+    lo, hi, delta = span_delta(T)
+    d2 = max(1, delta // 3)
+    caps = [
+      (lo + 1 * d2, lo + 6 * d2),
+      (lo + 3 * d2, lo + 9 * d2),
+      (hi - 7 * d2, hi - 2 * d2),
+    ][:how_many]
+    out = list(T)
+    for i, iv in enumerate(caps):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  # MAIN: build the braided spine
+  T = [(0, 1)]
+  depth = max_rounds_within_cap(len(T), rounds)
+
+  seed = BASE_SEED
+  for ridx in range(depth):
+    starts = TEMPLATES[ridx % len(TEMPLATES)] if rotate_starts else TEMPLATES[0]
+    # Parity policies
+    use_interleave = bool(interleave_blocks)
+    reverse_blocks = bool(reverse_block_parity and (ridx % 2 == 1))
+    # Density: start with K=1, then K=2 from round 2 onward
+    K = 1 if ridx <= 0 else 2
+    # Add cross4 only on last two rounds to avoid omega blow-up
+    allow_cross4 = (ridx >= depth - 2)
+    T = apply_spine_round(T, starts, ridx, use_interleave=use_interleave, reverse_block_order=reverse_blocks, K=K, allow_cross4=allow_cross4)
+    seed = lcg(seed)
+    if len(T) >= CAP - 64:
+      break
+
+  # Early return if at capacity
+  if len(T) >= CAP:
+    return T[:CAP]
+
+  # Sprinkle a tiny set of tail caps (safe)
+  room = CAP - len(T)
+  if room > 6:
+    T = sprinkle_tail_caps(T, how_many=min(3, room // 2))
+
+  # Dual micro-phases: A (primary windows) and B (alternate windows)
+  remaining = CAP - len(T)
+  if remaining > 12:
+    budgetA = max(12, remaining // 3)
+    microA = build_micro_phase(T, seed=lcg(seed), round_id=0, budget=budgetA, alt_windows=False, add_cross4=True)
+    if microA:
+      take = min(len(microA), CAP - len(T))
+      T.extend(microA[:take])
+      seed = lcg(seed)
+
+  remaining = CAP - len(T)
+  if remaining > 12:
+    budgetB = max(12, remaining // 2)
+    microB = build_micro_phase(T, seed=lcg(seed), round_id=1, budget=budgetB, alt_windows=True, add_cross4=False)
+    if microB:
+      take = min(len(microB), CAP - len(T))
+      T.extend(microB[:take])
+      seed = lcg(seed)
+
+  # Final tiny micro-iteration if requested by phase2_iters (>1)
+  remaining = CAP - len(T)
+  extra_iters = min(max(0, int(phase2_iters) - 1), 1)
+  if extra_iters > 0 and remaining > 8:
+    microC = build_micro_phase(T, seed=lcg(seed), round_id=2, budget=min(remaining, 128), alt_windows=False, add_cross4=False)
+    if microC:
+      T.extend(microC[:CAP - len(T)])
+
+  # Enforce final capacity
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  # Normalize to non-negative integer endpoints
+  if not T:
+    return []
+  min_l = min(l for l, _ in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for (l, r) in T]
+
+  # Ensure integer endpoints and positive length
+  out = []
+  for (l, r) in T:
+    li = int(l)
+    ri = int(r)
+    if ri <= li:
+      ri = li + 1
+    out.append((li, ri))
+
+  return out
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

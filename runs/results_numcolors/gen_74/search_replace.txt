@@ -1,0 +1,44 @@
+<NAME>
+densest_point_candidates
+</NAME>
+
+<DESCRIPTION>
+Extend the candidate pool in the greedy adversary by boosting `max_candidates` and injecting intervals centered at the densest overlap point. This focuses search on high-congestion regions, aiming to force FirstFit to use new colors without increasing the clique number too much.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        # generate candidate pool deterministically
+        cand_pool = generate_candidates(intervals,
+                                        grid_step=max(1.0, max(1.0, (max((r for _, r in intervals), default=10.0) - min((l for l, _ in intervals), default=0.0)) / 40.0)),
+                                        lengths=(0.8, 1.5, 3.0, 6.0),
+                                        max_candidates=200)
+=======
+        # generate candidate pool deterministically (expanded)
+        cand_pool = generate_candidates(intervals,
+                                        grid_step=max(1.0, max(1.0, (max((r for _, r in intervals), default=10.0) - min((l for l, _ in intervals), default=0.0)) / 40.0)),
+                                        lengths=(0.8, 1.5, 3.0, 6.0, 12.0),
+                                        max_candidates=400)
+        # Add candidates at densest overlap point to boost FF pressure
+        events = []
+        for l, r in intervals:
+            events.append((l, 1))
+            events.append((r, -1))
+        events.sort()
+        cur = 0
+        mx = 0
+        dens_t = None
+        for t, delta in events:
+            cur += delta
+            if cur > mx:
+                mx = cur
+                dens_t = t
+        if dens_t is not None:
+            for L in (0.5, 1.5, 3.0, 6.0, 12.0):
+                l = dens_t - 0.5 * L
+                r = dens_t + 0.5 * L
+                cand = canonicalize_interval((l, r))
+                if cand not in cand_pool:
+                    cand_pool.append(cand)
+>>>>>>> REPLACE
+</DIFF>

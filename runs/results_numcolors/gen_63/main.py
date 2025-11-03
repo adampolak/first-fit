@@ -1,0 +1,219 @@
+# EVOLVE-BLOCK-START
+
+from math import floor
+
+def construct_intervals(max_intervals=9800,
+                        rounds=6,
+                        phase2_iters=3,
+                        seed_size=4,
+                        micro_phase=True):
+  """
+  Two-phase Kierstead-style interval construction with modular helpers.
+
+  Parameters:
+    max_intervals (int): cap on number of intervals produced.
+    rounds (int): number of main-phase rounds (adaptive capped by max_intervals).
+    phase2_iters (int): number of smaller-scale follow-up rounds (delta2-phase).
+    seed_size (int): number of disjoint seed unit intervals to start with.
+    micro_phase (bool): whether to append sparse long-range caps at the end.
+
+  Returns:
+    intervals: list of (l, r) integer tuples in presentation order for FirstFit.
+  """
+
+  # -----------------------
+  # Helper functions
+  # -----------------------
+  def span(T):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    return lo, hi, max(1, hi - lo)
+
+  def translate_block(T, shift, lo, delta, reverse=False):
+    base = shift * delta - lo
+    src = list(reversed(T)) if reverse else T
+    return [(l + base, r + base) for (l, r) in src]
+
+  def interleave_round(blocks, round_idx, alternate_every=2):
+    # Alternate interleaving order every 'alternate_every' rounds (deterministic)
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    # Reverse the block visitation order every 'alternate_every' rounds to break patterns
+    if ((round_idx // alternate_every) % 2) == 1:
+      order = order[::-1]
+    # cyclic rotate order by round_idx to diversify interactions
+    krot = round_idx % len(order)
+    order = order[krot:] + order[:krot]
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+    return S
+
+  def make_connectors(starts, delta):
+    # deterministic 4 connectors derived from first 4 starts (KT-style)
+    s0, s1, s2, s3 = starts[:4]
+    return [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+
+  def add_blockers(delta, lo, starts):
+    # small localized blockers (short intervals) inside each translated block span
+    blockers = []
+    for i, s in enumerate(starts):
+      base = s * delta - lo
+      # choose offsets 1,2,3 cyclically to avoid creating large cliques across blocks
+      offset = 1 + (i % 3)
+      blockers.append((base + offset, base + offset + 1))
+    return blockers
+
+  def normalize_intervals(T):
+    if not T:
+      return []
+    min_l = min(l for l, r in T)
+    if min_l < 0:
+      T = [(l - min_l, r - min_l) for l, r in T]
+    intervals = []
+    for (l, r) in T:
+      li = int(round(l))
+      ri = int(round(r))
+      if ri <= li:
+        ri = li + 1
+      intervals.append((li, ri))
+    # cap output size
+    if len(intervals) > max_intervals:
+      intervals = intervals[:max_intervals]
+    return intervals
+
+  # -----------------------
+  # Construction parameters
+  # -----------------------
+  # an 8-pattern start cycle to diversify cadences (recommendation #5)
+  start_cycle = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (2, 4, 8, 12),
+    (2, 5, 8, 11),
+    (3, 6, 9, 12),
+    (1, 4, 7, 10),
+    (4, 8, 12, 16),
+  ]
+  # delta-block template bank (recommendation #2): small templates to add local caps each round
+  template_bank = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],
+    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
+    [(1, 4), (6, 9), (3, 7), (9, 13)],
+    [(2, 6), (7, 11), (0, 3), (10, 14)],
+  ]
+
+  # -----------------------
+  # Seed with multiple disjoint intervals (recommendation #3)
+  # -----------------------
+  seed_size = max(1, int(seed_size))
+  T = [(i * 3, i * 3 + 1) for i in range(seed_size)]
+
+  # -----------------------
+  # Adaptive cap for main rounds to respect max_intervals
+  # -----------------------
+  # conservative estimate growth per round: copies = len(starts) (4), connectors=4, blockers ~=4, templates ~=4
+  est_size = len(T)
+  allowed_rounds = 0
+  for r in range(rounds):
+    est_next = est_size * 4 + 4 + 4 + 4  # copies + connectors + blockers + templates
+    if est_next > max_intervals:
+      break
+    est_size = est_next
+    allowed_rounds += 1
+  rounds = max(0, allowed_rounds)
+
+  # -----------------------
+  # Phase I: main multi-round expansion
+  # -----------------------
+  for round_idx in range(rounds):
+    lo, hi, delta = span(T)
+    # choose starts and template for this round
+    starts = start_cycle[round_idx % len(start_cycle)]
+    template = template_bank[round_idx % len(template_bank)]
+    # build 4 translated blocks (reverse every other block to mix color order)
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      rev = (b_idx % 2 == 1)
+      blk = translate_block(T, s, lo, delta, reverse=rev)
+      blocks.append(blk)
+    # interleave blocks with alternating scheme every two rounds (recommendation #4)
+    S = interleave_round(blocks, round_idx, alternate_every=2)
+    # add a rotated template scaled by delta to place small caps inside this scale
+    for (a, b) in template:
+      S.append((a * delta - lo, b * delta - lo))
+    # add lightweight blockers to occupy small early colors per block
+    S.extend(add_blockers(delta, lo, starts))
+    # append deterministic connectors
+    S.extend(make_connectors(starts, delta))
+    T = S
+    if len(T) >= max_intervals:
+      break
+
+  # -----------------------
+  # Phase II: half-scale follow-up rounds (two-phase delta expansion recommendation #1)
+  # -----------------------
+  if T and phase2_iters > 0 and len(T) < max_intervals:
+    lo, hi, delta = span(T)
+    delta2 = max(1, floor(delta / 2))
+    # we perform a small number (phase2_iters) of rounds at this smaller subscale
+    for k in range(phase2_iters):
+      # reuse a shorter start-pattern (keep it deterministic)
+      starts2 = start_cycle[(rounds + k) % len(start_cycle)]
+      # translate copies by delta2 scale
+      blocks2 = []
+      for b_idx, s in enumerate(starts2):
+        rev = (b_idx % 2 == (k % 2))
+        # treat current T as base but scale shifts by delta2 with lo shift still from previous span
+        blocks2.append([(l + s * delta2 - lo, r + s * delta2 - lo) for (l, r) in T[::-1] if rev] or
+                       [(l + s * delta2 - lo, r + s * delta2 - lo) for (l, r) in T if not rev])
+      # interleave less aggressively (round-robin)
+      S2 = interleave_round(blocks2, k, alternate_every=2)
+      # add a couple of small micro-templates at this scale to tie color chains
+      micro_tpl = template_bank[(rounds + k) % len(template_bank)]
+      for (a, b) in micro_tpl[:2]:
+        S2.append((a * delta2 - lo, b * delta2 - lo))
+      # add a couple of connectors at this subscale
+      S2.extend(make_connectors(starts2, delta2))
+      T = S2
+      if len(T) >= max_intervals:
+        break
+
+  # -----------------------
+  # Micro-phase: sprinkle long-range caps touching many active colors
+  # -----------------------
+  if micro_phase and T:
+    lo, hi, delta = span(T)
+    d2 = max(1, delta // 4)
+    micro_caps = [
+      (lo + 1 * d2, lo + 6 * d2),
+      (hi - 7 * d2, hi - 2 * d2),
+      (lo + 3 * d2, hi - 3 * d2),   # one very long cap
+    ]
+    # insert near the end so they overlap many active colors
+    insert_base = max(0, len(T) - 5)
+    for i, it in enumerate(micro_caps):
+      pos = insert_base + i
+      if pos >= len(T):
+        T.append(it)
+      else:
+        T.insert(pos, it)
+
+  # Normalize and return
+  intervals = normalize_intervals(T)
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

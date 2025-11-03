@@ -1,0 +1,169 @@
+<NAME>
+parity_interleave_tailcaps_altmicro_cross4
+</NAME>
+
+<DESCRIPTION>
+I propose three targeted modifications that aim to push FirstFit higher without inflating the clique number, inspired by recursive KT spines and micro-phase engineering:
+
+1) Enable parity-based interleaving in the main spine and add a single long-range cross4 connector only on the final spine round. Interleaving on even rounds tends to create stronger color coupling across translated blocks while preserving the classic KT structure. The single cross4 added only at the last round increases cross-scale coupling without propagating omega growth through all rounds.
+
+2) Insert a small set of long-range tail caps between the spine and the micro-phase. These caps overlap many active colors but are sparse and carefully placed as fractions of the span to avoid increasing omega significantly.
+
+3) Add a second alt-window micro-phase (with a different window family) after the primary micro-phase, capacity-guarded. This mirrors proven strategies to diversify interactions at delta2 scale and has been effective in prior variants.
+
+All changes preserve determinism, respect the CAP, and minimally alter code structure. The main count remains within CAP; we repurpose interleaving and micro-phase structure to increase FF’s color usage against essentially the same omega, seeking to improve the competitive ratio beyond 2.30.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Round-robin rotate among four strong templates to couple colors across scales
+    starts = template_bank[ridx % 4]
+    T = apply_round(T, starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Round-robin rotate among four strong templates to couple colors across scales
+    starts = template_bank[ridx % 4]
+    # Parity-based interleaving (on even rounds) to enhance FF mixing without large omega increase
+    do_interleave = (ridx % 2 == 0)
+    T = apply_round(T, starts, do_interleave=do_interleave)
+
+    # On the final spine round, add a single long-range cross connector (cross4) to couple colors across distant spans
+    if ridx == depth - 1 and len(T) <= CAP - 1:
+      # compute span based on the just-built T (safe, deterministic)
+      lo_final = min(l for l, r in T)
+      hi_final = max(r for l, r in T)
+      delta_final = max(1, hi_final - lo_final)
+      s0, s3 = starts[0], starts[3]
+      T.append(((s0 + 4) * delta_final, (s3 + 4) * delta_final))
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # If we already reached or are near the cap, skip phase 2 safely.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 2: delta2-driven micro round using a thin seed of T to raise FF without
+  # pushing omega too high. Deterministic, capacity-bounded, and single-pass by default.
+  def build_micro_delta_round(current_T, budget):
+=======
+  # If we already reached or are near the cap, skip phase 2 safely.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Inject a small set of long-range tail caps (capacity-safe) to increase FF pressure
+  lo_span = min(l for l, r in T)
+  hi_span = max(r for l, r in T)
+  span = max(1, hi_span - lo_span)
+  def cap_at(a_frac, b_frac):
+    L = lo_span + max(1, int(round(a_frac * span)))
+    R = lo_span + max(1, int(round(b_frac * span)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  tail_caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  room_caps = CAP - len(T)
+  if room_caps > 0:
+    for c in tail_caps:
+      if len(T) >= CAP:
+        break
+      T.append(c)
+
+  # Stage 2: delta2-driven micro round using a thin seed of T to raise FF without
+  # pushing omega too high. Deterministic, capacity-bounded, and single-pass by default.
+  def build_micro_delta_round(current_T, budget):
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  return T
+=======
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  # Optional second micro-phase with an alternate window family to diversify coupling
+  def build_micro_delta_round_alt(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed: slightly smaller to control omega at alt scale
+    seed_sz = max(8, min(28, len(current_T) // 320))
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+    ulo = min(l for l, r in U)
+
+    # Alternate windows (distinct placement)
+    window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      blk = [(l + base, r + base) for (l, r) in U]
+      blocks.append(blk)
+
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = [0, 2, 1, 3]  # fixed interleave order to break symmetry
+    for i in range(maxlen):
+      for idx in order:
+        b = blocks[idx]
+        if i < len(b):
+          micro.append(b[i])
+
+    # Fractional connectors tuned for alt windows
+    connectors = [
+      (glo + int(round(0.10 * G)), glo + int(round(0.28 * G))),
+      (glo + int(round(0.52 * G)), glo + int(round(0.88 * G))),
+      (glo + int(round(0.22 * G)), glo + int(round(0.62 * G))),
+      (glo + int(round(0.40 * G)), glo + int(round(0.74 * G))),
+    ]
+    micro.extend(connectors)
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  room2 = CAP - len(T)
+  if room2 > 8:
+    microB = build_micro_delta_round_alt(T, room2)
+    if microB:
+      avail2 = CAP - len(T)
+      if len(microB) > avail2:
+        microB = microB[:avail2]
+      T.extend(microB)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

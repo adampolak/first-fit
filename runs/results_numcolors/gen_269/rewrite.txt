@@ -1,0 +1,152 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=3):
+    """
+    Augmented KT spine with three heavy micro-phases.
+
+    Parameters:
+      rounds (int): number of backbone KT rounds (default 6).
+      phase2_iters (int): number of micro-phase injections (default 3).
+    Returns:
+      list of (l, r) open intervals in FirstFit presentation order.
+    """
+    CAP = 9800
+
+    # Four‐block KT templates
+    spine_starts = (2, 6, 10, 14)
+    template_bank = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+    ]
+
+    # Seed
+    T = [(0, 1)]
+
+    def _span(X):
+        lo = min(l for l, _ in X)
+        hi = max(r for _, r in X)
+        d = hi - lo
+        return lo, hi, d if d > 0 else 1
+
+    def apply_round(X, starts, do_inter=False, rev=False, cross4=False):
+        lo, hi, d = _span(X)
+        # build 4 blocks
+        blocks = []
+        for s in starts:
+            base = s * d - lo
+            blocks.append([(l + base, r + base) for l, r in X])
+        # assemble
+        S = []
+        if do_inter:
+            order = list(range(4))
+            if rev: order.reverse()
+            M = max(len(b) for b in blocks)
+            for i in range(M):
+                for idx in order:
+                    if i < len(blocks[idx]):
+                        S.append(blocks[idx][i])
+        else:
+            seq = list(reversed(blocks)) if rev else blocks
+            for b in seq:
+                S.extend(b)
+        # classic connectors
+        s0, s1, s2, s3 = starts
+        S.append(((s0 - 1) * d, (s1 - 1) * d))
+        S.append(((s2 + 2) * d, (s3 + 2) * d))
+        S.append(((s0 + 2) * d, (s2 - 1) * d))
+        S.append(((s1 + 2) * d, (s3 - 1) * d))
+        # long‐range cross4 in final backbone round
+        if cross4:
+            S.append(((s0 + 4) * d, (s3 + 4) * d))
+        return S
+
+    # Stage 1: KT spine
+    for i in range(int(rounds)):
+        # stop if next round would exceed cap
+        if 4 * len(T) + 4 > CAP:
+            break
+        starts = template_bank[i % len(template_bank)] if rotate_starts else spine_starts
+        do_it = interleave_blocks and (i % 2 == 0)
+        rev_it = reverse_block_parity and (i % 2 == 1)
+        cross4_flag = (i == rounds - 1)
+        T = apply_round(T, starts, do_it, rev_it, cross4_flag)
+
+    # Stage 2: heavy micro-phases
+    def build_micro(X, budget, it):
+        lo, hi, G = _span(X)
+        if budget <= 8 or not X:
+            return []
+        # enlarge seed (up to 48), min size 16
+        max_bud = (budget - 4) // 4
+        max_len = len(X) // 200
+        sz = min(max_bud, max_len, 48)
+        sz = max(16, sz)
+        step = max(1, len(X) // sz)
+        U = [X[j] for j in range(0, len(X), step)][:sz]
+        if not U:
+            return []
+        ulo = min(l for l, _ in U)
+        # choose one of two window families
+        if it % 2 == 0:
+            wf = [(0.10, 0.20), (0.30, 0.40), (0.50, 0.60), (0.70, 0.80)]
+        else:
+            wf = [(0.15, 0.25), (0.35, 0.45), (0.55, 0.65), (0.75, 0.85)]
+        blocks = []
+        for fa, fb in wf:
+            start = lo + int(round(fa * G))
+            base = start - ulo
+            blk = [(l + base, r + base) for l, r in U]
+            # break symmetry
+            if ((int(round(fa * 100)) // 5) + it) % 2 == 1:
+                blk.reverse()
+            blocks.append(blk)
+        # interleave
+        M = max(len(b) for b in blocks)
+        order = list(range(4))
+        if it % 2 == 1:
+            order.reverse()
+        Mseq = []
+        for k in range(M):
+            for idx in order:
+                if k < len(blocks[idx]):
+                    Mseq.append(blocks[idx][k])
+        # add fractional connectors (slightly extended on odd iters)
+        C = []
+        for fa, fb in wf:
+            a = lo + int(round(fa * G))
+            b = lo + int(round(fb * G))
+            if it % 2 == 1:
+                a = max(lo, a - int(0.05 * G))
+                b = min(hi, b + int(0.05 * G))
+            if b > a:
+                C.append((a, b))
+        Mseq.extend(C)
+        if len(Mseq) > budget:
+            Mseq = Mseq[:budget]
+        return Mseq
+
+    for j in range(int(phase2_iters)):
+        room = CAP - len(T)
+        if room <= 8:
+            break
+        micro = build_micro(T, room, j)
+        if not micro:
+            break
+        T.extend(micro)
+
+    # enforce hard cap
+    if len(T) > CAP:
+        T = T[:CAP]
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

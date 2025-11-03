@@ -1,0 +1,67 @@
+<NAME>add_cross3_connector</NAME>
+<DESCRIPTION>
+Add a long-range “cross3” connector in the spine-phase connector list to boost cross-block coupling without increasing the clique number. This injects an extra connector (s0+3 → s3+3) per round.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+=======
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+      (delta * (s0 + 3), delta * (s3 + 3)),  # cross 3 (long-range)
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>extend_micro_phase</NAME>
+<DESCRIPTION>
+Replace the single micro-phase with a two-step small-scale delta expansion.
+First round (scale=4) adds two end caps; second round (scale=3) adds two end caps plus a mid-range cap.
+Each cap’s endpoints are rounded to integers to ensure valid open intervals.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  # micro-phase: small-scale delta expansion to sprinkle long caps
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta2 = max(1, (hi - lo) // 4)
+  # create sparse long-range caps overlapping many active colors
+  micro = [(lo + delta2, lo + 5 * delta2), (hi - 6 * delta2, hi - 2 * delta2)]
+  for it in micro:
+    T.append(it)
+  return T
+=======
+  # micro-phase: two-step small-scale delta expansions to sprinkle long caps
+  for step, scale in enumerate((4, 3)):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta_m = max(1, (hi - lo) // scale)
+    # create sparse long-range caps overlapping many active colors
+    caps = []
+    if step == 0:
+      # first micro round: two end caps
+      caps = [(lo + delta_m, lo + 5 * delta_m),
+              (hi - 6 * delta_m, hi - 2 * delta_m)]
+    else:
+      # second micro round: add a mid cap as well
+      mid = (lo + hi) / 2
+      caps = [(lo + delta_m, lo + 4 * delta_m),
+              (mid - 2 * delta_m, mid + 2 * delta_m),
+              (hi - 5 * delta_m, hi - delta_m)]
+    for lcap, rcap in caps:
+      T.append((int(round(lcap)), int(round(rcap))))
+  return T
+>>>>>>> REPLACE
+</DIFF>

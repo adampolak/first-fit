@@ -1,0 +1,127 @@
+<NAME>
+six_rounds_sequential_delta2
+</NAME>
+
+<DESCRIPTION>
+I switch the construction back to a six‑round sequential four-block expansion (no interleaving, no parity reversal) to reach the proven high‑pressure regime near the 10k cap, which historically yields much higher FirstFit/omega ratios than the smaller, interleaved variants. I also add a deterministic delta2 extension at the end: one small scaled set of connectors (derived from delta2 = floor(delta/2)) plus a short centered cap. This is designed to couple colors across scales without increasing the clique much, in line with the “delta2 extension” heuristic and the KT‑style gadgets. Finally, normalization now rounds endpoints (instead of flooring), preserving the intended geometry more faithfully. I disable the extra post‑round expansion to stay within budget and avoid disrupting the 6‑round structure.
+
+Combined, these edits should push the instance size to ~9565 intervals, enhance FF pressure with minimal omega growth, and improve the competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _normalize_to_int_intervals(intervals):
+    """Convert to non-negative integer endpoints with minimal adjustments."""
+    if not intervals:
+        return []
+    min_l = min(l for l, _ in intervals)
+    if min_l < 0:
+        intervals = [(l - min_l, r - min_l) for l, r in intervals]
+    # Ensure strictly positive span per interval
+    normalized = []
+    for (l, r) in intervals:
+        li = int(l)
+        ri = int(r)
+        if ri <= li:
+            ri = li + 1
+        normalized.append((li, ri))
+    return normalized
+=======
+def _normalize_to_int_intervals(intervals):
+    """Convert to non-negative integer endpoints using rounding, preserving spans."""
+    if not intervals:
+        return []
+    min_l = min(l for l, _ in intervals)
+    if min_l < 0:
+        intervals = [(l - min_l, r - min_l) for l, r in intervals]
+    # Ensure strictly positive span per interval
+    normalized = []
+    for (l, r) in intervals:
+        li = int(round(l))
+        ri = int(round(r))
+        if ri <= li:
+            ri = li + 1
+        normalized.append((li, ri))
+    return normalized
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(depth=3):
+=======
+def construct_intervals(depth=6):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    rotate_starts   = True
+    reverse_block_parity = True
+    interleave_blocks = True
+    micro_phase = True
+=======
+    rotate_starts   = True
+    reverse_block_parity = False
+    interleave_blocks = False
+    micro_phase = True
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    depth = allowed
+=======
+    depth = allowed
+
+    # Remember the last start pattern used to build delta2 extension later
+    last_starts = None
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+=======
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+        last_starts = starts
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Normalize and convert to integers
+    intervals = _normalize_to_int_intervals(T)
+=======
+    # Delta2 extension: add scaled connectors and a mid cap to raise FF without raising omega much
+    if last_starts is not None:
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = max(1, hi - lo)
+        delta2 = max(1, delta // 2)
+        s0, s1, s2, s3 = last_starts
+        extra = [
+            ((s0 - 1) * delta2, (s1 - 1) * delta2),  # left cap (scaled)
+            ((s2 + 2) * delta2, (s3 + 2) * delta2),  # right cap (scaled)
+            ((s0 + 2) * delta2, (s2 - 1) * delta2),  # cross 1 (scaled)
+            ((s1 + 2) * delta2, (s3 - 1) * delta2),  # cross 2 (scaled)
+        ]
+        # Add a centered short cap to couple mid-scale colors
+        mid = lo + delta // 2
+        w = max(1, delta // 20)
+        extra.append((mid - w, mid + w))
+        if len(T) + len(extra) <= MAX_INTERVALS:
+            T.extend(extra)
+
+    # Normalize and convert to integers
+    intervals = _normalize_to_int_intervals(T)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    EXTRA_ROUNDS = 2  # two additional post-rounds
+=======
+    EXTRA_ROUNDS = 0  # disabled under 10k cap; 6-round base + delta2 micro-gadget instead
+>>>>>>> REPLACE
+</DIFF>

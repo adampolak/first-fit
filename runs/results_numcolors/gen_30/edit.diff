@@ -1,0 +1,145 @@
+--- a/original.py
++++ b/original.py
+@@ -1,87 +1,94 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(rounds=3):
+   """
+   Construct a sequence of intervals of real line,
+   in the order in which they are presented to FirstFit,
+   so that it tends to maximize the number of colors used by FirstFit
+   divided by the maximum number of intervals that cover a single point
+   through a recursive wave construction.
+ 
+-  Improvements over the previous version:
+-  - start with multiple disjoint unit intervals to seed richer early overlaps
+-  - use a small bank of four-interval "templates" and pick a template per round
+-    (breaks strict self-similarity)
+-  - cycle through a list of start-patterns across rounds so translated copies
+-    land in different relative offsets each round
+-  - default to 3 rounds to allow one more expansion (still modest total size)
++  Improvements blended via crossover:
++  - multi-unit seed (keeps omega small, encourages coupling)
++  - cycled start patterns (varied offsets across rounds)
++  - alternating inner order (hampers color reuse)
++  - deterministic bridging (consecutive and second-next) to couple colors
++  - per-round four-interval gadget templates
++  - micro-caps and sparse long caps to build towers without large omega
++  - moderate growth control to keep size manageable
+   """
+-  # seed with several disjoint unit intervals (keeps omega small but provides coupling)
++  # Seed with several disjoint unit intervals (open intervals)
+   T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+ 
+-  # a small bank of four-interval templates (variants of the gadget)
++  # Template bank (scaled each round)
+   templates = [
+-    # template A: original pattern
+-    [(1, 5), (12, 16), (4, 9), (8, 13)],
+-    # template B: shifted variant
+-    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
+-    # template C: tighter local overlaps
+-    [(1, 4), (6, 9), (3, 7), (9, 13)],
+-    # template D: staggered caps
+-    [(2, 6), (7, 11), (0, 3), (10, 14)]
++    [(1, 5), (12, 16), (4, 9), (8, 13)],          # A: classic
++    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],  # B: shifted
++    [(1, 4), (6, 9), (3, 7), (9, 13)],            # C: tighter overlaps
++    [(2, 6), (7, 11), (0, 3), (10, 14)],          # D: staggered
+   ]
+ 
+-  # a short deterministic cycle of start patterns (each element is a tuple/list of starts)
++  # Start patterns: cycle deterministically
+   start_patterns = [
+-    (2, 6, 10, 14),             # compact 4-wave pattern
+-    (2, 4, 6, 8, 10, 12, 14, 16),  # denser pattern
+-    (2, 5, 8, 11, 14, 17, 20),  # staggered 7-wave
++    (2, 6, 10, 14),                    # compact 4-wave
++    (2, 4, 6, 8, 10, 12, 14, 16),      # denser 8-wave
++    (2, 5, 8, 11, 14, 17, 20),         # staggered 7-wave
+   ]
+ 
+   for round_idx in range(rounds):
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+-    delta = hi - lo
++    delta = hi - lo if hi > lo else 1.0
++
++    starts = list(start_patterns[round_idx % len(start_patterns)])
++    template = templates[round_idx % len(templates)]
+     S = []
+ 
+-    # choose start pattern and template deterministically based on round index
+-    starts = list(start_patterns[round_idx % len(start_patterns)])
+-    template = templates[round_idx % len(templates)]
++    # Clone T into translated blocks; alternate order; add bridges
++    for idx, start in enumerate(starts):
++      base = T if (idx % 2 == 0) else list(reversed(T))
++      shift = delta * start
++      S += [(shift + (l - lo), shift + (r - lo)) for (l, r) in base]
+ 
+-    # vary the inner order of clones to make FirstFit reuse harder
+-    for idx, start in enumerate(starts):
+-      if idx % 2 == 0:
+-        base = T
+-      else:
+-        base = list(reversed(T))
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
++      # Bridge to next block to couple colors locally
++      if idx + 1 < len(starts):
++        nxt = starts[idx + 1]
++        S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+ 
+-    # place the chosen template intervals scaled by delta
++      # Optional bridge to second-next to couple across layers
++      if idx + 2 < len(starts) and (idx % 2 == 0):
++        nxt2 = starts[idx + 2]
++        S.append((delta * (start + 0.75), delta * (nxt2 + 0.25)))
++
++    # Add the chosen template scaled by delta
+     S += [(delta * a, delta * b) for (a, b) in template]
+ 
+-    # add a few sparse caps that span small neighborhoods of starts to couple colors
+-    # without raising omega too much
++    # Micro-caps near each start to press FirstFit locally without raising omega much
++    cap_radius = max(0.2, 0.03 * delta)
++    cap_length = max(0.8, 0.12 * delta)
++    for start in starts:
++      mid = delta * start
++      # two asymmetric micro-caps per start
++      S.append((mid - cap_radius, mid + cap_length))
++      S.append((mid - 0.5 * cap_radius, mid + 0.8 * cap_length))
++
++    # Sparse long caps across blocks to build towers/coupling while keeping density low
+     max_start = max(starts)
+-    for j in range(2, max_start, max(3, int(max_start // 6))):
+-      S.append((delta * (j - 0.5), delta * (j + 1.5)))
++    step = max(3, max_start // 4)
++    for j in range(2, max_start, step):
++      S.append((delta * (j - 1.0), delta * (j + 2.0)))
++
++    # Light "tower caps": connect every other block (avoid dense stacking)
++    for i in range(0, len(starts) - 2, 2):
++      a, c = starts[i], starts[i + 2]
++      S.append((delta * (a - 0.25), delta * (c + 0.25)))
+ 
+     T = S
+ 
+   return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

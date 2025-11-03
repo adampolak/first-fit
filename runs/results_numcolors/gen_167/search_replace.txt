@@ -1,0 +1,75 @@
+<NAME>
+stage1-alternating-interleave
+</NAME>
+
+<DESCRIPTION>
+Implement alternating interleaving across the 6 KT rounds in Stage 1. Instead of always laying out the four translated blocks sequentially, we interleave on even rounds and lay out sequentially on odd rounds. This promotes greater color mixing early without increasing omega, potentially boosting FirstFit usage and the overall combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: six KT rounds, sequential order to keep omega small and structure stable
+  for _ in range(6):
+    # Predict next size: size -> 4*size + 4; abort if it would exceed CAP
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    S = []
+    for start in spine_starts:
+      base = start * delta - lo
+      S.extend((l + base, r + base) for (l, r) in T)
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = spine_starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    T = S
+=======
+  # Stage 1: six KT rounds, alternating interleaving to raise FF pressure
+  for ridx in range(6):
+    # Predict next size: size -> 4*size + 4; abort if it would exceed CAP
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    # Build four translated blocks
+    blocks = []
+    for start in spine_starts:
+      base = start * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in T])
+    # Interleave on even rounds, sequential on odd rounds
+    S = []
+    if ridx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = spine_starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    T = S
+>>>>>>> REPLACE
+</DIFF>

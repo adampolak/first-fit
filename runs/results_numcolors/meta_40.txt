@@ -1,0 +1,332 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Evolve-Block Interval Construction for FirstFit**
+- **Implementation**: The function construct_intervals builds a sequence of open intervals starting from T = [(0, 1)], then repeats twice: compute lo, hi, and delta = hi - lo, build S by scaling and translating each interval in T by delta*s for s in (2, 6, 10, 14), then append four fixed delta-scaled blocks (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13); set T = S and return the final list of 36 intervals. The run_experiment wrapper simply returns construct_intervals(); intervals are represented as open intervals (l, r).
+- **Performance**: Combined score 0.70; competitive ratio 2.33; number of intervals 36 (alg: 7; opt: 3).
+- **Feedback**: The implementation follows the two-phase, delta-scaled expansion inspired by the referenced figure, yielding a deterministic, reproducible interval sequence that passes validation tests. The presence of a commented Figure-3 alternative indicates explorations of different OPT/FF configurations, suggesting room for further optimization or variant testing.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Evolve-Block Interval Construction for FirstFit**
+- **Implementation**: Builds a sequence of open intervals T by starting with (0,1) and, for six iterations, computing delta = current span (hi - lo). It expands T by adding scaled copies of all current intervals (offsets delta*start for start in 2,6,10,14) and then appending four fixed blocks (delta*1 to delta*5, delta*12 to delta*16, delta*4 to delta*9, delta*8 to delta*13). The result is assigned back to T each iteration and returned; run_experiment simply calls construct_intervals.
+- **Performance**: Combined score 1.90; competitive_ratio 2.71 with 9556 intervals generated.
+- **Feedback**: The code faithfully implements the Figure 4 construction from the referenced paper and passes all validations, producing a large, scalable interval set; however, the resulting interval count and numeric magnitude can be substantial, which may impact runtime in larger runs.
+**Program Identifier:** Generation 1 - Patch Name deepen_recursive_figure4_to_6 - Correct Program: True
+
+**Program Name: Kierstead-Trotter Interval Blow-Up Builder**
+- **Implementation**: Recursively builds interval blocks starting from T=[(0.0,1.0)], and at each depth expands by four scaled copies placed at offsets [2,6,10,14] times the current span, shifting by base = off*span - lo; then adds four connector intervals to form an FF chain, repeating for the given depth. A run_experiment wrapper calls construct_intervals; there is a second, redundant run_experiment definition present.
+- **Performance**: Evaluation reports a competitive ratio of 2.50 with 148 intervals produced (combined score to maximize: 1.00).
+- **Feedback**: The implementation yields a self-similar, scalable FF-chain interval sequence through span-based scaling and explicit connectors, though the duplicate run_experiment definition is a minor code quirk that could confuse readers; depth controls growth and numerical scales are floating-point.
+**Program Identifier:** Generation 2 - Patch Name none - Correct Program: True
+
+**Program Name: KT-inspired Block Interval Construction**
+- **Implementation**: Parameterized recursive construction builds T starting from [(0,1)], and at each depth creates S by placing 2+4*i scaled copies (i in 0..branching-1) of the current T shifted by a base computed from span and lo. It also adds adjacent connectors between blocks and optional cross-block connectors (based on branching) before iterating. The final T after the last depth is returned as a list of open intervals in presentation order.
+- **Performance**: Combined score to maximize: 0.00; competitive_ratio: 1.00; num_intervals: 1561.
+- **Feedback**: Clear KT-inspired scaling and connector strategy are implemented and validated (default depth=4, branching=5 yield 1561 intervals). However, the approach scales rapidly with depth and branching, and the code lacks optimization or memoization, limiting efficiency for larger parameters.
+**Program Identifier:** Generation 3 - Patch Name none - Correct Program: True
+
+**Program Name: Wave-based FirstFit interval generator**
+- **Implementation**: The code builds a sequence of open intervals by starting with T = [(0,1)], and iteratively expanding it over a number of rounds. In each round it computes lo, hi, and delta from T, shifts the entire current set by delta * start for a list of starts (expanding in later rounds), appends four local blocks to create overlapping waves, and updates T until completion; the final list T is returned as the interval set.
+- **Performance**: Combined score to maximize: 1.00; competitive_ratio: 2.50; num_intervals: 548, indicating a large, validated adversarial instance suitable for FirstFit testing.
+- **Feedback**: The implementation faithfully realizes the recursive wave construction described in the docstring and yields a sizeable interval set that passes validation tests; the approach is compact and self-contained but could benefit from parameterization and clearer documentation of the local-block rationale and coordinate scaling.
+**Program Identifier:** Generation 4 - Patch Name multi_round_wave_expansion - Correct Program: True
+
+**Program Name: Evolve-Block Wave Construction for FirstFit**
+- **Implementation**: Builds a sequence of intervals by iteratively generating dense "wave" blocks over rounds, duplicating and sometimes reversing the current interval set, inserting short bridges between blocks, adding a small four-interval gadget, and appending sparse cap intervals to keep omega small; the process uses delta-scaled transformations and offsets to place blocks, with a final returned interval list.
+- **Performance**: Competitive evaluation shows competitive_ratio 1.00 with 353 intervals and an overall score of 0.00 (alg: 11; opt: 11).
+- **Feedback**: The approach leverages alternating inner order, bridging, and caps to maximize FirstFit colors while controlling clique size; while it achieves an optimal competitive ratio in tests, the score indicates no measured gain from optimization, suggesting room for parameter tuning and code clarity improvements.
+**Program Identifier:** Generation 5 - Patch Name layered_caps_bridged_rounds2 - Correct Program: True
+
+**Program Name: Recursive wave interval construction for FirstFit**
+- **Implementation**: Starts with (0,1) and, for a given number of rounds, expands the current interval set by translating and scaling it with delta = hi - lo, where lo and hi bound the existing intervals. It uses a fixed sequence of shifts (starts = [2,4,6,8,10,12,14,16]) to generate translated copies, then appends a small set of local blocks to create overlapping waves, updating the interval list each round; run_experiment simply calls construct_intervals().
+- **Performance**: Combined score 0.70; competitive_ratio 1.40; 100 intervals generated in the final set.
+- **Feedback**: The design relies on a dense, hard-coded shift pattern to amplify FirstFit color usage via recursive wave expansion, with performance tied to these fixed choices. Evaluation shows the approach achieves the stated metrics and reproducible results, though the heavy reliance on predetermined patterns may limit generalization and adaptability to other configurations.
+**Program Identifier:** Generation 6 - Patch Name denser_starts_two_rounds - Correct Program: True
+
+**Program Name: Evolve-Block Interval Construction**
+
+- **Implementation**: Builds a hierarchical, wave-like set of intervals by iterating up to 4 rounds, computing a dynamic delta from current interval extents, and assembling blocks with preload blockers, cloned (or reversed) bases, and bridges between adjacent blocks. Each block contributes a mix of short blockers, cloned intervals, and a bridging interval; additional local gadgets, sparse caps, and occasional long sentries are added before updating the working interval set T for the next round. The main entry point run_experiment simply calls construct_intervals() with default rounds.
+
+- **Performance**: Competitive-driven metrics report a competitive_ratio of 1.13 with 2609 intervals generated; algorithm identifier alg: 17 and optimum opt: 15, and a combined performance score of 0.00, with the implementation validated as correct.
+
+- **Feedback**: The implementation employs arrival-order engineering (alternating clone order, preload blockers, bridges) to pressure First-Fit usage while capping growth through a rounds limit and structured layering (preloads, bridges, caps). This yields substantial interval counts but keeps the offline optimum small; the approach passes validation tests, though parameter choices (block starts, preload counts, and cap spacing) could be tuned for different trade-offs between interval count and color usage pressure.
+**Program Identifier:** Generation 7 - Patch Name improved_wave_preload - Correct Program: True
+
+**Program Name: Recursive Wave Interval Evolver for FirstFit**
+- **Implementation**: The algorithm starts with T = [(0, 1)] and iteratively expands it for a specified number of rounds. In each round it finds lo, hi, and delta from T, expands T by translating copies of T using a round-specific set of starts (smaller set in round 0, larger set in later rounds), appends several local blocks to create overlapping waves, and then replaces T with the new set; run_experiment simply calls construct_intervals() with the default rounds=2.
+- **Performance**: Combined score to maximize: 0.70; competitive_ratio: 1.40; number of intervals: 174; produced intervals show a mix of small and extended blocks crafted to stress FirstFit.
+- **Feedback**: The approach is correct and aligns with a known two-round pattern extended to multiple rounds, using deliberate start offsets and local blocks to push color usage while controlling omega; tuning the rounds or start sets could improve the competitive ratio, and the trailing commentary hints minor documentation cleanup opportunities.
+**Program Identifier:** Generation 8 - Patch Name adaptive_wave_density_and_caps - Correct Program: True
+
+**Program Name: FirstFit adversarial interval blow-up construction**
+- **Implementation**: A deterministic, recursive interval generator parameterized by depth=4 and branching=7. Starting from T = [(0,1)], each level scales and offsets copies of the previous block, using delta based on the current range (lo, hi). It builds S by duplicating T at offsets delta*start (for starts = 2,6,10,...), then appends adjacent and cross-block connectors to enforce color propagation constraints, and iterates. The final list T is returned as the interval sequence (open intervals as (l, r)). run_experiment simply calls construct_intervals.
+- **Performance**: Generates 6,801 intervals with a competitive ratio of about 1.44 and a combined score around 1.30, illustrating a substantial blow-up designed to stress FirstFit.
+- **Feedback**: The implementation uses a clear, parameterizable blow-up strategy that deterministically constructs adversarial inputs for FirstFit. While effective at creating large inputs and a high color-count-to-overlap ratio, the interval count scales aggressively with depth/branching, and the results depend on fixed parameters; the approach is solid but brittle-to-tune for different evaluation settings.
+**Program Identifier:** Generation 9 - Patch Name generalized_branching_connectors - Correct Program: True
+
+**Program Name: KT-inspired interval blow-up construction**
+- **Implementation**: Recursive construction starts from T0 = [(0, 1)]. Each depth computes the current span and creates four scaled copies at offsets 2, 6, 10, 14 of the span, then inserts ladder connectors between adjacent blocks, adds cross-layer connectors between nonconsecutive blocks, and includes original figure connectors before updating T = S; the final interval list is returned. A run_experiment wrapper invokes construct_intervals with depth defaulting to 4.
+- **Performance**: Competitive ratio: 1.00; number of intervals: 851; combined score to maximize: 0.00.
+- **Feedback**: The implementation is correct and passes all validation tests; it uses a KT-like recursive blow-up with explicit connectors to maintain structure, resulting in a deterministic, scalable interval sequence whose size grows with depth (851 intervals at depth=4).
+**Program Identifier:** Generation 10 - Patch Name interleaved_connectors - Correct Program: True
+
+**Program Name: Deterministic Adaptive Multi-Round Interval Builder**
+- **Implementation**: Builds an initial core interval, then iteratively expands via translated copies of the current set across a round-dependent list of starts. It alternates using the current set and its reverse, inserts bridging intervals between consecutive starts, and appends a fixed four-interval gadget plus three small caps to influence color usage and omega trade-offs. The process relies on a delta computed from the current interval span and scales all coordinates accordingly; the result is a deterministic, seed-based interval list.
+- **Performance**: With default parameters (rounds=3, seed_lo=0.0, seed_scale=1.0), the evaluator reports 2866 intervals and a competitive score/ratio of 1.20.
+- **Feedback**: The design favors deterministic, seedable expansion with adaptive start sets to control growth and diversify interval placement (via alternating order and bridging). The combination of gadgets and caps aims to push FF usage while keeping omega small, but it yields a sizeable interval count; parameterizing starts, bridging, and gadget placement could help tune performance and scalability for larger round counts.
+**Program Identifier:** Generation 11 - Patch Name none - Correct Program: True
+
+**Program Name: Evolve-Block Interval Constructor**
+
+- **Implementation**: Starts from a seed of disjoint unit intervals and grows a sequence using a small bank of four-interval templates plus a deterministic, round-dependent start-pattern cycle. Each round deterministically selects a start pattern and a template based on round index, expands copies of the current set T (alternating between T and reversed(T) to reduce reuse), scales all intervals by a delta derived from the current range, appends the scaled template, and adds a few sparse caps near the starts to couple colors without large omega growth. The process iterates for a configurable number of rounds, returning the final interval set.
+
+- **Performance**: Evaluation reports a combined score of 1.00 with a competitive ratio of 1.25, generating 1417 intervals in total.
+
+- **Feedback**: The approach is correct and passes all validation tests; design choices (seed diversification, template bank, and non-self-similar sequencing) appear to support robust FirstFit behavior within the evaluated constraints.
+**Program Identifier:** Generation 12 - Patch Name template_cycle_multi_seed_expansion - Correct Program: True
+
+**Program Name: Deterministic Multi-Round Wave Interval Constructor**
+- **Implementation**: Seeds with four disjoint unit intervals, then iteratively expands via rounds that select deterministic start patterns and templates, translates copies of the current set with delta-scaling, alternates inner order to hinder color reuse, bridges between consecutive starts, appends scaled templates, and finally adds sparse caps to subtly pressure color usage; the process yields a new interval set for the next round.
+- **Performance**: Reported as a combined score of 1.30 (competitive_ratio 1.30) producing 1,631 intervals.
+- **Feedback**: The approach uses deterministic templates and cross-round translations to promote overlap and color coupling, yielding dense interval sets; while predictable, the resulting interval count grows substantially, suggesting a trade-off between coupling and scalability.
+**Program Identifier:** Generation 13 - Patch Name wavecraft_opt - Correct Program: True
+
+**Program Name: Wave-Constructive Evolving Block Intervals**
+- **Implementation**: Builds a multi-round sequence of real-line intervals by seeding with four disjoint unit blocks, then per round selecting a 4-interval template and a start-pattern to generate scaled copies with bridges, a middle-gadget injection, and two sparse cap families; it alternates block order (original vs reversed) to hinder FirstFit reuse, adds inter-block bridges (including second-next links on some rounds), and uses a middle-block gadget and delta-scaling to control growth. Each round transforms the current block set into a larger S with careful scaling and then sets T = S for the next round.
+- **Performance**: Achieves a competitive_ratio of 1.11 with 2380 intervals generated (combined score 0.00 in the provided metrics).
+- **Feedback**: The approach yields moderate FirstFit pressure while constraining omega growth through sparse bridging, templated variation, and gadget injections; it uses deterministic round-based patterning to maintain reproducibility and passes validation tests.
+**Program Identifier:** Generation 14 - Patch Name bridges_microgadgets_and_dual_caps - Correct Program: True
+
+**Program Name: Deterministic 4-branch interval builder with templates**
+- **Implementation**: Builds a deterministic sequence of open intervals by iterating a 4-branch growth with 4 connectors per level. Each iteration selects a start pattern, varies block order, toggles clone order (T or reversed(T)) for each block, and appends four connectors from a rotating template bank; the current span scales offsets for clones, then connectors are scaled by the iteration span.
+- **Performance**: Fixed depth of 6 yields 9556 intervals with a competitive_ratio of ~1.18 and a reported combined score of 0.00; results are reproducible due to fixed seeds and deterministic ordering.
+- **Feedback**: The diversification of arrival order, clone order, and connector templates reduces FirstFit reuse and improves variety while keeping growth predictable; the implementation is correct and passes validation tests, though memory grows rapidly with depth and could be tuned for larger scopes.
+**Program Identifier:** Generation 15 - Patch Name cyclic_wave_diversifier - Correct Program: True
+
+**Program Name: Deterministic Multi-Round Wave Interval Generator**
+- **Implementation**: Starts with four unit intervals, then iteratively expands for a number of rounds by selecting a start pattern and a template, translating copies of the current set with deterministic jitter and occasional reversal, and bridging consecutive blocks to encourage color coupling. It appends the chosen template scaled by the round delta, adds sparse caps to pressure color usage, and replaces the working set T each round; optional extra rounds use an extended, fixed scheme before returning T.
+- **Performance**: Produces 1748 intervals with a competitive_ratio of 1.06 and a neutral combined score of 0.00, with all behavior being fully deterministic due to the seeded jitter.
+- **Feedback**: The deterministic jitter and templated expansion yield reproducible, densely interconnected interval sets aimed at stressing FirstFit-like algorithms; tuning rounds, extra_rounds, and cap strategy can significantly affect density and pressure, suggesting opportunities for parameter refinement to balance coverage and performance.
+**Program Identifier:** Generation 16 - Patch Name break_self_similarity_with_jitter_and_extra_rounds - Correct Program: True
+
+**Program Name: Deterministic Adaptive Multi-round Interval Waves**
+- **Implementation**: Starts from a compact core of four seed intervals and, for a fixed number of rounds, expands by translating and scaling copies of the current interval set relative to its [lo, hi] span; employs alternating base order, bridging between adjacent blocks, and adds gadget/micro-gadget blocks plus small caps to influence interval distribution, returning a list of open-interval endpoints.
+- **Performance**: Combined score 0.00; competitive_ratio 1.07 with 6302 intervals produced; 15 construction steps across 3 rounds, and validation tests pass.
+- **Feedback**: The deterministic, adaptive expansion yields near-optimal competitive performance while generating a large but controlled interval set; however, the approach relies on many hard-coded constants (starts, gadget shapes) that hurt readability and tunability, suggesting brittleness for future adjustments.
+**Program Identifier:** Generation 17 - Patch Name multi_seed_and_micro_gadget - Correct Program: True
+
+**Program Name: Evolve-Block: Recursive Interval Construction**
+- **Implementation**: The algorithm builds a spine of four disjoint unit intervals and then performs three rounds of translated copies controlled by start patterns. Each round translates copies (alternating inner order via base = T or reversed(T)), applies a delta scaling (delta = hi−lo, or 1.0 if degenerate), adds light bridges between consecutive starts, injects a fixed 4-interval gadget scaled by delta, and appends sparse caps around interior block indices. The resulting set becomes the new spine for the next round and is finally returned as the open-interval sequence.
+- **Performance**: Competitive_ratio is 1.07 with 675 intervals generated; the combined score is reported as 0.00, and the intervals span large scaled ranges, reflecting the multi-round translation and layering strategy.
+- **Feedback**: The approach systematically hinders FirstFit reuse by alternating inner order, bridging between blocks, and injecting gadgets while keeping omega small, achieving a solid ratio at the cost of a relatively large interval count. Potential improvements could target reducing interval count or parameterizing rounds/start patterns for efficiency gains.
+**Program Identifier:** Generation 18 - Patch Name three_round_spine_bridges_caps - Correct Program: True
+
+**Program Name: KT-style interval blow-up (3-depth)**
+- **Implementation**: Recursively build an interval sequence starting from [(0.0, 1.0)]. Each depth level computes the current span and creates four scaled copies of the existing blocks at offsets [2, 6, 10, 14] of span, then appends four connector intervals to link the blocks into a single chain; the process repeats for the specified depth. The function returns intervals in presentation order; run_experiment simply calls construct_intervals() with the default depth.
+- **Performance**: Combined score 1.00; competitive_ratio 2.50; 148 intervals generated.
+- **Feedback**: The approach matches the intended Kierstead–Trotter style blow-up and yields a deterministic, correct sequence (validated by tests); depth-3 execution produces the expected 148 intervals, and the implementation is straightforward and reproducible.
+**Program Identifier:** Generation 20 - Patch Name preload_rotate_improve_ff - Correct Program: True
+
+**Program Name: Two-Phase Evolve-Block Interval Constructor**
+- **Implementation**: Builds a deterministic, two-phase interval sequence over a fixed depth, starting from a seed of disjoint unit intervals and iteratively expanding with rotated/reversed block orders, preload blockers, short bridges, clone-ordered copies of the previous set, and template-bank connectors; a set of long sentries is added once to bias color usage, and the current interval set becomes the base for the next iteration.
+- **Performance**: Competitive_ratio ≈ 1.09 with 56,088 intervals; overall evaluation score reported as 0.00 and validations fail.
+- **Feedback**: The approach uses a structured, multi-phase strategy to stress FirstFit while limiting omega, but validation tests fail, suggesting edge-case or connector-logic issues; the produced data also shows signs of brittleness (e.g., large/coerced coordinates and potential formatting/truncation anomalies).
+**Program Identifier:** Generation 19 - Patch Name two_phase_preload_sentries - Correct Program: False
+
+**Program Name: Kierstead-Trotter Interval Builder**
+- **Implementation**: Recursively builds a float interval sequence starting from T0 = [(0.0, 1.0)]. At each level, four blocks are placed at offsets [2, 6, 10, 14] of the current span; the block order is alternated by level (reverse on odd levels). Each block inserts a small number of preload blockers inside the block, then appends a clone of the current pattern T (reversed on alternating levels). Bridges between adjacent blocks and four global connector intervals are added, and the result becomes the new T for the next depth iteration.
+- **Performance**: Competitive ratio 1.25 with 1531 intervals generated; evaluation shows a Combined score of 0.00.
+- **Feedback**: The implementation is correct and passes validation tests; the gadget scaffolding (blockers, bridges, and alternating clone order) yields a varied interval layout and controlled growth, though the interval count grows rapidly with depth.
+**Program Identifier:** Generation 21 - Patch Name none - Correct Program: True
+
+**Program Name: Evolving block gadget intervals for FF coloring**
+- **Implementation**: The core is construct_intervals, which builds a sequence of open intervals by iterative rounds. Each round seeds a set T of disjoint unit intervals, then selects a pair of gadget templates and a start-pattern cycle. It clones and translates T into multiple blocks (reversing on alternating blocks), bridges between blocks, appends a scaled gadget template, adds short caps around each start, and finally inserts longer sparse caps to couple distant colors. The result is scaled by delta (based on current T span) and shifted by lo, producing a final list of (l, r) intervals in arrival order.
+- **Performance**: The run_experiment path simply calls construct_intervals with default parameters, yielding a reported competitive_ratio of about 1.17 with 1918 intervals (and a zero aggregate score in the provided metrics). The approach is deterministic across rounds due to fixed start_patterns and templates, producing a large, highly structured interval set.
+- **Feedback**: The implementation employs multiple gadget templates, deterministic start-pattern cycling, and cross-block coupling (bridges and sparse caps) to influence FirstFit behavior. This yields rich interval interaction and a high interval count, but the evaluation output shows a heavy, float-based interval construction with complex spacing; tuning seed_scale, rounds, and pattern choices could further normalize interval ranges or improve the observed metrics.
+**Program Identifier:** Generation 22 - Patch Name recursive_wave_crossover - Correct Program: True
+
+**Program Name: Deterministic multi-round wave interval builder**
+- **Implementation**: Builds multi-round, delta-scaled interval sets using a seed of four unit intervals, a bank of four-interval templates, and three start-pattern sequences. Each round translates or reverses the base intervals, adds light bridging between adjacent blocks, appends a template, and then adds sparse caps before using the result as the new base for the next round. Includes a second, overriding run_experiment definition that ignores kwargs and calls construct_intervals with defaults.
+- **Performance**: Evaluated with 3 rounds by default, achieving 1748 intervals and a competitive_ratio of 1.07 (Combined score 0.00); the report notes the program is correct and passes validation tests.
+- **Feedback**: The design purposefully preserves a low clique number while coupling colors via bridging and alternating inner orders; delta-scaling and templates aim to increase First-Fit pressure. The presence of an overriding run_experiment that ignores kwargs could cause confusion or unintended usage in some evaluators.
+**Program Identifier:** Generation 23 - Patch Name delta_wave_templates_bridges - Correct Program: True
+
+**Program Name: Evolve-Block Interval Generator**
+- **Implementation**: Builds a sequence of scaled interval blocks across a small number of rounds, using alternating block order (T vs reversed(T)), delta-based scaling, thin bridges between blocks, a fixed four-interval gadget, and an embedded micro-gadget near the median start. The starts list changes between rounds, and sparse caps are added to gently pressure density; the function returns the final interval set after the specified rounds.
+- **Performance**: Combined score 0.00; competitive_ratio 1.00; num_intervals 302.
+- **Feedback**: The deterministic gadget-based construction yields stable, reproducible intervals that respect clique-size constraints while driving color usage; it passes validation tests, though reliance on hard-coded patterns may limit generality to other instance settings.
+**Program Identifier:** Generation 24 - Patch Name alternating_bridges_microcaps - Correct Program: True
+
+**Program Name: Hybrid Kierstead–Trotter interval generator**
+- **Implementation**: Implements a four-round blow-up style construction starting from (0,1). Each round computes span = hi - lo, builds four scaled blocks with starts [2, 6, 10, 14], adds preload small intervals, appends either cloned or reversed-cloned copies of the previous round, inserts bridges, adjacent and global connectors, sparse caps, and two long sentries in round 0; the newly built set becomes the basis for the next round and the final T is returned.
+- **Performance**: Combined score 0.00; competitive_ratio 1.22; 2169 intervals generated.
+- **Feedback**: The evaluator reports the program is incorrect and fails validation tests; likely issues include ad hoc scaling/assembly leading to invalid interval sets, potential duplicates or degenerate intervals, and lack of guarantees about ordering or constraint satisfaction. Suggested fixes involve validating constraints, deduplicating and sorting results, and tightening arithmetic to avoid edge-case misscalings.
+**Program Identifier:** Generation 25 - Patch Name improved_kierstead_trotter - Correct Program: False
+
+**Program Name: Deterministic fractal-interval generator (FirstFit)**  
+- **Implementation**: Core logic resides in construct_intervals, which seeds four disjoint unit intervals, defines four gadget templates and several deterministic start-pattern cycles, and iteratively expands the interval set over rounds by translating, bridging, and scaling blocks. Each round selects a pattern/template (cycled by roundIdx), clones and reverses blocks, adds inter-block bridges, appends a scaled gadget, injects a micro-gadget, and finally adds sparse cap intervals before updating the working set. The function is exposed via two run_experiment definitions, with the final one delegating to construct_intervals() ignoring incoming kwargs.  
+- **Performance**: Combined score to maximize: 0.00; competitive_ratio: 1.12; num_intervals: 2252; alg: 19; opt: 17.  
+- **Feedback**: The approach yields stable, reproducible expansions due to deterministic pattern/template cycling, but relies on heavy, hard-coded constants which limit adaptability. A potential integration pitfall exists from having two run_experiment definitions, where the final one ignores kwargs, which could confuse callers. Overall, the method produces a large, fractal-like interval set consistent with the reported metrics.
+**Program Identifier:** Generation 26 - Patch Name fractal_waveff - Correct Program: True
+
+**Program Name: Hierarchical Shrink + Spine-Blocker Builder**
+- **Implementation**: Builds interval sets through multiple rounds by normalizing the current pattern to [0,1], applying a round-dependent width shrink and increasing block spacing, and placing long spine blockers before scaled normal intervals. Each block uses deterministic jitter, alternates inner order, and employs rotating templates and start patterns to vary alignment; additional light bridges and end caps pressure FirstFit locally, and an optional extra_rounds phase densifies starts with extended_starts and a central template.
+- **Performance**: Combined score to maximize: 0.00; competitive_ratio: 1.00; num_intervals: 823.
+- **Feedback**: The approach aggressively constrains omega by spacing and spine blockers while using normalization and shrinking to maintain scale stability; deterministic pattern rotation plus jitter improves reproducibility without full randomness, though added rounds increase complexity. Overall, it passes validation with the reported metrics.
+**Program Identifier:** Generation 27 - Patch Name hierarchical_shrink_spine_blocks - Correct Program: True
+
+**Program Name: Evolve-Block Interval Construction for FirstFit**
+- **Implementation**: Iteratively build a sequence of open intervals by starting with (0,1) and repeating a fixed-depth, fixed-branching block construction. At each level, scale and translate copies of the current interval set T, reverse alternating blocks, and append adjacent and cross-connecting intervals to propagate colors while avoiding clique increases. The process uses parameters depth=4 and branching=7 and returns the final interval list T, with run_experiment exposing construct_intervals().
+- **Performance**: Combined score 1.30; competitive_ratio 1.44; num_intervals 6801 generated (example output includes a large list of intervals).
+- **Feedback**: The approach yields a deterministic, large-scale interval construction that passes validation tests and demonstrates strong blow-up behavior suitable for analyzing FirstFit performance. The implementation tightly couples scaling, offsets, and connectors to control color propagation without increasing cliques, though the resulting interval list is extensive and sensitive to the chosen depth/branching parameters.
+**Program Identifier:** Generation 28 - Patch Name alternating_block_order - Correct Program: True
+
+**Program Name: Evolve-Block Interval Builder for FirstFit**
+- **Implementation**: Builds a sequence of translated and interwoven interval blocks across multiple rounds. It seeds with disjoint unit intervals, uses predefined template banks and start-patterns, applies bridges between blocks, adds micro-caps and sparse long caps, and scales all content by a round-specific delta to produce a recursive, wave-like construction.
+- **Performance**: Competitive ratio ≈ 1.16 with 2365 intervals produced; combined score reported as 0.00.
+- **Feedback**: The implementation employs a dense coupling strategy (bridges, micro-caps, long caps, and tower caps) to pressure FirstFit into using more colors while keeping omega controlled; it is self-contained and validated, though readability and parameter tuning could be improved for easier adaptation and analysis.
+**Program Identifier:** Generation 30 - Patch Name bridged_wave_templates_v3 - Correct Program: True
+
+**Program Name: Deterministic Rotating Multiscale Interval Builder**
+- **Implementation**: Deterministic rotating multiscale construction that starts from four seed unit intervals and builds blocks via rotated start patterns and a template gadget bank. It alternates clone orders, inserts light bridges, adds micro-gadgets and caps per round, and performs a second smaller-scale refinement phase to couple colors across scales; returns the final interval list T.
+- **Performance**: Performance metrics show a competitive_ratio of about 1.18 with 2141 intervals generated (combined score to maximize = 0.00).
+- **Feedback**: The implementation is correct and passes all validation tests. The multiscale, highly parameterized approach yields reproducible results and a decent competitive ratio, though further knob tuning could optimize interval count and runtime.
+**Program Identifier:** Generation 31 - Patch Name rotating_multiscale - Correct Program: True
+
+**Program Name: Deterministic Rotating-Template Interval Generator**
+- **Implementation**: Depth-limited (depth=4) expansion uses a fixed bank of templates (A–E) applied in a rotating order. Each level translates and/or mirrors copies of the current gadget, placing them at scaled offsets, with alternated orientation, and adds connectors (adjacent and cross-block) plus a couple of seed intervals to encourage color pressure. The result is a deterministic list of (l, r) intervals produced by iterative grafting of the gadget.
+- **Performance**: Final output contains 2029 intervals with a competitive_ratio of 1.18 and a combined score of 0.00, staying well under the 10000-interval bound due to the depth-limited, template-driven expansion.
+- **Feedback**: The approach yields reproducible, bounded growth and deliberate color-pressure propagation through connectors and seeds. Minor code hygiene note: run_experiment is defined twice (the second overrides the first), which is harmless here but should be cleaned up for clarity. The template rotation and block alternation effectively break symmetry and keep omega modest while increasing the color palette.
+**Program Identifier:** Generation 33 - Patch Name none - Correct Program: True
+
+**Program Name: Deterministic rotated four-block Kierstead–Trotter expansion**
+- **Implementation**: Builds intervals by iteratively cloning four translated copies of the current block set, optionally reversing every odd block, and then appending a fixed set of connector intervals calculated from the chosen start pattern. Rotation of four-start patterns across rounds and integer-only arithmetic ensure deterministic growth without floating-point artifacts. A tiny optional phase-2 step can sprinkle sparse micro-intervals, but is disabled by default to keep counts near a target.
+- **Performance**: Generates about 9.5k intervals (num_intervals = 9556) with a combined score of 1.30 and competitive_ratio about 1.86; the design yields a near-cap interval count while remaining deterministic and memory-stable.
+- **Feedback**: The rotation and parity controls help avoid repetitive overlap and FF reuse, producing diverse interval layouts. Keeping phase2_iters at 0 preserves the target interval count; enabling phase2_iters provides a controllable, sparse augmentation at a smaller scale but can alter the count significantly. Overall, the approach uses explicit formulas for connectors and translations to remain robust and FP-free, suitable for evaluators requiring deterministic, well-scoped interval structures.
+**Program Identifier:** Generation 34 - Patch Name rotated_fourblock_ktr - Correct Program: True
+
+**Program Name: Deterministic Rotating Multiscale Interval Builder**
+- **Implementation**: Implements a deterministic multi-round interval generator that builds and translates blocks of seed intervals using rotating start patterns, a 4-interval gadget template bank, bridges, towers, and caps. It supports tunable knobs (phase2_rounds, bridge_fraction, caps_per_round, micro_scale) and preserves seed_lo/seed_scale for compatibility; a two-phase refinement runs at a smaller delta to couple colors across scales.
+- **Performance**: Outputs 321 intervals with a competitive_ratio of 1.00 and a neutral combined score of 0.00, indicating deterministic behavior and reproducibility within the validated tests.
+- **Feedback**: Strengths: deterministic, reproducible construction with multi-scale coupling that keeps omega small via bridges and towers. Limitations: heavy, hard-coded knobs and ad-hoc patterns reduce readability and tunability; could benefit from modularization and clearer parameterization for evaluators.
+**Program Identifier:** Generation 35 - Patch Name rotating_3start_towers_and_trimmed_finephase - Correct Program: True
+
+**Program Name: Hybrid rotated-interleaved Kierstead-Trotter interval construction**
+- **Implementation**: Builds a sequence of open intervals by maintaining a current set T, generating four translated copies with optional reversal, rotating start patterns, and interleaving blocks to raise FirstFit pressure. Connectors couple blocks without forming large cliques, followed by an optional micro-phase tail. A safety cap (MAX_INTERVALS = 9800) and a growth-based depth reduction keep total intervals under control; coordinates are normalized to non-negative integers and endpoints are cast to int. Note: there are two run_experiment definitions; the latter overrides the former and ignores supplied kwargs.
+- **Performance**: Evaluation reports a combined score of 1.10, competitive ratio around 1.83, and 152 intervals (e.g., a specific interval set is produced).
+- **Feedback**: The design uses deterministic yet varied patterns (rotation, interleaving, and connectors) to stress FirstFit while avoiding large cliques; the explicit depth cap and micro-phase tail help bound growth and increase pressure. The duplicate run_experiment definition reduces configurability and could hide intended parameterization.
+**Program Identifier:** Generation 36 - Patch Name rot_interleave_kierstead - Correct Program: True
+
+**Program Name: Rotated Four-Block Kierstead–Trotter Expansion**
+- **Implementation**: Deterministic rotated expansion clones four translated copies of the current interval set per round (with optional reversal of every odd block), then appends connector intervals derived from the chosen starts; returns a list of open intervals in FF presentation order, with an optional tiny phase-2 micro-step (disabled by default).
+- **Performance**: Composite score 1.30, competitive ratio 1.62, and 12,286 intervals produced, but evaluation indicates the implementation is incorrect and fails validation tests.
+- **Feedback**: The approach relies on a fixed connector scheme and rotated starts, but lacks validation guarantees (e.g., disjointness or problem-specific invariants), leading to incorrect results. Additionally, run_experiment does not propagate kwargs to construct_intervals, limiting configurability and potentially contributing to validation failures.
+**Program Identifier:** Generation 37 - Patch Name add_micro_connectors - Correct Program: False
+
+**Program Name: Deterministic Rotated Block Interval Builder**
+- **Implementation**: Uses a deterministic bank of four-block start templates and a seed set of displaced unit intervals; it estimates rounds with a conservative connectors-per-round budget to stay under max_intervals, then iteratively translates, interleaves, and connects blocks; a micro-phase adds small gadgets and long caps before final normalization and integer conversion with truncation to the budget.
+- **Performance**: Competitive_ratio: 1.08; num_intervals: 7693.
+- **Feedback**: The approach yields a correct, deterministic construction that passes validation tests; the layered expansion (rotation, interleaving, connectors, micro-phase) effectively densifies intervals within budget, though the overall complexity could be reduced or better documented.
+**Program Identifier:** Generation 38 - Patch Name rotated_tower_caps - Correct Program: True
+
+**Program Name: Rotated Four-Block Kierstead–Trotter Interval Generator**
+- **Implementation**: The code builds a deterministic, rotated four-block interval construction (Kierstead–Trotter style) with connectors and optional interleaving. It uses helper routines: _max_depth_with_cap to cap growth, _build_rotated_blocks to generate translated blocks (with optional reversal), _interleave_blocks to mix blocks round-robin, _add_connectors to insert four deterministic cap-like connectors, and _normalize_to_non_negative to shift endpoints to non-negative integers. construct_intervals orchestrates rounds, updating the working set T, applying rotation, interleaving, and connectors, and optionally a tiny phase2_micro sprinkle near the end. A wrapper run_experiment(**kwargs) exposes the interface (though a second duplicate definition exists at the bottom).
+- **Performance**: Combined score to maximize: 0.80; competitive_ratio: 2.00; num_intervals: 148; produced a nontrivial set of intervals under a cap (≈9.8k) and validated as correct in tests.
+- **Feedback**: The cap-driven depth control effectively prevents pathological growth, while rotation, reversal, and interleaving increase geometric diversity and potential forcing (FF) pressure. The presence of two run_experiment definitions (the latter overriding the former and not forwarding kwargs) is a subtle bug risk; overall, the approach yields correct results with modest interval counts, though there’s room to tune parameters (start patterns, delta handling, and ensuring kwargs propagation) for potential improvements.
+**Program Identifier:** Generation 39 - Patch Name rotated_kierstead_trotter_v2 - Correct Program: True
+
+**Program Name: Adaptive Kierstead–Trotter style four-block interval expander**
+- **Implementation**: Builds four translated blocks per round from a deterministic bank of four start-pattern templates, with optional reversal for odd blocks. It adaptively caps recursion depth by simulating growth (size -> size*7 + 11) to respect max_intervals, then interleaves blocks (round-robin, with rotation and per-round parity effects), appends deterministic connectors, optionally performs a micro-phase sprinkling of long-range caps, and finally normalizes coordinates to non-negative integers while ensuring each interval has positive length and trimming to max_intervals.
+- **Performance**: In the provided run, it produced 4005 intervals with a combined score of 1.20 and a competitive ratio of 1.71.
+- **Feedback**: The approach leverages adaptive depth to bound interval growth and uses rotation/interleaving to diversify color usage, which helps avoid repeating overlap patterns; the micro-phase adds sparse long caps to perturb sparsely, and normalization/clamping ensure valid non-negative intervals within the limit. Potential areas for caution include reliance on deterministic templates and the sensitivity of the final interval distribution to max_intervals and round-robin ordering.
+**Program Identifier:** Generation 40 - Patch Name adaptive_rotating_kt_with_adaptive_depth - Correct Program: True
+
+**Program Name: Enhanced four-block interval expansion with rotation**
+- **Implementation**: A deterministic multi-round expansion builds four translated blocks per round from a base interval set T, with rotating start patterns, optional reversal of block order, and small preload blockers. It interleaves blocks, adds bridges between adjacent blocks, and appends fixed connectors before setting T for the next round. Final intervals are scaled by 1000 after shifting to non-negative coordinates and clipped to 10,000 entries.
+- **Performance**: Competitive ratio ~1.31 with 6,139 intervals produced; output values are large-scale integers due to scaling, and the result is intentionally capped at 10k intervals.
+- **Feedback**: The design uses rotation, interleaving, and parity-based reversal to diversify color interaction, with preloads and bridges to subtly couple colors. While deterministic and tunable, heavy scaling and a fixed cap may affect downstream usage or extreme-case behavior; floating-to-integer rounding could introduce minor precision artifacts.
+**Program Identifier:** Generation 41 - Patch Name rotated_preload_four_block_expansion - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+Successful Algorithmic Patterns
+- Delta-based self-similar expansion with a dual-scale scaffold (local translations plus fixed delta-scaled blocks) yields strong FirstFit pressure when coupled in multi-round, deterministic growth.
+  - EVOLVE-BLOCK-START (current best): six iterations starting from T = [(0,1)], computing delta = hi − lo each round, translating copies of T by delta * starts (2,6,10,14), then appending four fixed delta-scaled blocks (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). This combination produces a large, highly structured interval set with a combined score of 1.90 and a competitive_ratio of 2.71 on 9556 intervals. The explicit mix of local translations and long-range blocks appears to maximize color usage under FirstFit while maintaining determinism.
+  - Gen 34 (Deterministic Rotating Four-Block Kierstead–Trotter expansion) also uses rotated four-block growth with connectors, but despite producing a similar scale (about 9.5k intervals), its combined score is only about 1.30 and ratio around 1.86, and the program is marked correct but not as effective as EVOLVE-BLOCK-START. This reinforces that the particular delta-translation pattern and the fixed-block augmentation in EVOLVE-BLOCK-START provide superior FF-pressure when scaled to many intervals.
+  - Gen 28 (Evolve-Block Interval Construction for FirstFit) and Gen 13 (Deterministic Multi-Round Wave Interval Constructor) show that delta-expansion with round-based growth can be effective at more modest sizes (6801 and 1631 intervals, respectively) with combined scores near 1.30, indicating good efficiency of pressure with tighter bounds. They corroborate that deterministic, structured growth patterns can achieve meaningful pressure without exploding interval counts.
+- Deterministic, round-based structure with deliberate symmetry breaking and bridging tends to perform well compared with ad hoc or gadget-heavy approaches.
+  - Gen 13 and Gen 28 demonstrate that disciplined round-based growth coupled with bridging/gadget augmentation yields solid scores in the 1.3 range with far fewer intervals than the best EVOLVE pattern.
+  - Gen 36 and Gen 39 show that rotation and interleaving alone, if not tightly integrated with a coherent growth rule and proper parameter propagation, often fail to deliver positive pressure or produce much smaller interval sets, underscoring the importance of an integrated design that links growth mechanics to color-pressure objectives.
+- Deterministic, reproducible construction with clear modular steps tends to be validated successfully.
+  - Programs like EVOLVE-BLOCK-START, Gen 13, and Gen 28 are praised in the feedback for being correct, reproducible, and well-scoped, whereas several other patterns either fail validation (Gen 37) or rely on ambiguous or misaligned parameterization (Gen 35, Gen 39, Gen 36’s note about kwargs handling).
+
+Ineffective Approaches
+- Overly large, noisy, or misaligned expansions that inflate interval counts without meaningful FF-pressure.
+  - Gen 19 (very large/noisy patterns) produced tens of thousands of intervals but with a combined score of 0.00 and validation issues, illustrating that sheer scale does not guarantee useful pressure.
+  - Gen 26 (Deterministic fractal-interval generator) produced 2252 intervals with ratio 1.12 but a combined score of 0.00, indicating fractal growth without coherent connectors/gadgets fails to translate into FirstFit pressure.
+  - Gen 27 (another small-pattern variant) and Gen 30 (gadget-heavy and deeply nested) often yield zero combined scores despite seemingly rich structures, signaling that gadgets alone are insufficient without alignment to the delta-expansion strategy.
+- Misaligned or unvalidated implementations that undermine correctness or configurability.
+  - Gen 37 (Rotated Four-Block Kierstead–Trotter Interval Generator) is explicitly incorrect and fails validation tests despite a large interval count, showing that fixed connector schemes or rotation alone cannot guarantee invariants required by the evaluator.
+  - Gen 21 (Kierstead–Trotter Interval Builder) and Gen 22/Gen 30 variants rely on gadget/connector patterns without coherent delta-expansion alignment, resulting in zero or low scores.
+- Parameterization and implementation hygiene issues that reduce tunability or introduce bugs.
+  - Gen 33 notes a minor code hygiene issue (run_experiment defined twice); Gen 36 similarly notes duplicate run_experiment definitions that override the first, reducing configurability. Such patterns can hinder exploring improvements even when the core construction is sound.
+- Small or narrowly scoped patterns that underperform despite reasonable ratios.
+  - Gen 39 produces only 148 intervals with ratio ~2.00 and a combined score around 0.80, showing that high ratio alone is not sufficient without substantial, well-placed growth and connectors.
+  - Gen 35 achieves a very small interval set (321) with ratio ~1.00 and zero combined score, illustrating that a compact pattern without effective FF-pressure design yields little benefit.
+
+Implementation Insights
+- What makes the current best effective
+  - Clear, six-round delta-expansion from a compact seed (T = [(0,1)]) with deterministic translations by delta scaled to multiple starts, followed by the addition of fixed delta-scaled blocks, creates a robust mix of local and long-range interactions that drive color pressure under FirstFit.
+  - The combination of translated blocks (delta * 2,6,10,14) and the fixed delta blocks (delta*1, delta*5, delta*12, delta*16, delta*4, delta*9, delta*8, delta*13) effectively densifies interactions across scales, facilitating higher FF-pressure signals while remaining deterministic and reproducible.
+  - Deterministic, parameter-light design aids validation and evaluators’ reproducibility requirements, as evidenced by the program’s pass status and high combined score.
+- How the current best compares to other patterns
+  - The top-tier performance of EVOLVE-BLOCK-START (1.90 combined score, 2.71 ratio, 9556 intervals) significantly surpasses Gen 34 (1.30, 1.86, 9556 intervals) and Gen 28/Gen 13 variants (≈1.30, 1.44–1.30 ratios with 1631–6801 intervals). This suggests that the particular choice of starts (2,6,10,14) and the specific fixed delta-blocks provide additional pressure beyond what a pure delta-expansion or a simpler multi-round approach can achieve.
+  - When patterns incorporate both local expansions and long-range delta-scaled blocks but lack careful integration (e.g., Gen 34’s approach is close in scale but weaker in pressure), the scores decline, highlighting that the synergy between growth mechanics and the connectors/gadgets matters.
+- The role of deterministic design and validation signals
+  - The consistently correct/validated patterns (EVOLVE-BLOCK-START, Gen 13, Gen 28, Gen 38) show that deterministic, well-scoped growth with meaningful bridging and connectors tends to be rewarded, whereas ad hoc, fractal, or gadget-heavy designs without alignment to the delta-expansion strategy tend to underperform or fail validation (Gen 37, Gen 19, Gen 26, Gen 27, Gen 30).
+
+Performance Analysis
+- Score and scale patterns across programs
+  - EVOLVE-BLOCK-START: 9556 intervals; combined score 1.90; competitive_ratio 2.71. This is the standout result, indicating strong FF-pressure at a large, structured scale.
+  - Gen 34: ~9556 intervals; combined score ~1.30; ratio ~1.86. Comparable scale but notably weaker pressure, suggesting the specific delta-block composition in EVOLVE-BLOCK-START is key.
+  - Gen 28: 6801 intervals; combined score ~1.30; ratio ~1.44. Good efficiency with fewer intervals, but less pressure per interval than EVOLVE-BLOCK-START.
+  - Gen 13: 1631 intervals; combined score ~1.30; ratio ~1.30. Demonstrates that high-pressure patterns can be achieved with modest sizes if the growth is well-structured.
+  - Gen 39: 148 intervals; ratio ~2.00; combined score ~0.80. High ratio does not compensate for too-small interval set, underscoring that both scale and structure drive efficiency.
+  - Gen 40: 4005 intervals; combined score 1.20; ratio 1.71. Intermediate performance, showing adaptive depth can maintain pressure but may not reach EVOLVE-BLOCK-START’s effectiveness.
+  - Gen 36/Gen 35/Gen 37: Notable for configurability or correctness issues (duplicate run_experiment definitions, incorrect validators) that hinder reliable comparisons; Gen 37 is explicitly incorrect despite a large interval count.
+- Correlations and takeaways
+  - Higher combined scores correlate with layouts that blend deterministic, multi-round delta-expansion with carefully chosen cross-scale blocks (as in EVOLVE-BLOCK-START). This pattern yields the strongest FF-pressure signals when the local and global interactions are harmonized.
+  - Moderate interval counts with disciplined growth (Gen 13, Gen 28) can achieve respectable scores, indicating that efficiency can be improved without exploding interval counts, provided the expansion rules are well-aligned with the pressure objectives.
+  - Purely scale-driven or gadget-heavy variants without a coherent delta-expansion framework tend to underperform or fail validation, highlighting the necessity of matching growth mechanics to the evaluator’s pressure criteria.
+
+In summary
+- The current best program, EVOLVE-BLOCK-START, demonstrates that a disciplined, delta-driven self-similar expansion augmented with fixed delta-scaled blocks across multiple rounds yields the strongest FirstFit pressure among the evaluated variants, albeit at a larger interval count (9556) and a higher competitive ratio (2.71) compared to other patterns.
+- The strongest alternative successes (Gen 13, Gen 28) reinforce that deterministic, round-based growth with thoughtful bridging can yield solid pressure at more moderate scales.
+- A number of other approaches fail due to misalignment between growth mechanics and the evaluator’s pressure objective, or due to correctness issues and parameterization pitfalls (notably Gen 37, Gen 19, Gen 26, Gen 27, Gen 30, and the duplicate run_experiment definitions in Gen 36/Gen 37).
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1) Rotate the translation starts across rounds
+- Implement a deterministic rotation of the four translation-starts used for each round, e.g., cycle through (2,6,10,14), then (1,5,9,13), then (3,7,11,15), then (2,4,8,12), and repeat. This preserves the delta-expansion framework but disrupts a single, repeating overlap pattern to boost cross-scale interactions.
+- Why it matters: the current best relies on a fixed set of starts for tight self-similarity; rotating them introduces mild variation in color reuse and interaction density without sacrificing determinism, potentially increasing FirstFit pressure per round.
+
+2) Introduce a deterministic delta-block template bank and cycle it
+- Create a bank of four delta-block templates (A, B, C, D) that define the four long-range blocks to add after each round. Cycle through these templates in a fixed order across rounds (e.g., A, B, C, D, A, B, …) when appending the four delta-scaled blocks.
+- Why it matters: EVOLVE-BLOCK-START’s strength comes from the fixed multi-block pattern; varying the long-range connectors in a deterministic way can enhance cross-scale interactions and produce stronger FF-pressure while keeping reproducibility.
+
+3) Add a two-phase delta expansion with a smaller second phase
+- After completing the initial six rounds, introduce a second phase with delta2 = max(1, floor(delta/2)) starting from the current T, using the same template bank (and a rotated or cycled start pattern). Run 2–3 additional rounds in this second phase, then continue with the main cycle if desired.
+- Why it matters: multi-scale expansion often yields richer interaction patterns. A smaller-scale second phase can fill gaps in color distribution and bridging that the primary delta-scale misses, often boosting pressure without exploding interval counts.
+
+4) Seed with a denser, multi-interval initial T
+- Initialize T with multiple disjoint unit intervals, for example T = [(0,1), (2,3), (4,5), (6,7)]. Keep the seed deterministic, but increase early geometry diversity to foster earlier inter-block interactions when translated copies are created.
+- Why it matters: a richer seed expands the space of interactions early on, enabling the translated copies and subsequent fixed-blocks to produce more diverse color usage patterns from the outset, aligning with the successful deterministic, structured growth pattern.
+
+5) Extend to eight rounds with controlled inner-order alternation
+- Increase the main growth loop from six rounds to eight rounds and optionally invert the inner order of T every two rounds (e.g., normal, then reversed every two rounds). Maintain the same overall delta-expansion framework with deterministic, cycle-based starts and block templates.
+- Why it matters: deeper, disciplined expansion amplifies local and global interactions, and a mild alternation in inner order helps break potential rigid reuse patterns observed in purely fixed sequences, potentially increasing FF-pressure while preserving reproducibility.

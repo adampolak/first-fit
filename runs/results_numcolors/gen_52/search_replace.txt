@@ -1,0 +1,41 @@
+<NAME>
+enable_rotation_and_micro</NAME>
+
+<DESCRIPTION>
+Enable rotation of start patterns and activate all mixing options by default. We expand the start_patterns to include four rotation variants and set the defaults for rotate_starts, reverse_block_parity, interleave_blocks, and micro_phase to True. This increases cross-block interactions and sprinkles micro-phase gadgets, aiming to force FirstFit to use more colors without raising the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=False,
+                        reverse_block_parity=False,
+                        interleave_blocks=False,
+                        micro_phase=False):
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Deterministic single classic 4-block start pattern (Kierstead–Trotter Figure 4)
+  start_patterns = [
+    [2, 6, 10, 14],
+  ]
+=======
+  # Deterministic classic 4-block start patterns with rotation options
+  start_patterns = [
+    [2, 6, 10, 14],
+    [1, 5, 9, 13],
+    [3, 7, 11, 15],
+    [2, 4, 8, 12],
+  ]
+>>>>>>> REPLACE
+</DIFF>

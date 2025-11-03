@@ -1,0 +1,27 @@
+<NAME>
+denser_starts_two_rounds
+</NAME>
+
+<DESCRIPTION>
+I reduce the number of recursive rounds from 3 to 2 to significantly cut the number of intervals while densifying the set of replication shifts in each round to preserve or improve FirstFit pressure. Specifically, I replace the adaptive starts [2,6,10,14] (+ extras in later rounds) with a denser, symmetric starts list [2,4,6,8,10,12,14,16] used in every round. This keeps the clique number in check due to the same local “wave” gadgets while increasing the breadth of interference patterns per round, which typically pushes FirstFit to use more colors without needing the third expansion round. The goal is a better combined score by maintaining or improving the competitive ratio while reducing the interval count substantially.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=3):
+=======
+def construct_intervals(rounds=2):
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    starts = [2, 6, 10, 14]
+    if round_idx >= 1:
+      starts += [18, 22, 26, 30]
+=======
+    # Use a denser set of shifts each round to amplify FirstFit pressure
+    starts = [2, 4, 6, 8, 10, 12, 14, 16]
+>>>>>>> REPLACE
+
+</DIFF>

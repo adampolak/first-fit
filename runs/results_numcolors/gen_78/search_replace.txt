@@ -1,0 +1,57 @@
+<NAME>
+connector_interleaving_blockers
+</NAME>
+
+<DESCRIPTION>
+I introduce arrival-order engineering by inserting the four classic KT connectors between the four translated blocks rather than appending them at the end of each round, and I add a light parity reversal for odd rounds on every second block. This reorders the sequence to act as early blockers that occupy low colors before subsequent short intervals arrive, which tends to increase FirstFit’s color usage without changing the intersection graph or the clique number (omega). The connectors and the number of intervals remain unchanged, so the construction stays within the limit and keeps omega controlled. The deterministic alternating schedule across rounds strengthens cross-layer coupling and discourages color reuse across blocks, aiming to push the FF/OPT ratio upward while maintaining OPT ≤ 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+    S = []
+    for blk in blocks:
+      S.extend(blk)
+    # connectors based on the fixed starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+=======
+    # build translated blocks with parity reversal on odd rounds to disrupt FF reuse
+    blocks = []
+    for b_idx, start in enumerate(starts):
+      src = T[::-1] if (round_idx % 2 == 1 and (b_idx % 2 == 1)) else T
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in src])
+
+    # arrival-order engineering: insert connectors between blocks instead of after all
+    S = []
+    s0, s1, s2, s3 = starts
+    left_cap = (delta * (s0 - 1), delta * (s1 - 1))   # left cap
+    right_cap = (delta * (s2 + 2), delta * (s3 + 2))  # right cap
+    cross1 = (delta * (s0 + 2), delta * (s2 - 1))     # cross 1
+    cross2 = (delta * (s1 + 2), delta * (s3 - 1))     # cross 2
+
+    if round_idx % 2 == 0:
+      S.extend(blocks[0]); S.append(left_cap)
+      S.extend(blocks[1]); S.append(cross1)
+      S.extend(blocks[2]); S.append(cross2)
+      S.extend(blocks[3]); S.append(right_cap)
+    else:
+      # start from middle blocks to increase cross-layer coupling before ends arrive
+      S.extend(blocks[2]); S.append(cross2)
+      S.extend(blocks[3]); S.append(right_cap)
+      S.extend(blocks[0]); S.append(left_cap)
+      S.extend(blocks[1]); S.append(cross1)
+    T = S
+>>>>>>> REPLACE
+
+</DIFF>

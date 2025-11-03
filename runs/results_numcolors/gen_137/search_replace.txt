@@ -1,0 +1,79 @@
+<NAME>
+parity_reverse_plus_cross4
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes designed to increase FirstFit pressure without inflating the clique number:
+
+1) Parity-based block reversal: I make the existing reverse_block_parity toggle operative by reversing the order of intervals inside every odd-indexed translated block. This alters arrival order while preserving the interval set, which is known to help FirstFit use more colors without increasing omega.
+
+2) Final-round long-range connectors (cross4 and midcap): I append two additional connectors only in the final round. These couple colors across far-apart towers to push FirstFit further, but are few enough to keep the budget well under the 9800 cap and to avoid significant clique inflation.
+
+Both changes stay within the existing modular structure and safety budget, and they are consistent with established heuristics for raising FirstFit’s usage via order engineering and sparse long-range couplings.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _build_translated_blocks(T, delta, lo, starts):
+    """
+    Build translated blocks sequentially (no interleaving).
+    This ordering is known to increase FirstFit pressure.
+    Each block is a translated copy of T offset by base = s*delta - lo.
+    Returns a list of blocks (each block is a list of (l,r)).
+    """
+    blocks = []
+    for s in starts:
+        base = s * delta - lo
+        blocks.append([(l + base, r + base) for (l, r) in T])
+    return blocks
+=======
+def _build_translated_blocks(T, delta, lo, starts, reverse_block_parity=False):
+    """
+    Build translated blocks sequentially (no interleaving).
+    Optionally reverse the inner order of every odd-indexed block (parity-based)
+    to disrupt FirstFit color reuse while leaving the intersection graph unchanged.
+    Each block is a translated copy of T offset by base = s*delta - lo.
+    Returns a list of blocks (each block is a list of (l,r)).
+    """
+    blocks = []
+    for idx, s in enumerate(starts):
+        base = s * delta - lo
+        src = T[::-1] if (reverse_block_parity and (idx % 2 == 1)) else T
+        blocks.append([(l + base, r + base) for (l, r) in src])
+    return blocks
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Build four translated blocks in sequential order (no interleaving by default)
+        blocks = _build_translated_blocks(T, delta, lo, starts)
+=======
+        # Build four translated blocks in sequential order (no interleaving by default)
+        blocks = _build_translated_blocks(T, delta, lo, starts, reverse_block_parity=reverse_block_parity)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        # Deterministic connectors (caps) derived from the first four starts
+        _append_connectors(S, delta, starts)
+
+        T = S
+=======
+        # Deterministic connectors (caps) derived from the first four starts
+        _append_connectors(S, delta, starts)
+
+        # Final-round sparse long-range connectors to couple distant towers
+        if round_idx == rounds_allowed - 1:
+            s0, s1, s2, s3 = starts[:4]
+            extra_connectors = [
+                ((s0 + 1) * delta, (s3 - 0.5) * delta),  # cross4 long span
+                ((s1 - 0.5) * delta, (s2 + 0.5) * delta),  # mid cap
+            ]
+            S.extend(extra_connectors)
+
+        T = S
+>>>>>>> REPLACE
+
+</DIFF>

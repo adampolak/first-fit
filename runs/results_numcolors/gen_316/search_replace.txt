@@ -1,0 +1,74 @@
+<NAME>
+expand_spine_and_interleaving
+</NAME>
+
+<DESCRIPTION>
+Expand the KT spine template bank from 4 to 6 patterns for greater diversity, allow up to 8 spine rounds if CAP permits, and improve interleaving by deriving block visitation order from the current ‘starts’ tuple instead of a fixed or reversed sequence. These changes increase FirstFit pressure without raising the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Rotating four-start templates for the KT spine
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  # Rotating six-start templates for the KT spine (expanded bank for more mixing)
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (5, 9, 13, 17),  # extra right-shift
+    (6, 10, 14, 18), # extra classic-shift
+  ]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  for ridx in range(6):
+=======
+  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+  for ridx in range(8):
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Interleaving policy (round-robin across blocks)
+    S = []
+    if do_interleave:
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+=======
+    # Interleaving policy: order derived from 'starts' to diversify per-round mixing
+    S = []
+    if do_interleave:
+      # define order by sorting block indices by start values (or reverse)
+      order = sorted(range(4), key=lambda i: starts[i], reverse=reverse_order)
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+>>>>>>> REPLACE
+</DIFF>

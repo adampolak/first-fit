@@ -1,0 +1,35 @@
+<NAME>
+adaptive-post-connectors
+</NAME>
+
+<DESCRIPTION>
+Introduce a small, deterministic adaptive connectors phase just after the spine construction to further boost FirstFit color usage without inflating the omega. The idea is to place a few mid-span connectors whose fractional positions are computed from the current span, but only when there is available capacity. This keeps the approach CAP-aware and reproducible while providing extra coupling that can push the FF count higher on average. The change is implemented as a lightweight insertion just before the final CAP guard check, ensuring compatibility with existing templates and micro-phases.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # If we are near capacity, return baseline spine
+  if len(T) >= CAP - 8:
+    return T
+=======
+  # Optional adaptive connectors to boost FF pressure before final cap
+  room = CAP - len(T)
+  if room > 8:
+    lo, hi, delta = span_delta(T)
+    G = max(1, hi - lo)
+    LR2 = [
+      (lo + int(round(0.12 * G)), lo + int(round(0.32 * G))),
+      (lo + int(round(0.40 * G)), lo + int(round(0.70 * G))),
+      (lo + int(round(0.75 * G)), lo + int(round(0.92 * G))),
+    ]
+    for iv in LR2:
+      if len(T) >= CAP:
+        break
+      if iv[1] > iv[0]:
+        T.append(iv)
+
+  # If we are near capacity, return baseline spine
+  if len(T) >= CAP - 8:
+    return T
+>>>>>>> REPLACE
+</DIFF>

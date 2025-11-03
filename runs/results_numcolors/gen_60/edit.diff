@@ -1,0 +1,342 @@
+--- a/original.py
++++ b/original.py
+@@ -1,154 +1,200 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(rounds=3,
+                         seed_lo=0.0,
+                         seed_scale=1.0,
+                         rotate_starts=True,
+                         reverse_block_parity=True,
+                         interleave_blocks=True,
+                         phase2_micro=True):
+-  """
+-  Improved recursive wave construction.
+-
+-  Key changes vs. the previous simple replicator:
+-  - Seed with four disjoint unit intervals to create a richer initial color spine.
+-  - Rotate among several deterministic 4-start patterns to diversify geometry between rounds.
+-  - Cycle a small bank of 4-interval connector templates (Figure-4 style).
+-  - Alternate inner block order (reverse every other block) and vary block insertion order by round.
+-  - Insert short bridges between translated blocks and sparse short caps.
+-  - Optional small micro-phase appended at the end to sprinkle intervals that touch many existing blocks.
+-
+-  Parameters:
+-    rounds: number of recursive expansion rounds (default 3)
+-    seed_lo / seed_scale: knobs to shift/scale seed placement
+-    rotate_starts, reverse_block_parity, interleave_blocks, phase2_micro: toggles for behavior
+-
+-  Returns:
+-    intervals: list of tuples (l, r) as open intervals in presentation order.
+-  """
+-  # Seed with several disjoint unit intervals (a small "spine" to raise early-color diversity)
+-  T = [
+-    (seed_lo + 0.0 * seed_scale, seed_lo + 1.0 * seed_scale),
+-    (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+-    (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+-    (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)
+-  ]
+-
+-  # Deterministic rotation of 4-start patterns (keeps per-round branching small)
+-  start_patterns = [
+-    (2, 6, 10, 14),
+-    (1, 5, 9, 13),
+-    (3, 7, 11, 15),
+-    (2, 4, 8, 12),
+-  ]
+-
+-  # Small bank of 4-interval connector templates (Figure-4 style gadgets)
+-  template_bank = [
+-    ((1, 5), (12, 16), (4, 9), (8, 13)),
+-    ((0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)),
+-    ((1, 4), (6, 9), (3, 7), (9, 13)),
+-    ((2, 6), (7, 11), (0, 3), (10, 14))
+-  ]
+-
+-  for round_idx in range(rounds):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    span = hi - lo if hi > lo else 1.0
+-
+-    # choose deterministic start-pattern/template for this round
+-    starts = list(start_patterns[round_idx % len(start_patterns)]) if rotate_starts else list(start_patterns[0])
+-    template = template_bank[round_idx % len(template_bank)]
+-
+-    S = []
+-
+-    # rotate block insertion order to perturb arrival ordering each round
+-    if round_idx % 4 == 0:
+-      block_order = starts
+-    elif round_idx % 4 == 1:
+-      block_order = list(reversed(starts))
+-    elif round_idx % 4 == 2:
+-      block_order = starts[1:] + starts[:1]
+-    else:
+-      # another deterministic shuffle
+-      block_order = starts[2:] + starts[:2]
+-
+-    # Build translated copies with alternating inner order for T to reduce color reuse
+-    for i, st in enumerate(block_order):
+-      base = T if not reverse_block_parity or ((round_idx + i) % 2 == 0) else list(reversed(T))
+-      shift = span * st - lo
+-      for (l, r) in base:
+-        S.append((l + shift, r + shift))
+-
+-      # short bridge overlapping tail of this block and head of next block to couple colors
+-      if i + 1 < len(block_order):
+-        nxt = block_order[i + 1]
+-        bstart = span * (st + 0.5) - lo
+-        bend = span * (nxt + 0.5) - lo
+-        left = min(bstart, bend) + 0.02 * span
+-        right = max(bstart, bend) - 0.02 * span
+-        if right > left:
+-          # keep bridge short relative to span so we don't blow up omega
+-          S.append((left, right))
+-
+-    # Add the 4-interval connector gadget (scaled by current span)
+-    for (a, b) in template:
+-      S.append((span * a, span * b))
+-
+-    # Add sparse short caps between blocks to press color usage without creating large cliques
+-    max_st = max(starts)
+-    step = max(2, int(max(1, max_st // 3)))
+-    for j in range(2, max_st, step):
+-      a = span * (j - 0.35)
+-      b = span * (j + 0.55)
+-      # trim slightly to keep them short
+-      S.append((a + 0.01 * span, b - 0.01 * span))
+-
+-    # adopt interleaving strategy (round-robin consumption) if requested
+-    if interleave_blocks:
+-      # perform a light interleaving pass to further mix the order
+-      interleaved = []
+-      block_len = max(1, len(T))
+-      # slice S into blocks of block_len then emit round-robin
+-      slices = [S[k:k + block_len] for k in range(0, len(S), block_len)]
+-      maxslice = max(len(sl) for sl in slices) if slices else 0
+-      for pos in range(maxslice):
+-        for sl in slices:
+-          if pos < len(sl):
+-            interleaved.append(sl[pos])
+-      T = interleaved
+-    else:
+-      T = S
+-
+-  # Optional small micro-phase appended at the end:
+-  # sprinkle a few short intervals that touch many of the existing translated blocks.
+-  if phase2_micro:
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    span = max(1.0, hi - lo)
+-    micros = []
+-    # place a few tiny caps at fractional positions that often intersect many blocks
+-    for frac in (0.22, 0.5, 0.78):
+-      center = lo + frac * span
+-      w = 0.06 * span
+-      micros.append((center - 0.5 * w, center + 0.5 * w))
+-    # append micro-phase intervals near the end (so they are presented late)
+-    T.extend(micros)
+-
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++    """
++    Rotating multiscale wave construction.
++
++    Same interface as the original program. Returns a list of open intervals
++    (l, r) in the presentation order to FirstFit.
++    """
++
++    # Safety cap to avoid producing too many intervals
++    MAX_INTERVALS = 9000
++
++    # --- Seed spine: four disjoint unit intervals to create early color diversity ---
++    T = [
++        (seed_lo + 0.0 * seed_scale, seed_lo + 1.0 * seed_scale),
++        (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
++        (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
++        (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)
++    ]
++
++    # --- Rotating start patterns (deterministic rotation) ---
++    start_patterns = [
++        (2, 6, 10, 14),
++        (1, 5, 9, 13),
++        (3, 7, 11, 15),
++        (2, 4, 8, 12),
++    ]
++
++    # --- Template bank (4-interval connectors) ---
++    template_bank = [
++        ((1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)),
++        ((0.5, 4.5), (11.0, 15.0), (3.5, 8.5), (7.0, 12.0)),
++        ((1.0, 4.0), (6.0, 9.0), (3.0, 7.0), (9.0, 13.0)),
++        ((2.0, 6.0), (7.0, 11.0), (0.0, 3.0), (10.0, 14.0))
++    ]
++
++    # knobs controlling micro behavior
++    bridge_frac = 0.42   # where bridges sit inside a block
++    bridge_len_frac = 0.06
++    micro_caps = (0.22, 0.50, 0.78)
++
++    # Helper: interleave blocks in round-robin
++    def interleave_block_lists(blocks, round_idx):
++        if not interleave_blocks or len(blocks) == 1:
++            # concatenate
++            res = []
++            for b in blocks:
++                res.extend(b)
++            return res
++
++        maxlen = max(len(b) for b in blocks)
++        # change visitation order every round to vary arrival ordering
++        order = list(range(len(blocks)))
++        if round_idx % 3 == 1:
++            order = order[::-1]
++        elif round_idx % 3 == 2:
++            order = order[1:] + order[:1]
++        res = []
++        for i in range(maxlen):
++            for idx in order:
++                blk = blocks[idx]
++                if i < len(blk):
++                    res.append(blk[i])
++        return res
++
++    # Main multiscale rounds
++    for round_idx in range(max(1, int(rounds))):
++        # Bounds and scale for this round
++        lo = min(l for l, r in T)
++        hi = max(r for l, r in T)
++        span = hi - lo if hi > lo else 1.0
++
++        # choose starts and template deterministically
++        starts = list(start_patterns[round_idx % len(start_patterns)]) if rotate_starts else list(start_patterns[0])
++        template = template_bank[round_idx % len(template_bank)]
++
++        # optionally drop to 3-start variant some rounds (deterministic)
++        if round_idx % 2 == 0:
++            starts = starts[:3]
++
++        # Build blocks (each block is a translated clone of T)
++        blocks = []
++        for bi, s in enumerate(starts):
++            # alternate reversal parity
++            if reverse_block_parity and ((round_idx + bi) % 2 == 1):
++                base = list(reversed(T))
++            else:
++                base = T
++            shift = span * s - lo
++            block = [(l + shift, r + shift) for (l, r) in base]
++            blocks.append(block)
++
++        # Interleave block lists to force many active colors
++        S = interleave_block_lists(blocks, round_idx)
++
++        # Add short interior bridges between adjacent starts to couple colors across blocks
++        for idx in range(len(starts) - 1):
++            s = starts[idx]
++            nxt = starts[idx + 1]
++            b_lo = span * (s + bridge_frac) - lo
++            b_hi = b_lo + max(bridge_len_frac * span, 0.18)
++            # place bridges so they sit in the interior of both blocks' translated regions
++            S.append((b_lo, b_hi))
++
++        # Add the template gadget at global scale (keeps omega modest but pressures FF)
++        for (a, b) in template:
++            S.append((span * a, span * b))
++
++        # Add a small "micro" gadget placed inside the middle block to couple colors across layers
++        mid = starts[len(starts) // 2]
++        micro_scale = 0.18
++        for (a, b) in template:
++            S.append((span * (mid + micro_scale * a), span * (mid + micro_scale * b)))
++
++        # Add short sparse caps between block starts — structured so they don't create huge cliques
++        max_start = max(starts) if starts else 1
++        step = max(2, int(max(1, max_start // 3)))
++        for j in range(2, max_start, step):
++            a = span * (j - 0.35) - lo
++            b = span * (j + 0.55) - lo
++            # shorten slightly
++            S.append((a + 0.01 * span, b - 0.01 * span))
++
++        # Finalize T for next round
++        T = S
++
++        # Safety: abort if too many intervals
++        if len(T) > MAX_INTERVALS:
++            # truncate to most recent MAX_INTERVALS items deterministically
++            T = T[-MAX_INTERVALS:]
++            break
++
++    # Phase 2: denser, smaller-delta coupling rounds (a short fine phase)
++    if phase2_micro:
++        lo = min(l for l, r in T)
++        hi = max(r for l, r in T)
++        delta = hi - lo if hi > lo else 1.0
++        delta2 = max(1.0, delta / 4.0)
++        # small cycle of starts for phase 2
++        fine_starts = (1, 4, 7)
++        blocks = []
++        for bi, s in enumerate(fine_starts):
++            # scale down the large T content into denser clones
++            scale_factor = delta2 / max(1.0, delta)
++            if reverse_block_parity and (bi % 2 == 1):
++                base = list(reversed(T))
++            else:
++                base = T
++            shift = delta2 * s - lo
++            block = [(l * scale_factor + shift, r * scale_factor + shift) for (l, r) in base]
++            blocks.append(block)
++        # interleave these fine blocks
++        S = interleave_block_lists(blocks, round_idx + 1)
++        # add small fine bridges and a cap coupler
++        for idx in range(len(fine_starts) - 1):
++            st = fine_starts[idx]
++            b_lo = delta2 * (st + 0.28)
++            b_hi = b_lo + max(0.03 * delta2, 0.12)
++            S.append((b_lo, b_hi))
++        S.append((delta2 * (fine_starts[0] + 0.35), delta2 * (fine_starts[-1] - 0.35)))
++        T = S
++
++    # Append a few micro caps presented last to hit many active colors late
++    if phase2_micro:
++        lo = min(l for l, r in T)
++        hi = max(r for l, r in T)
++        span = hi - lo if hi > lo else 1.0
++        micros = []
++        for frac in micro_caps:
++            center = lo + frac * span
++            w = max(0.04 * span, 0.3)
++            micros.append((center - 0.5 * w, center + 0.5 * w))
++        # add micros near the end (they are presented last)
++        T.extend(micros)
++
++    # Final safety trim & normalization: shift so minimum left endpoint >= 0
++    if T:
++        min_l = min(l for l, r in T)
++        if min_l < 0:
++            T = [(l - min_l, r - min_l) for (l, r) in T]
++
++    # If still too many, keep a deterministic suffix to maintain recent pressure
++    if len(T) > MAX_INTERVALS:
++        T = T[-MAX_INTERVALS:]
++
++    # Return intervals as float tuples (open intervals)
++    return T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

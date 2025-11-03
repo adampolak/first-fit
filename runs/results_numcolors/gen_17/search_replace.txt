@@ -1,0 +1,39 @@
+<NAME>
+multi_seed_and_micro_gadget
+</NAME>
+
+<DESCRIPTION>
+Seed the initial interval set with multiple disjoint unit intervals to create richer early overlap coupling, and inject a small “micro-gadget” inside the median block each round. This adds dense local pressure on FirstFit without increasing the maximum clique, boosting the competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(seed_lo, seed_lo + 1.0 * seed_scale)]
+=======
+  T = [
+      (seed_lo, seed_lo + 1.0 * seed_scale),
+      (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+      (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+      (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)
+  ]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Local four-interval gadget to keep omega small but push FF usage
+    S += [
+      (delta * 1.0, delta * 5.0),
+      (delta * 12.0, delta * 16.0),
+      (delta * 4.0, delta * 9.0),
+      (delta * 8.0, delta * 13.0)
+    ]
+=======
+    # Local four-interval gadget to keep omega small but push FF usage
+    gadget = [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)]
+    S += [(delta * a, delta * b) for a, b in gadget]
+    # Micro-gadget: small scaled gadget inside the median block to pressure FF
+    mid_idx = len(starts) // 2
+    mid = starts[mid_idx]
+    micro = [(a / 10.0, b / 10.0) for a, b in gadget]
+    S += [(delta * (mid + a), delta * (mid + b)) for a, b in micro]
+>>>>>>> REPLACE
+</DIFF>

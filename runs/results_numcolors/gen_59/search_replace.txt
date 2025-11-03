@@ -1,0 +1,75 @@
+<NAME>
+rotation_sequence_and_long_spines
+</NAME>
+
+<DESCRIPTION>
+Introduce an extended rotation sequence for selecting start_patterns to diversify block geometry across rounds, replacing the simple round_idx modulo scheme. Additionally, insert long “spine” intervals on every other round that span the full block range to couple distant blocks and force FirstFit to use more colors without substantially increasing the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Cycle of start-patterns (rotating choices to avoid predictable reuse)
+  start_patterns = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (2, 4, 8, 12),
+  ]
+
+  # Small bank of 4-interval connector templates (keeps per-round additive cost small)
+  template_bank = [
+      ((1, 5), (12, 16), (4, 9), (8, 13)),
+      ((0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)),
+      ((1, 4), (6, 9), (3, 7), (9, 13)),
+      ((2, 6), (7, 11), (0, 3), (10, 14)),
+  ]
+=======
+  # Cycle of start-patterns (rotating choices to avoid predictable reuse)
+  start_patterns = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (2, 4, 8, 12),
+  ]
+
+  # Extended rotation sequence to diversify start pattern usage across rounds
+  rotation_seq = [0, 1, 2, 3, 1, 2, 3, 0]
+
+  # Small bank of 4-interval connector templates (keeps per-round additive cost small)
+  template_bank = [
+      ((1, 5), (12, 16), (4, 9), (8, 13)),
+      ((0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)),
+      ((1, 4), (6, 9), (3, 7), (9, 13)),
+      ((2, 6), (7, 11), (0, 3), (10, 14)),
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # pick start pattern and template deterministically
+    starts = list(start_patterns[round_idx % len(start_patterns)])
+    template = template_bank[round_idx % len(template_bank)]
+=======
+    # pick start pattern and template using extended rotation sequence
+    rot_idx = rotation_seq[round_idx % len(rotation_seq)]
+    starts = list(start_patterns[rot_idx])
+    template = template_bank[rot_idx]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # update T for next round
+    T = S
+=======
+    # add long spines across full block range every other round to couple distant colors
+    if round_idx % 2 == 1:
+      left = min(starts) - 0.3
+      right = max(starts) + 0.3
+      S.append((span * left, span * right))
+      S.append((span * (left + 0.5), span * (right + 0.5)))
+    # update T for next round
+    T = S
+>>>>>>> REPLACE
+</DIFF>

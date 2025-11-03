@@ -1,0 +1,38 @@
+<NAME>increase_micro_iterations</NAME>
+<DESCRIPTION>Increase default primary micro-phase iterations from 1 to 2 to allow two delta₂ micro rounds before the alternate micro-phase, deepening cross-scale interactions.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+                        interleave_blocks=True,
+                        phase2_iters=2):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>unconditional_cross4_connector</NAME>
+<DESCRIPTION>Inject the cross4 connector unconditionally in every micro-phase, rather than only in the alternate phase, to strengthen long-range overlaps without raising ω.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add a longer-range cross4 only for the alternate micro-phase
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+=======
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Unconditional longer-range cross4 connector
+    micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+>>>>>>> REPLACE
+</DIFF>

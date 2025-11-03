@@ -1,0 +1,168 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        interleave_blocks=True,
+                        reverse_block_parity=True,
+                        phase2_iters=2,
+                        cross4_enabled=True):
+    """
+    Merged KT–spine + near-tail caps + two-phase micro rounds.
+    Returns a list of (l, r) intervals in the order presented to FirstFit.
+    """
+    CAP = 9800
+
+    # Four main KT-templates (rotated each round if enabled)
+    spine_starts = (2, 6, 10, 14)
+    template_bank = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+    ]
+
+    # Helpers
+    def _span(T):
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = hi - lo
+        return lo, hi, delta if delta > 0 else 1
+
+    def _append_connectors(S, starts, delta, cross4=False):
+        s0, s1, s2, s3 = starts
+        S.append(((s0 - 1) * delta, (s1 - 1) * delta))
+        S.append(((s2 + 2) * delta, (s3 + 2) * delta))
+        S.append(((s0 + 2) * delta, (s2 - 1) * delta))
+        S.append(((s1 + 2) * delta, (s3 - 1) * delta))
+        if cross4:
+            S.append(((s0 + 4) * delta, (s3 + 4) * delta))
+
+    def _apply_round(T, starts, do_interleave, reverse_order, add_cross4):
+        lo, hi, delta = _span(T)
+        # build blocks
+        blocks = []
+        for s in starts:
+            shift = s * delta - lo
+            blocks.append([(l + shift, r + shift) for (l, r) in T])
+        # assemble
+        S = []
+        if do_interleave:
+            order = list(range(4))
+            if reverse_order:
+                order.reverse()
+            m = max(len(b) for b in blocks)
+            for i in range(m):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            blks = list(reversed(blocks)) if reverse_order else blocks
+            for blk in blks:
+                S.extend(blk)
+        _append_connectors(S, starts, delta, cross4=add_cross4)
+        return S
+
+    def _insert_near_tail(T, caps):
+        out = list(T)
+        for i, iv in enumerate(caps):
+            pos = len(out) - (2*i + 1)
+            if pos < 0:
+                out.append(iv)
+            else:
+                out.insert(pos, iv)
+        return out
+
+    def build_micro_delta_round(T, budget, iter_id=0):
+        if budget <= 8 or not T:
+            return []
+        glo, ghi, G = *_span(T),
+        G = max(1, G)
+        # pick thin seed
+        seed_sz = max(8, min(32, len(T)//300))
+        step = max(1, len(T)//seed_sz)
+        U = T[::step][:seed_sz]
+        ulo = min(l for l, _ in U)
+        # choose window family (alternate on second round)
+        if iter_id % 2 == 0:
+            shift = (iter_id % 3) * 0.02
+            fracs = [(0.12+shift,0.22+shift),(0.35+shift,0.45+shift),
+                     (0.58+shift,0.68+shift),(0.80+shift,0.90+shift)]
+        else:
+            fracs = [(0.05,0.15),(0.28,0.38),(0.60,0.70),(0.82,0.92)]
+        # clamp fractions
+        fracs = [ (max(0.05,a), min(0.95,b)) for a,b in fracs ]
+        # build micro blocks
+        blocks = []
+        for fa, fb in fracs:
+            win_lo = glo + int(round(fa*G))
+            shift = win_lo - ulo
+            blk = [(l+shift, r+shift) for (l,r) in U]
+            # optional reversal for mixing
+            if ((int(fa*100)//5) + iter_id) % 2:
+                blk.reverse()
+            blocks.append(blk)
+        # interleave
+        micro = []
+        m = max(len(b) for b in blocks)
+        order = list(range(4))
+        if iter_id % 2: order.reverse()
+        for i in range(m):
+            for idx in order:
+                if i < len(blocks[idx]):
+                    micro.append(blocks[idx][i])
+        # connectors
+        con = [
+            (glo+int(round(0.08*G)), glo+int(round(0.30*G))),
+            (glo+int(round(0.60*G)), glo+int(round(0.92*G))),
+            (glo+int(round(0.26*G)), glo+int(round(0.56*G))),
+            (glo+int(round(0.44*G)), glo+int(round(0.78*G))),
+        ]
+        if iter_id % 2:
+            con.append((glo+int(round(0.18*G)), glo+int(round(0.84*G))))
+        for a,b in con:
+            if b>a:
+                micro.append((a,b))
+        return micro[:budget]
+
+    # --- Stage 1: KT-spine ---
+    T = [(0,1)]
+    for ridx in range(int(rounds)):
+        if 4*len(T)+4 > CAP:
+            break
+        starts = template_bank[ridx%4] if rotate_starts else spine_starts
+        do_int = interleave_blocks and (ridx%2==0)
+        rev   = reverse_block_parity and (ridx%2==1)
+        last  = (ridx==int(rounds)-1) and cross4_enabled
+        T = _apply_round(T, starts, do_int, rev, add_cross4=last)
+        if len(T)>=CAP:
+            T = T[:CAP]
+            return T
+
+    # near-tail caps
+    lo,hi,delta = _span(T)
+    caps = []
+    for a,b in ((0.08,0.60),(0.25,0.75),(0.75,0.92)):
+        L = lo+max(1,int(round(a*(hi-lo))))
+        R = lo+max(1,int(round(b*(hi-lo))))
+        if R<=L: R=L+1
+        caps.append((L,R))
+    T = _insert_near_tail(T, caps)
+    if len(T)>=CAP-8:
+        return T[:CAP]
+
+    # --- Stage 2: micro rounds ---
+    steps = min(int(phase2_iters), 2)
+    for i in range(steps):
+        room = CAP - len(T)
+        if room<=8: break
+        micro = build_micro_delta_round(T, room, iter_id=i)
+        if not micro: break
+        T.extend(micro)
+    return T[:CAP]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

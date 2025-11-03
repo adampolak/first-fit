@@ -1,0 +1,134 @@
+# EVOLVE-BLOCK-START
+
+from typing import List, Tuple
+
+def construct_intervals(max_intervals: int = 9800) -> List[Tuple[float, float]]:
+    """
+    Multi‐scale rotating‐template expansion for adversarial interval coloring.
+    A deterministic recursive construction inspired by Kierstead–Trotter and
+    augmented with multi‐interval seeds, rotating start patterns, and a small
+    fine‐scale micro‐phase to boost FirstFit usage while keeping omega ≤ 10.
+    """
+    # 1) PARAMETERS
+    TARGET_OMEGA = 10
+    DEPTH = 5                      # main rounds
+    MICRO_PHASE_DEPTH = 2          # fine‐scale rounds at end
+    SEED_BLOCKS = [                # multi‐interval seed (disjoint)
+        (0.0, 1.0), (2.0, 3.0),
+        (4.0, 5.0), (6.0, 7.0)
+    ]
+    # rotating start‐patterns (4‐block templates)
+    START_BANK = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (2, 4, 8, 12),
+        (2, 5, 8, 11),    # extra variant
+        (3, 6, 9, 12),    # extra variant
+    ]
+    # Four‐interval gadget templates
+    GADGETS = [
+        [(1,5),(12,16),(4,9),(8,13)],
+        [(0.5,4.5),(11,15),(3.5,8.5),(7,12)],
+        [(1,4),(6,9),(3,7),(9,13)],
+        [(2,6),(7,11),(0,3),(10,14)],
+    ]
+
+    # 2) HELPER: span & delta
+    def span_Delta(T: List[Tuple[float,float]]):
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        return lo, hi, max(hi-lo, 1.0)
+
+    # 3) MAIN EXPANSION
+    T = list(SEED_BLOCKS)
+    for rd in range(DEPTH):
+        lo, hi, delta = span_Delta(T)
+        S: List[Tuple[float,float]] = []
+        # choose 4‐start pattern, rotating through bank
+        starts = START_BANK[rd % len(START_BANK)]
+        # optionally inject longer 6‐wave every other round
+        if rd % 2 == 1:
+            starts = START_BANK[(rd+2) % len(START_BANK)] + (START_BANK[(rd+3)%len(START_BANK)][0],)
+            starts = starts[:4]
+
+        # block cloning with alternating reversal
+        for bi, s in enumerate(starts):
+            base = T if ((rd+bi)%2==0) else list(reversed(T))
+            off = delta*s - lo
+            for (l,r) in base:
+                S.append((l+off, r+off))
+            # short bridge to next block
+            if bi+1 < len(starts):
+                n = starts[bi+1]
+                b_lo = delta*(s+0.3)
+                b_hi = b_lo + delta*0.2
+                S.append((b_lo,b_hi))
+
+        # place one 4‐interval gadget from bank
+        gadget = GADGETS[rd % len(GADGETS)]
+        for (a,b) in gadget:
+            S.append((delta*a, delta*b))
+
+        # micro‐gadget inside middle block
+        mid = starts[len(starts)//2]
+        micro = GADGETS[(rd+1)%len(GADGETS)]
+        for (a,b) in micro:
+            S.append((delta*(mid + 0.1*a), delta*(mid + 0.1*b)))
+
+        # tiny caps to nudge FF upward
+        max_s = max(starts)
+        for j in range(2):
+            c_lo = delta*(max_s + 0.2 + j*0.5)
+            c_hi = c_lo + delta*0.05 + 0.1
+            S.append((c_lo,c_hi))
+
+        T = S
+        if len(T) > max_intervals//2:
+            break
+
+    # 4) MICRO‐PHASE FINE‐SCALE
+    for mp in range(MICRO_PHASE_DEPTH):
+        lo, hi, delta = span_Delta(T)
+        delta2 = max(1.0, delta/4.0)
+        S = []
+        # fine 3‐wave patterns
+        fine_patterns = [(1,4,7),(2,5,8)]
+        starts2 = fine_patterns[mp % len(fine_patterns)]
+        for i,s in enumerate(starts2):
+            base = T if (i%2==0) else list(reversed(T))
+            off = delta2*s - lo
+            scale = delta2/delta
+            for (l,r) in base:
+                S.append(((l-lo)*scale+off, (r-lo)*scale+off))
+            # tiny fine bridge
+            if i+1 < len(starts2):
+                b_lo = delta2*(s+0.2)
+                b_hi = b_lo + delta2*0.1
+                S.append((b_lo,b_hi))
+        # one fine cap coupling ends
+        S.append((delta2*(starts2[0]+0.3), delta2*(starts2[-1]-0.3)))
+        T = S
+        if len(T) > max_intervals:
+            break
+
+    # 5) TRUNCATE & NORMALIZE
+    if not T:
+        return []
+    # shift to non‐negative
+    min_l = min(l for l,r in T)
+    if min_l < 0:
+        T = [(l-min_l, r-min_l) for (l,r) in T]
+    # round & enforce length ≥ ε
+    final: List[Tuple[float,float]] = []
+    for (l,r) in T[:max_intervals]:
+        if r <= l+1e-6:
+            r = l + 1e-3
+        final.append((round(l,6), round(r,6)))
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

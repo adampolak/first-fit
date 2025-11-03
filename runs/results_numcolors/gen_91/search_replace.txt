@@ -1,0 +1,59 @@
+<NAME>adaptive_wave_post_spine</NAME>
+
+<DESCRIPTION>Add a small, deterministic adaptive wave augmentation after the main KT-spine expansion to pressure FirstFit further while keeping omega controlled. Also increase the hard capacity cap from 9800 to 10000 to allow a bit more witness work. These changes are conservative and deterministic when adaptive_waves remains enabled.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 9800
+=======
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 10000
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(depth):
+    T = apply_round(T, spine_starts)
+=======
+  for _ in range(depth):
+    T = apply_round(T, spine_starts)
+
+  # Optional adaptive waves: add a small additional wave after the main spine
+  # to increase FirstFit pressure while keeping omega in check.
+  # Deterministic when adaptive_waves is True.
+  adaptive_waves_flag = True
+  if adaptive_waves_flag and len(T) < CAP - 50:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    wave_starts = [2, 6, 10, 14]
+    blocks = []
+    for s in wave_starts:
+      base = s * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in T])
+    S2 = []
+    maxlen = max(len(b) for b in blocks)
+    if interleave_blocks:
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S2.append(blk[i])
+    else:
+      for blk in blocks:
+        S2.extend(blk)
+    s0, s1, s2a, s3 = wave_starts[:4]
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),
+      ((s2a + 2) * delta, (s3 + 2) * delta),
+      ((s0 + 2) * delta, (s2a - 1) * delta),
+      ((s1 + 2) * delta, (s3 - 1) * delta),
+    ]
+    for a, b in connectors:
+      S2.append((a, b))
+    T = S2
+>>>>>>> REPLACE
+</DIFF>

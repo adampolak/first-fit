@@ -1,0 +1,155 @@
+<NAME>
+rotating_starts_template_bank_sparse_caps
+</NAME>
+
+<DESCRIPTION>
+I replace the dense, ever-growing set of starts and ad-hoc caps with a deterministic rotation of compact start-patterns and a four-gadget template bank inspired by the lower-bound constructions around Figure 4 in the cited paper.
+
+Key changes:
+- Rotate among three start-patterns (4-wave, 8-wave, 7-wave) to keep growth controlled and disrupt color reuse, reducing interval blowup while increasing FirstFit pressure.
+- Add a small, deterministic bridge between consecutive blocks to couple colors across blocks without materially increasing the clique number.
+- Use a template bank of four-interval gadgets and inject a micro-gadget (scaled-down copy) inside the middle block each round; this is a classic trick to raise FF locally while keeping omega low.
+- Replace the previous absolute-position caps with sparse, scale-aware caps placed relative to block indices to maintain a small omega “spine” and to nudge FF to create new colors.
+- Remove the overly dense second-phase starts and the large caps that were inflating the interval count and omega, which led to poor combined scores.
+
+This keeps the recursive wave strategy but controls n, raising the FF/opt ratio towards the 1.3–1.5 range observed in prior programs while keeping the total interval count moderate.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=3, seed_lo=0.0, seed_scale=1.0):
+  """
+  Deterministic, adaptive multi-round wave construction.
+  - rounds: number of recursive expansion rounds
+  - seed_lo / seed_scale: deterministic knobs for initial placement and scaling
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals
+  """
+  # Start with a compact core
+  T = [
+      (seed_lo, seed_lo + 1.0 * seed_scale),
+      (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+      (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+      (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale)
+  ]
+  for round_idx in range(rounds):
+    # Furthest-left/right boundaries of current wave
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1.0  # avoid degenerate
+
+    S = []
+    # Adaptive starts: denser in early rounds, controlled growth later
+    if round_idx == 0:
+      starts = [2, 4, 6, 8, 10, 12, 14, 16]
+    else:
+      # add a few extra starts but cap total to prevent exponential blowup
+      starts = [2, 4, 6, 8, 10, 12, 14, 16, 18, 22, 26]
+
+    # Create translated copies of current T
+    for i, start in enumerate(starts):
+      # Alternate inner order to reduce color re-use
+      base = T if (i % 2 == 0) else list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+
+      # Optional light bridging to couple colors across adjacent blocks
+      if i + 1 < len(starts):
+        nxt = starts[i + 1]
+        # bridge spans inside current to inside next block
+        S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+
+    # Local four-interval gadget to keep omega small but push FF usage
+    gadget = [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)]
+    S += [(delta * a, delta * b) for a, b in gadget]
+    # Micro-gadget: small scaled gadget inside the median block to pressure FF
+    mid_idx = len(starts) // 2
+    mid = starts[mid_idx]
+    micro = [(a / 10.0, b / 10.0) for a, b in gadget]
+    S += [(delta * (mid + a), delta * (mid + b)) for a, b in micro]
+
+    # Tiny caps to further push color usage without large omega
+    caps = []
+    cap1 = max(1.0, delta * 0.4)
+    cap2 = delta * 1.8
+    # place a few small caps at spaced positions
+    for j in range(3):
+      caps.append((cap1 * (j + 1), cap1 * (j + 1) + cap2 * 0.2))
+    S += caps
+
+    T = S
+
+  return T
+=======
+def construct_intervals(rounds=3, seed_lo=0.0, seed_scale=1.0):
+  """
+  Deterministic rotating multi-round wave construction with sparse caps and a template bank.
+  - rounds: number of recursive expansion rounds
+  - seed_lo / seed_scale: deterministic knobs for initial placement and scaling
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals
+  """
+  # Start with a compact multi-interval core (promotes early coupling)
+  T = [
+      (seed_lo, seed_lo + 1.0 * seed_scale),
+      (seed_lo + 2.0 * seed_scale, seed_lo + 3.0 * seed_scale),
+      (seed_lo + 4.0 * seed_scale, seed_lo + 5.0 * seed_scale),
+      (seed_lo + 6.0 * seed_scale, seed_lo + 7.0 * seed_scale),
+  ]
+
+  # Four-interval gadget templates (rotate across rounds)
+  templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],              # A
+    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],      # B
+    [(1, 4), (6, 9), (3, 7), (9, 13)],                # C
+    [(2, 6), (7, 11), (0, 3), (10, 14)],              # D
+  ]
+
+  # Deterministic cycle of start-patterns: compact 4-wave, dense 8-wave, staggered 7-wave
+  start_patterns = [
+    (2, 6, 10, 14),
+    (2, 4, 6, 8, 10, 12, 14, 16),
+    (2, 5, 8, 11, 14, 17, 20),
+  ]
+
+  for round_idx in range(rounds):
+    # Current span
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1.0
+
+    S = []
+
+    # Pick starts and gadget for this round
+    starts = list(start_patterns[round_idx % len(start_patterns)])
+    template = templates[round_idx % len(templates)]
+
+    # Translate copies with alternating inner order; add light bridges
+    for i, start in enumerate(starts):
+      base = T if ((round_idx + i) % 2 == 0) else list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for (l, r) in base]
+
+      if i + 1 < len(starts):
+        nxt = starts[i + 1]
+        # Light bridge couples colors across adjacent blocks (keeps omega small)
+        S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+
+    # Global gadget intervals scaled by delta
+    S += [(delta * a, delta * b) for (a, b) in template]
+
+    # Micro-gadget inside the middle block (scaled down to limit omega)
+    middle = starts[len(starts) // 2]
+    micro_template = templates[(round_idx + 1) % len(templates)]
+    S += [(delta * (middle + a / 16.0), delta * (middle + b / 16.0)) for (a, b) in micro_template]
+
+    # Sparse caps placed relative to block indices to push FF without raising omega much
+    max_start = max(starts)
+    caps_step = max(3, int(max_start // 4))
+    for j in range(2, int(max_start), caps_step):
+      S.append((delta * (j - 0.5), delta * (j + 1.5)))
+
+    T = S
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

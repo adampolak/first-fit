@@ -1,0 +1,113 @@
+<NAME>
+dense_patterns_skip_bridges_sparse_caps
+</NAME>
+
+<DESCRIPTION>
+I introduce three targeted changes to increase FirstFit pressure while controlling the clique number:
+
+1) Enrich the start pattern bank with denser and staggered waves (6-, 7-, and 8-start patterns) and cycle them. This boosts cross-scale/block interactions without fundamentally changing the framework.
+
+2) Add occasional skip-bridges that connect non-adjacent blocks (two ahead) with small spans. These couple colors across more distant blocks (a “tower” effect) and reduce color reuse while keeping bridges short to avoid raising omega.
+
+3) Replace the fixed-count tiny caps with sparse, longer caps in two staggered families. This increases FirstFit pressure at controlled positions along the spine, mimicking the “sparse caps” heuristic from the better-performing prior design.
+
+Additionally, I reduce the second-phase round count from 2 to 1 to keep interval growth in check while retaining the intended fine-scale coupling.
+
+Together, these edits follow the suggested heuristics: denser start patterns, cross-block coupling, and sparse caps; they aim to push FF upward without significantly increasing the maximum clique, improving the competitive ratio and combined score.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    phase2_rounds = 2           # small-scale refinement rounds after main rounds
+=======
+    phase2_rounds = 1           # small-scale refinement rounds after main rounds
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Rotating 4-cycle of start patterns (each has 4 starts -> branching factor 4)
+    start_patterns = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (2, 4, 8, 12),
+    ]
+=======
+    # Rotating bank of start patterns with varying densities (4-, 6-, 7-, 8-waves)
+    start_patterns = [
+        (2, 6, 10, 14),                 # compact 4-wave
+        (1, 5, 9, 13),                  # offset 4-wave
+        (3, 7, 11, 15),                 # offset 4-wave
+        (2, 4, 8, 12),                  # even 4-wave
+        (1, 4, 7, 10, 13, 16),          # wide 6-wave
+        (2, 5, 8, 11, 14, 17, 20),      # staggered 7-wave
+        (2, 4, 6, 8, 10, 12, 14, 16),   # dense 8-wave
+    ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            # light deterministic bridge to the "next" start (couples colors across blocks)
+            if bi + 1 < len(block_order):
+                nxt = block_order[bi + 1]
+                # place a short bridge that connects the interior of current block
+                # to the interior of the next block (keeps omega small)
+                b_lo = delta * (st + bridge_fraction * 0.25)
+                b_hi = delta * (nxt - bridge_fraction * 0.25)
+                # ensure bridge has positive length
+                if b_hi > b_lo:
+                    S.append((b_lo, b_lo + max(0.2 * delta, 1.0)))
+=======
+            # light deterministic bridge to the "next" start (couples colors across blocks)
+            if bi + 1 < len(block_order):
+                nxt = block_order[bi + 1]
+                # place a short bridge that connects the interior of current block
+                # to the interior of the next block (keeps omega small)
+                b_lo = delta * (st + bridge_fraction * 0.25)
+                b_hi = delta * (nxt - bridge_fraction * 0.25)
+                # ensure bridge has positive length
+                if b_hi > b_lo:
+                    S.append((b_lo, b_lo + max(0.2 * delta, 1.0)))
+
+            # occasional skip-bridge two blocks ahead to couple non-adjacent blocks
+            if (bi + 2 < len(block_order)) and (it % 2 == 0):
+                nxt2 = block_order[bi + 2]
+                sb_lo = delta * (st + 0.6)
+                sb_hi = delta * (nxt2 - 0.6)
+                if sb_hi > sb_lo:
+                    S.append((sb_lo, sb_lo + max(0.12 * delta, 0.5)))
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # add a few small caps to nudge FirstFit to create new colors (short intervals)
+        max_start = max(starts)
+        if max_start <= 0:
+            cap_positions = [1, 2, 3]
+        else:
+            # deterministic but spread positions
+            cap_positions = [int(max_start * (i + 1) / (caps_per_round + 1)) for i in range(caps_per_round)]
+        for j in cap_positions:
+            cap_lo = delta * (j + 0.1)
+            cap_hi = cap_lo + max(0.08 * delta, 0.5)
+            S.append((cap_lo, cap_hi))
+=======
+        # Sparse cap families to increase FF pressure without large local cliques
+        max_start = max(starts)
+        step = max(3, int(max_start // 4))
+        for j in range(2, max_start, step):
+            S.append((delta * (j - 0.5), delta * (j + 1.5)))
+        # Secondary staggered caps
+        step2 = max(4, int(max_start // 3))
+        for j in range(3, max_start, step2):
+            S.append((delta * (j - 0.3), delta * (j + 0.9)))
+>>>>>>> REPLACE
+
+</DIFF>

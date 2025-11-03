@@ -1,0 +1,30 @@
+<NAME>
+enable_cross4_every_round
+</NAME>
+
+<DESCRIPTION>
+Enable the optional long-range cross4 connector in every KT spine round when `cross4_enabled` is True, and adjust the capacity guard to account for the extra connector. This adds one more connector per round to strengthen cross-scale coupling without exceeding `CAP`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+=======
+    # Predict next size: sz -> 4*sz + 4 connectors + optional cross4
+    extra = 1 if cross4_enabled else 0
+    if 4 * len(T) + 4 + extra > CAP:
+      break
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Add cross4 only on final executed round and only if not rotating templates (safer)
+    add_c4 = False  # default safer choice
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+=======
+    # Enable cross4 connector on each round if requested
+    add_c4 = bool(cross4_enabled)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,113 @@
+<NAME>
+six_round_sequential_boost
+</NAME>
+
+<DESCRIPTION>
+Set the construction to reliably reach six rounds under the interval cap and switch to sequential block concatenation (no interleaving) with stable in-block order. This mirrors the strongest prior-performing variants: six rounds of the classic 4-copy-plus-4-connector recurrence and sequential ordering tend to increase FirstFit pressure without inflating omega, typically yielding ~9556 base intervals plus a small micro-phase sprinkle (total ≈ 9560). I also disable the extra post-round replication phase by default (or gate it when depth < 6) to prevent unnecessary replication that previously reduced the competitive ratio and wasted budget. These targeted changes should recover and improve the best observed combined score behavior (around competitive ratios near 2.3 with ~9560 intervals).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(depth=3):
+    """
+    Fractal KT-inspired construction with modular toggles.
+
+    Returns: list of (l, r) integer tuples representing open intervals.
+    """
+    # Global controls (deterministic toggles)
+    rotate_starts   = True
+    reverse_block_parity = True
+    interleave_blocks = True
+    micro_phase = True
+=======
+def construct_intervals(depth=6):
+    """
+    Fractal KT-inspired construction with modular toggles.
+    Tuned to reach six rounds under the cap and use sequential block order,
+    which empirically increases FirstFit pressure without inflating omega.
+    Returns: list of (l, r) integer tuples representing open intervals.
+    """
+    # Global controls (deterministic toggles)
+    rotate_starts   = True
+    reverse_block_parity = False   # keep inner order stable within blocks
+    interleave_blocks = False      # sequential blocks boost FF vs omega
+    micro_phase = True
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Normalize and convert to integers
+    intervals = _normalize_to_int_intervals(T)
+
+    # EXTRA PHASE: post-round two-phase expansion to strengthen FF pressure
+    EXTRA_ROUNDS = 2  # two additional post-rounds
+    if EXTRA_ROUNDS > 0:
+        for extra in range(EXTRA_ROUNDS):
+            lo = min(l for l, _ in T)
+            hi = max(r for _, r in T)
+            delta = hi - lo
+            if delta <= 0:
+                delta = 1
+            # Rotate starts more aggressively for extra phase
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+
+            blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+
+            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
+
+            # Deterministic connectors for extra phase (using a shuffled but deterministic mapping)
+            s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ]
+            S.extend(connectors)
+
+            T = S
+        intervals = _normalize_to_int_intervals(T)
+
+    return intervals
+=======
+    # EXTRA PHASE: disabled when depth >= 6 (default); fallback if small depths are requested
+    EXTRA_ROUNDS = 0 if depth >= 6 else min(2, 6 - depth)
+    if EXTRA_ROUNDS > 0:
+        for extra in range(EXTRA_ROUNDS):
+            lo = min(l for l, _ in T)
+            hi = max(r for _, r in T)
+            delta = hi - lo
+            if delta <= 0:
+                delta = 1
+            # Rotate starts deterministically for the extra rounds
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+
+            blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
+
+            # Deterministic connectors (retain 4 to keep the budget tight)
+            s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ]
+            S.extend(connectors)
+            T = S
+
+            # Enforce the interval cap defensively
+            if len(T) > MAX_INTERVALS:
+                T = T[:MAX_INTERVALS]
+                break
+
+    # Final normalization
+    intervals = _normalize_to_int_intervals(T)
+    return intervals
+>>>>>>> REPLACE
+
+</DIFF>

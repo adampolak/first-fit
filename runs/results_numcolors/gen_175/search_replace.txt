@@ -1,0 +1,20 @@
+<NAME>
+adaptive_density_and_cross4_boost</NAME>
+
+<DESCRIPTION>
+We introduce an adaptive spacing multiplier K for the later spine rounds (using K=2 for rounds 3 and above) to tighten block packing and increase FF pressure, and we enable the long-range cross4 connector not only in the final round but also in the two deepest rounds to enhance cross-scale coupling. These adjustments target boosting the competitive ratio without exceeding CAP.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    S = _build_blocks_sequential(T, starts, delta, lo, K=1)
+    # Add connectors; only the last round gets a single extra cross4 (keeps count < CAP)
+    _append_connectors(S, starts, delta, add_cross4=(ridx == rounds - 1))
+=======
+    # Adaptive density: use K=2 in later rounds to pack blocks more tightly
+    K = 2 if ridx >= 3 else 1
+    S = _build_blocks_sequential(T, starts, delta, lo, K=K)
+    # Add connectors; enable long-range cross4 in the deepest two rounds for extra mixing
+    _append_connectors(S, starts, delta, add_cross4=(ridx >= rounds - 2))
+>>>>>>> REPLACE
+</DIFF>

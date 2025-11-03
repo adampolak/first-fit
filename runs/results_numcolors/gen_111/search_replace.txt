@@ -1,0 +1,43 @@
+<NAME>eight_template_block_bank</NAME>
+<DESCRIPTION>
+Replace the 4-pattern start list with an 8-template bank and cycle through all 8 templates (A–H) each round and in the extra phase. This increases cross-scale diversity and disrupts repeating overlap patterns, boosting FirstFit pressure without increasing the clique number.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Start patterns (deterministic cycle)
+    start_patterns = [
+        [2, 6, 10, 14],  # classic four-block layout
+        [1, 5, 9, 13],   # left-shifted
+        [3, 7, 11, 15],  # right-shifted
+        [2, 4, 8, 12],   # compressed variant
+    ]
+=======
+    # Extended bank of 8 four-start templates (A–H) to increase cross-scale diversity
+    start_templates = [
+        [2, 6, 10, 14],  # A
+        [1, 5, 9, 13],   # B
+        [3, 7, 11, 15],  # C
+        [4, 8, 12, 16],  # D
+        [2, 6, 9, 13],   # E
+        [3, 7, 8, 12],   # F
+        [1, 5, 10, 14],  # G
+        [4, 8, 9, 13],   # H
+    ]
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+=======
+        starts = start_templates[round_idx % len(start_templates)] if rotate_starts else start_templates[0]
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+=======
+            rot = (depth + extra) % len(start_templates)
+            starts = start_templates[rot]
+>>>>>>> REPLACE
+</DIFF>

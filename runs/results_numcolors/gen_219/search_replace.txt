@@ -1,0 +1,68 @@
+<NAME>
+always_interleave_and_add_cross4_layer
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted changes grounded in interval coloring heuristics to increase FirstFit pressure without raising omega beyond the intended limit.
+
+1) Always interleave the four translated blocks at every KT spine round. Interleaving is known to elevate FF by mixing colors from different blocks in the arrival order. Previously interleaving happened only on even rounds; making it unconditional strengthens cross-layer coupling while keeping the clique number controlled by the classic connector scheme.
+
+2) Add a small, capacity-guarded cross4 connector layer at the end (Micro-phase D). Two long-range connectors spanning roughly 18%–84% and 32%–68% of the global span tie distant parts of the construction. Such deterministic long connectors boost FF by forcing later intervals to overlap many active colors, yet do not significantly increase the maximum point load since they are just a few additional intervals.
+
+Both changes are conservative, respect CAP, and should push the FF usage above the previous plateau while preserving the optimal color bound near 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # interleave blocks on even rounds, sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+=======
+    # interleave blocks on every round to maximize cross-block mixing for FirstFit
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          S.append(blk[i])
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+      if room2 > 0:
+        if len(micro2) > room2:
+          micro2 = micro2[:room2]
+        T.extend(micro2)
+
+  return T
+=======
+      if room2 > 0:
+        if len(micro2) > room2:
+          micro2 = micro2[:room2]
+        T.extend(micro2)
+
+  # Micro-phase D: long-range cross4 connectors to strengthen cross-scale coupling (capacity-guarded)
+  if len(T) < CAP - 2:
+    glo3 = min(l for l, r in T)
+    ghi3 = max(r for l, r in T)
+    G3 = ghi3 - glo3 if ghi3 > glo3 else 1
+    cross4 = [
+      (glo3 + int(round(0.18 * G3)), glo3 + int(round(0.84 * G3))),
+      (glo3 + int(round(0.32 * G3)), glo3 + int(round(0.68 * G3))),
+    ]
+    room3 = CAP - len(T)
+    to_add = [c for c in cross4 if c[1] > c[0]][:room3]
+    if to_add:
+      T.extend(to_add)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,9 @@
+<NAME>adaptive-kt-rounds-8</NAME>
+<DESCRIPTION>Increase the KT-inspired recursive depth from 6 to 8 rounds to potentially raise FirstFit pressure without increasing omega, enabling more complex inter-block interactions under the same cap. This leverages the existing deterministic four-start KT pattern and the interleaving/connector scheme, allowing deeper stacking of translated blocks and connectors before hitting the interval cap.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  for round_idx in range(6):
+=======
+  for round_idx in range(8):
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,157 @@
+<NAME>
+odd_block_reversal_and_second_microphase
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted changes that preserve the Kierstead–Trotter spine structure while increasing FirstFit pressure through order engineering and a second deterministic micro-phase:
+
+1) Alternating internal block reversal in each round:
+   - Inside apply_round, for each translated block, we now reverse the order of the cloned seed T on odd block indices (b_idx % 2 == 1). This mixes the arrival order at a finer granularity than round-level reversals and often blocks reuse of small colors in later blocks, nudging FF to introduce new colors while not increasing omega (clique size), since we do not add intervals here—only reorder them.
+
+2) Add a second deterministic, CAP-gated micro-phase with a distinct four-window pattern:
+   - After the existing A (long caps) and B phases (primary + alternate micro-rounds), we add a light micro-phase C2 that uses a new set of four windows: [(0.03, 0.12), (0.25, 0.35), (0.58, 0.68), (0.75, 0.88)].
+   - This phase uses a thin seed and interleaved translated blocks, with two short cap-pins to couple windows but keep omega stable. It is strictly capacity-guarded and will only run if room permits.
+   - This follows the heuristic that sparse micro insertions aligned to new windows can push FF to use extra colors late without raising the maximum clique.
+
+These modifications are minimal, deterministic, and consistent with prior successful motifs in the codebase. They aim to raise the FF count by 1–2 while keeping omega approximately unchanged (around 10), improving the competitive ratio past the 2.30 plateau. The code still respects the CAP limit and retains the function interface.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+=======
+  def apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks with alternating internal reversal to mix colors
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base = s * delta - lo
+      src = current_T if (b_idx % 2 == 0) else list(reversed(current_T))
+      block = [(l + base, r + base) for (l, r) in src]
+      blocks.append(block)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T)
+      if len(microB) > avail:
+        microB = microB[:avail]
+      T.extend(microB)
+
+  return T
+=======
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T)
+      if len(microB) > avail:
+        microB = microB[:avail]
+      T.extend(microB)
+
+  # Micro-phase C2: second deterministic four-window micro-phase (distinct windows, CAP-guarded)
+  room = CAP - len(T)
+  if room > 8:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+
+    # Thin seed (moderate) to keep omega stable while providing coupling opportunities
+    seed_sz = max(8, min(28, len(T) // 320))
+    stride = max(1, len(T) // max(1, seed_sz))
+    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+
+    if U:
+      ulo = min(l for l, r in U)
+
+      # Distinct window set to diversify overlap patterns
+      window_fracs2 = [(0.03, 0.12), (0.25, 0.35), (0.58, 0.68), (0.75, 0.88)]
+
+      # Build translated micro-blocks for the second micro-phase
+      blocks2 = []
+      for (fa, fb) in window_fracs2:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        # Alternate internal reversal by block index to break symmetry
+        if int(round(fa * 100)) % 2 == 1:
+          block = list(reversed(block))
+        blocks2.append(block)
+
+      # Interleave the micro-blocks in a fixed nontrivial order
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [2, 0, 3, 1]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+
+      # Two short cap-pins to couple windows lightly without inflating omega
+      eps = max(1, G // 640)
+      caps2 = [
+        (glo + int(round(0.19 * G)), glo + int(round(0.19 * G)) + eps),
+        (glo + int(round(0.71 * G)), glo + int(round(0.71 * G)) + eps),
+      ]
+      for a, b in caps2:
+        if b > a:
+          micro2.append((a, b))
+
+      # Capacity guard for phase C2
+      if micro2:
+        avail = CAP - len(T)
+        if len(micro2) > avail:
+          micro2 = micro2[:avail]
+        T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,185 @@
+# EVOLVE-BLOCK-START
+
+def _span_delta(T):
+  lo = min(l for l, _ in T)
+  hi = max(r for _, r in T)
+  delta = hi - lo
+  if delta <= 0:
+    delta = 1
+  return lo, hi, delta
+
+def _build_blocks_sequential(T, starts, delta, lo, K=1):
+  """
+  Build four translated blocks in a simple, sequential (non-interleaved) fashion.
+  This ordering is known to push FirstFit colors higher while keeping omega in check.
+  """
+  S = []
+  for s in starts:
+    base = s * delta * K - lo
+    for (l, r) in T:
+      S.append((l + base,   r + base))
+  return S
+
+def _append_connectors(S, starts, delta, add_cross4=False):
+  """
+  Append the classic four connectors. Optionally add a single long-range cross4
+  (final-round only) to enhance pressure with minimal omega impact.
+  """
+  s0, s1, s2, s3 = starts
+  S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+  S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+  S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+  S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+  if add_cross4:
+    S.append(((s0 + 4) * delta, (s3 + 4) * delta))  # long-range cross (final-round)
+
+def _append_micro_tail(T, max_extra=8):
+  """
+  Append a tiny tail of long caps near the end of T to boost FF late with modest omega impact.
+  Caps are inserted near the tail to intersect many active colors.
+  """
+  if not T or max_extra <= 0:
+    return T
+  lo, hi, delta = _span_delta(T)
+  d2 = max(1, delta // 4)
+  micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+  ]
+  for i, interval in enumerate(micro[:max_extra]):
+    pos = len(T) - (i * 2 + 1)
+    if pos < 0:
+      T.append(interval)
+    else:
+      T.insert(pos, interval)
+  return T
+
+def _thin_seed(current_T, max_seed):
+  """
+  Evenly spaced thin sampling of current_T of size <= max_seed.
+  """
+  n = len(current_T)
+  if n == 0 or max_seed <= 0:
+    return []
+  step = max(1, n // max_seed)
+  return current_T[::step][:max_seed]
+
+def _build_micro_delta_round(current_T, budget, iter_id=0):
+  """
+  Build a small delta-window micro round:
+    - Thin evenly-spaced seed from current_T,
+    - Translate into four internal windows across the global span,
+    - Interleave blocks to maximize FF exposure,
+    - Add fractional-span connectors.
+  Capacity-bounded by 'budget'.
+  """
+  if not current_T or budget <= 8:
+    return []
+
+  glo = min(l for l, _ in current_T)
+  ghi = max(r for _, r in current_T)
+  G = max(1, ghi - glo)
+
+  # Thin seed: bounded to control omega
+  seed_sz = min(32, max(12, len(current_T) // 300))
+  U = _thin_seed(current_T, seed_sz)
+  if not U:
+    return []
+
+  ulo = min(l for l, _ in U)
+
+  # Four internal windows, safely inside [glo, ghi]
+  window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+  blocks = []
+  for (fa, fb) in window_fracs:
+    win_lo = glo + int(round(fa * G))
+    base = win_lo - ulo
+    block = [(l + base, r + base) for (l, r) in U]
+    blocks.append(block)
+
+  # Interleave micro-blocks (forward on even iter, reverse on odd iter)
+  micro = []
+  maxlen = max(len(b) for b in blocks)
+  order = list(range(4)) if (iter_id % 2 == 0) else list(reversed(range(4)))
+  for i in range(maxlen):
+    for j in order:
+      blk = blocks[j]
+      if i < len(blk):
+        micro.append(blk[i])
+
+  # Fractional-span connectors (ensure r > l)
+  def fcap(a_frac, b_frac):
+    a = glo + int(round(a_frac * G))
+    b = glo + int(round(b_frac * G))
+    if b <= a:
+      b = a + 1
+    return (a, b)
+
+  connectors = [
+    fcap(0.08, 0.30),  # left cap
+    fcap(0.60, 0.92),  # right cap
+    fcap(0.26, 0.56),  # cross 1
+    fcap(0.44, 0.78),  # cross 2
+  ]
+  micro.extend(connectors)
+
+  # Capacity trim
+  if len(micro) > budget:
+    micro = micro[:budget]
+  return micro
+
+def construct_intervals(seed_count=1):
+  """
+  Construct a deterministic interval sequence with a KT spine, a thin delta micro-phase,
+  and a small tail, designed to maximize FirstFit colors while keeping omega small.
+  """
+  CAP = 9800
+
+  # Four-template spine bank (rotated round-robin)
+  template_bank = [
+    (2, 6, 10, 14),  # T1 classic KT
+    (1, 5, 9, 13),   # T2 left-shifted
+    (3, 7, 11, 15),  # T3 right-shifted
+    (4, 8, 12, 16),  # T4 stretched-right
+  ]
+
+  # Seed: single unit interval
+  T = [(0, 1)]
+
+  # Stage 1: six KT rounds, sequential assembly with classic connectors
+  rounds = 6
+  for ridx in range(rounds):
+    lo, hi, delta = _span_delta(T)
+    starts = template_bank[ridx % len(template_bank)]
+    S = _build_blocks_sequential(T, starts, delta, lo, K=1)
+    _append_connectors(S, starts, delta, add_cross4=(ridx == rounds - 1))
+    T = S
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+
+  # Stage 2: thin delta-window micro round (capacity-guarded)
+  room = CAP - len(T)
+  if room > 12:
+    micro_budget = min(room, 300)
+    micro = _build_micro_delta_round(T, micro_budget, iter_id=0)
+    if micro:
+      avail = CAP - len(T)
+      if len(micro) > avail:
+        micro = micro[:avail]
+      T.extend(micro)
+
+  # Stage 3: tiny micro tail to boost late FF interactions, cap-bounded
+  room = CAP - len(T)
+  if room > 0:
+    T = _append_micro_tail(T, max_extra=min(8, room))
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

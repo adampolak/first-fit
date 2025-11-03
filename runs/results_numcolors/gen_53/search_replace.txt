@@ -1,0 +1,84 @@
+<NAME>
+enable_interleave_and_defaults
+</NAME>
+
+<DESCRIPTION>
+Enable rotate_starts, reverse_block_parity, interleave_blocks and phase2_iters by default to increase FF pressure. Update function signature and doc summary accordingly.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6, rotate_starts=False, reverse_block_parity=False, phase2_iters=0):
+  """
+  Deterministic rotated four-block Kierstead–Trotter style expansion.
+=======
+def construct_intervals(rounds=6, rotate_starts=True, reverse_block_parity=True, interleave_blocks=True, phase2_iters=1):
+  """
+  Deterministic rotated four-block Kierstead–Trotter style expansion with block interleaving.
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_interleave_to_doc
+</NAME>
+
+<DESCRIPTION>
+Document the new interleave_blocks parameter in the docstring and update phase2_iters default description.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    reverse_block_parity (bool): reverse the order of T for every odd block within a round.
+    phase2_iters (int): optional micro-scale follow-up iterations (kept 0 by default).
+=======
+    reverse_block_parity (bool): reverse the order of T for every odd block within a round.
+    interleave_blocks (bool): interleave translated blocks round-robin to enhance color mixing.
+    phase2_iters (int): optional micro-scale follow-up iterations (kept 1 by default).
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+interleave_blocks_logic
+</NAME>
+
+<DESCRIPTION>
+Replace the direct cloning loop with block-based construction and interleaving logic driven by interleave_blocks flag for enhanced mixing.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    S = []
+
+    # Clone 4 translated copies; optionally reverse every odd block to hinder FF reuse
+    for b_idx, s in enumerate(starts):
+      block = (T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T)
+      base = s * delta - lo
+      for (l, r) in block:
+        # All integer arithmetic to avoid FP artifacts
+        S.append((l + base, r + base))
+=======
+    # Build four translated blocks with optional reversal for parity
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+      base = s * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in block_src])
+
+    # Interleave blocks round-robin to enhance color mixing if enabled
+    if interleave_blocks:
+      S = []
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      # rotate block order by round index to disrupt patterns
+      rot = round_idx % len(order)
+      order = order[rot:] + order[:rot]
+      for i in range(maxlen):
+        for idx in order:
+          if i < len(blocks[idx]):
+            S.append(blocks[idx][i])
+    else:
+      S = []
+      for blk in blocks:
+        S.extend(blk)
+>>>>>>> REPLACE
+</DIFF>

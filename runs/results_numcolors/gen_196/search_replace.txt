@@ -1,0 +1,142 @@
+<NAME>
+crossscale_micro_enhancements
+</NAME>
+
+<DESCRIPTION>
+I introduce three targeted enhancements to the micro-phases to increase FirstFit pressure while keeping the clique number under control:
+
+1) Increase headroom: Raise CAP from 9800 to 9900 so the strengthened micro-phase C can add a few more carefully gated intervals without exceeding the global 10000 limit.
+
+2) Micro-phase B symmetry breaking and a guarded global connector: Reverse every other micro-block to enhance mixing and add a single long-range fractional connector (0.18, 0.84) that has proven safe in previous variants to couple colors across distant windows, aiming to raise FF without inflating omega.
+
+3) Micro-phase C densification with short pins: Expand the window set from four to six windows and add one extra very short cap-pin, while keeping pins extremely short (reduced eps via G2//768). A dynamic interleaving order adapts to the number of windows. This raises FF pressure through more cross-scale contact points while using short intervals to avoid increasing the maximum overlap.
+
+These changes are deterministic and capacity-guarded. They build on known successful tactics (fractional windows, parity mixing, thin seeds, short pins) consistent with the KT-style backbone, and are designed to explore the space beyond the 2.30 plateau without risking omega spikes.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Capacity guard to keep the total count under 10000 and allow a micro-phase
+  CAP = 9800
+=======
+  # Capacity guard to keep the total count under 10000 and allow a micro-phase
+  CAP = 9900
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # Four windows across the global span (stay inside to avoid omega spikes)
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_blocks = []
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        micro_blocks.append(block)
+=======
+      # Four windows across the global span (stay inside to avoid omega spikes)
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_blocks = []
+      for idx_w, (fa, fb) in enumerate(window_fracs):
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        # Break symmetry: reverse every other block
+        if idx_w % 2 == 1:
+          block = list(reversed(block))
+        micro_blocks.append(block)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # Fractional-span connectors at the delta2 scale
+      micro_connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+=======
+      # Fractional-span connectors at the delta2 scale
+      micro_connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+        # Guarded long-range cross-window connector to couple distant colors
+        (glo + int(round(0.18 * G)), glo + int(round(0.84 * G))),
+      ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # New window set to avoid stacking with phase B windows
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      # Short pins to reduce clique growth; slight stagger to avoid co-location
+      eps = max(1, G2 // 512)
+=======
+      # New window set to avoid stacking with phase B windows
+      windows2 = [(0.05, 0.15), (0.18, 0.28), (0.28, 0.38), (0.45, 0.55), (0.60, 0.70), (0.82, 0.92)]
+
+      # Short pins to reduce clique growth; slight stagger to avoid co-location
+      eps = max(1, G2 // 768)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # Interleave with a different order to diversify coupling
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+=======
+      # Interleave with a different order to diversify coupling
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        # Dynamic interleaving order: tailored for 6 windows; fallback for 4
+        order2 = list(range(len(blocks2)))
+        if len(order2) >= 6:
+          order2 = [5, 2, 0, 3, 1, 4]
+        elif len(order2) == 4:
+          order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # Very short cap-pins to tie windows without inflating omega
+      caps2 = [
+        (glo2 + int(round(0.09 * G2)), glo2 + int(round(0.09 * G2)) + eps),
+        (glo2 + int(round(0.64 * G2)), glo2 + int(round(0.64 * G2)) + eps),
+      ]
+=======
+      # Very short cap-pins to tie windows without inflating omega
+      caps2 = [
+        (glo2 + int(round(0.09 * G2)), glo2 + int(round(0.09 * G2)) + eps),
+        (glo2 + int(round(0.36 * G2)), glo2 + int(round(0.36 * G2)) + eps),
+        (glo2 + int(round(0.64 * G2)), glo2 + int(round(0.64 * G2)) + eps),
+      ]
+>>>>>>> REPLACE
+
+</DIFF>

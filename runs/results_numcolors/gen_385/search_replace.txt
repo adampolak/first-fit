@@ -1,0 +1,97 @@
+<NAME>
+two_pass_connectors_and_final_cross4
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted adjustments inspired by tower/connectors strategies and two-pass micro-phase budgeting:
+
+1) Always enable a single long-range cross connector on the final KT spine round (previously the conservative lookahead disabled it in practice). This adds one coupling interval that increases FirstFit pressure without increasing omega noticeably, aligning with proven KT-cap connector patterns.
+
+2) Add a deterministic long-range connector augmentation pass after the micro phases. This pass appends up to six carefully placed fractional-span connectors (two-pass design: spine -> micro -> connectors), which emulate cross-window coupling seen in strong constructions. They are CAP-aware, reproducible, and positioned to overlap many active colors while avoiding larger cliques, thereby pushing FF colors upward without inflating omega.
+
+These changes preserve capacity constraints (< 9800 intervals), retain determinism, and integrate cleanly with the existing micro-phase design.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    will_have_room = (4 * nxt_size + 4) <= CAP  # rough lookahead
+    add_cross4 = (ridx == max_rounds - 1) and (not do_interleave) and will_have_room
+    T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order, add_cross4=add_cross4)
+=======
+    # Enable a single long-range cross on the final round (capacity-safe; +1 interval)
+    add_cross4 = (ridx == max_rounds - 1) and (not do_interleave)
+    T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order, add_cross4=add_cross4)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Alternate micro family to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+
+  # Optional lightweight parabolic caps
+  if enable_parabolic:
+    room = CAP - len(T)
+    if room > 0:
+      lo, hi, delta = _span_delta(T)
+      caps = [
+        (lo + max(1, int(round(0.15 * delta))), lo + max(1, int(round(0.60 * delta)))),
+        (lo + max(1, int(round(0.25 * delta))), lo + max(1, int(round(0.80 * delta)))),
+        (lo + max(1, int(round(0.55 * delta))), lo + max(1, int(round(0.95 * delta)))),
+      ]
+      add = [c for c in caps if c[1] > c[0]][:room]
+      T.extend(add)
+=======
+  # Alternate micro family to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+
+  # Deterministic long-range connector augmentation pass (two-pass design)
+  def _augment_long_connectors(current_T, budget):
+    if budget <= 0 or not current_T:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+    conns = [
+      (glo + int(round(0.06 * G)), glo + int(round(0.28 * G))),
+      (glo + int(round(0.20 * G)), glo + int(round(0.48 * G))),
+      (glo + int(round(0.38 * G)), glo + int(round(0.72 * G))),
+      (glo + int(round(0.52 * G)), glo + int(round(0.88 * G))),
+      (glo + int(round(0.70 * G)), glo + int(round(0.94 * G))),
+    ]
+    out = [c for c in conns if c[1] > c[0]]
+    return out[:budget]
+
+  room = CAP - len(T)
+  if room > 0:
+    aug = _augment_long_connectors(T, min(6, room))
+    if aug:
+      T.extend(aug)
+
+  # Optional lightweight parabolic caps
+  if enable_parabolic:
+    room = CAP - len(T)
+    if room > 0:
+      lo, hi, delta = _span_delta(T)
+      caps = [
+        (lo + max(1, int(round(0.15 * delta))), lo + max(1, int(round(0.60 * delta)))),
+        (lo + max(1, int(round(0.25 * delta))), lo + max(1, int(round(0.80 * delta)))),
+        (lo + max(1, int(round(0.55 * delta))), lo + max(1, int(round(0.95 * delta)))),
+      ]
+      add = [c for c in caps if c[1] > c[0]][:room]
+      T.extend(add)
+>>>>>>> REPLACE
+
+</DIFF>

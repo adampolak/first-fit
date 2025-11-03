@@ -1,0 +1,86 @@
+<NAME>
+add_micro_phase_and_increase_rounds
+</NAME>
+
+<DESCRIPTION>
+1. Increase the default number of main adaptive rounds from 3 to 4 and set extra_rounds=1 by default, to deepen the multiscale wave construction.
+2. Insert a two-phase micro expansion after the main rounds but before the existing extra rounds: this creates a smaller-scale secondary expansion using new “small_starts” and “small_template” gadgets, introducing finer-grained, multi-scale overlaps to further pressure FirstFit without increasing the clique size significantly.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=3, seed_lo=0.0, seed_scale=1.0, extra_rounds=0):
+=======
+def construct_intervals(rounds=4, seed_lo=0.0, seed_scale=1.0, extra_rounds=1):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Optional extra rounds to further pressure FirstFit
+  for _ in range(extra_rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1.0
+    S = []
+
+    extended_starts = [2, 4, 6, 8, 12, 16, 20, 24]
+    extended_template = [(1,5), (12,16), (4,9), (8,13)]
+
+    for idx, start in enumerate(extended_starts):
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+      if idx + 1 < len(extended_starts):
+        nxt = extended_starts[idx + 1]
+        S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+
+    S += [(delta * a, delta * b) for (a, b) in extended_template]
+    T = S
+=======
+  # Two-phase micro expansion (small-scale) to introduce multi-scale interactions
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta2 = max(1.0, (hi - lo) / 4.0)
+  for _ in range(2):
+    S2 = []
+    small_starts = [1, 3, 5, 7]
+    small_template = [(2, 6), (7, 11), (0.5, 4.5), (9, 13)]
+    for idx, start in enumerate(small_starts):
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      S2 += [(delta2 * start + l - lo, delta2 * start + r - lo) for l, r in base]
+      # micro-bridge to next
+      if idx + 1 < len(small_starts):
+        nxt = small_starts[idx + 1]
+        S2.append((delta2 * (start + 0.5), delta2 * (nxt + 0.5)))
+    # micro-template integration
+    S2 += [(delta2 * a, delta2 * b) for (a, b) in small_template]
+    T = S2
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta2 = max(1.0, (hi - lo) / 4.0)
+
+  # Optional extra rounds to further pressure FirstFit
+  for _ in range(extra_rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1.0
+    S = []
+
+    extended_starts = [2, 4, 6, 8, 12, 16, 20, 24]
+    extended_template = [(1,5), (12,16), (4,9), (8,13)]
+
+    for idx, start in enumerate(extended_starts):
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+      if idx + 1 < len(extended_starts):
+        nxt = extended_starts[idx + 1]
+        S.append((delta * (start + 0.5), delta * (nxt + 0.5)))
+
+    S += [(delta * a, delta * b) for (a, b) in extended_template]
+    T = S
+>>>>>>> REPLACE
+</DIFF>

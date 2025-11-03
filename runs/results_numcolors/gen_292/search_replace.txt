@@ -1,0 +1,173 @@
+<NAME>
+perm_interleave_and_spine_densify
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes that aim to increase FirstFit’s color usage without inflating the clique number:
+
+1) Deterministic permutation interleaving in every KT round:
+   - Replace the parity-based interleaving with an always-on interleaving policy that uses a fixed 4-cycle permutation schedule per round. This deterministic reordering couples colors across the four translated blocks more aggressively and reduces predictable reuse, a technique that has empirically improved FF pressure in strong constructions.
+
+2) CAP-aware spine density boost right after the spine:
+   - Append a thin, half-shifted duplication of a small, evenly spaced seed of the current structure, translated by ±0.5 of the delta off each canonical start (2, 6, 10, 14). These additional thin blocks are interleaved and tied together by modest connectors within the span, increasing cross-block coupling while keeping intervals short and sparse to avoid raising omega significantly. This follows the “density multiplier” heuristic, strengthening the spine before micro-phases.
+
+Both changes are deterministic, bounded by CAP, and integrate cleanly with the existing micro-phases. They preserve interface and run safety, while targeting higher FF colors at essentially the same omega (≈10).
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Compose S with chosen policy
+    S = []
+    if do_interleave:
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      seq_blocks = list(reversed(blocks)) if reverse_order else blocks
+      for blk in seq_blocks:
+        S.extend(blk)
+
+    _append_connectors(S, starts, delta)
+    return S
+=======
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, perm=None):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Compose S with chosen policy
+    S = []
+    if do_interleave:
+      # Use a deterministic permutation if provided; otherwise default/reverse
+      order = list(perm) if perm is not None else list(range(4))
+      if perm is None and reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      seq_blocks = list(reversed(blocks)) if reverse_order else blocks
+      for blk in seq_blocks:
+        S.extend(blk)
+
+    _append_connectors(S, starts, delta)
+    return S
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: Six KT-style rounds with parity-based interleaving
+  for ridx in range(6):
+    starts = template_bank[ridx % len(template_bank)]
+    do_interleave = (ridx % 2 == 0)          # even: interleave
+    reverse_order = (ridx % 2 == 1)          # odd: reverse sequential
+    T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order)
+    if len(T) >= CAP:
+      return T[:CAP]
+
+  # Micro-phase A: a few long caps near the global span to mix late colors
+=======
+  # Stage 1: Six KT-style rounds with deterministic permutation interleaving
+  perm_bank = [
+    (0, 2, 1, 3),
+    (3, 1, 0, 2),
+    (1, 3, 2, 0),
+    (2, 0, 3, 1),
+  ]
+  for ridx in range(6):
+    starts = template_bank[ridx % len(template_bank)]
+    perm = perm_bank[ridx % 4]
+    # Interleave every round; alternate reverse flag to perturb inner order
+    reverse_order = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=True, reverse_order=reverse_order, perm=perm)
+    if len(T) >= CAP:
+      return T[:CAP]
+
+  # CAP-aware spine density boost: append half-shifted thin clones to densify without raising omega
+  def _spine_density_boost(current_T, budget):
+    lo, hi, delta = _span_delta(current_T)
+    if budget <= 16 or not current_T:
+      return []
+    # Thin, evenly spaced seed from current T
+    seed_sz = max(16, min(64, len(current_T) // 240))
+    n = len(current_T)
+    step = max(1, n // seed_sz)
+    U = current_T[::step][:seed_sz]
+    if not U:
+      return []
+    ulo = min(l for l, r in U)
+
+    # Two half-step shifts around canonical starts to couple neighboring blocks
+    shifts = (0.5, -0.5)
+    starts0 = (2, 6, 10, 14)
+    blocks = []
+    for sh in shifts:
+      for s in starts0:
+        base = int(round((s + sh) * delta)) - lo
+        offset = base - (ulo - lo)
+        block = [(l + offset, r + offset) for (l, r) in U]
+        # Reverse half the time to vary adjacency deterministically
+        if ((s + int(sh * 10)) % 2) == 1:
+          block = list(reversed(block))
+        blocks.append(block)
+
+    # Interleave the density-boost blocks
+    micro = []
+    maxlen = max(len(b) for b in blocks) if blocks else 0
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Modest long-range connectors inside the span to tie the half-shifts
+    A1 = lo + int(round(0.22 * delta))
+    B1 = lo + int(round(0.48 * delta))
+    A2 = lo + int(round(0.52 * delta))
+    B2 = lo + int(round(0.78 * delta))
+    if B1 > A1:
+      micro.append((A1, B1))
+    if B2 > A2:
+      micro.append((A2, B2))
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  room = CAP - len(T)
+  if room > 32:
+    micro = _spine_density_boost(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Micro-phase A: a few long caps near the global span to mix late colors
+>>>>>>> REPLACE
+
+</DIFF>

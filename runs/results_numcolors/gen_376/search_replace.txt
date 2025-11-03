@@ -1,0 +1,47 @@
+<NAME>
+shrink_spine_remove_duplication
+</NAME>
+
+<DESCRIPTION>
+Reduce the heavy spine expansion and remove the spine-density duplication that inflated clique sizes.
+
+Changes:
+- Replace the original 12-round spine loop (with an inline "spine-density boost" duplication) with a 6-round loop using the 4-template bank.
+- Use alternating reverse parity (every other round) rather than every third round.
+This preserves the KT spine's mixing while leaving more CAP budget for high-leverage micro-phases and avoids adding many slightly-shrunk duplicates that grew omega.
+
+This edit is localized inside the EVOLVE block and should be safe and minimal.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(12):
+    # Predict next size: sz -> 4*sz + 4
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Always interleave to maximize mixing; vary reverse order every third round
+    do_inter = True
+    rev = (ridx % 3 == 0)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+    # Spine-density boost: duplicate a small fraction of intervals shrunk slightly to increase FF pressure
+    if len(T) < CAP:
+      lo_s, hi_s, span_s = _span(T)
+      eps = max(1, span_s // 1000)
+      # boost up to 10 intervals or 20% of current T, staying within capacity
+      boost = min(20, CAP - len(T), len(T) // 5)
+      for (l_s, r_s) in T[:boost]:
+        if r_s - l_s > 2 * eps:
+          T.append((l_s + eps, r_s - eps))
+=======
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4 (classic KT depth)
+    if 4 * len(T) + 4 > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    # Always interleave to maximize mixing; alternate reverse order every other round
+    do_inter = True
+    rev = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+>>>>>>> REPLACE
+</DIFF>

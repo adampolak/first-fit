@@ -1,0 +1,142 @@
+<NAME>
+two_pass_cap_aware_microphase
+</NAME>
+
+<DESCRIPTION>
+Implement a true two-pass, CAP-aware micro-phase anchored to the current spine span.
+This replaces the original "SECOND MICRO-PHASE" with a deterministic phase-1 and phase-2:
+- Phase-1: place a small set of deterministic fractional-window blocks (4 windows) with strong cross-connectors, sized to fit available CAP budget and respecting a minimum reserve for phase-2.
+- Phase-2: run a second, denser micro-pass that uses the remaining budget to sprinkle short "pin" intervals and a small set of long coupling connectors across the full span.
+
+The new logic respects CAP strictly, reserves a fraction of remaining room for phase-2, and chooses window positions relative to the current global span so the micro-phases couple colors across scales without increasing the clique number too much. This follows recommendation (1) from the prompt and should increase FF pressure while keeping omega modest.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # SECOND MICRO-PHASE (compact, deterministic, cross-scale connectors)
+    room = CAP - len(T)
+    if room > 8:
+        glo4 = min(l for l, _ in T)
+        ghi4 = max(r for _, r in T)
+        G4 = max(1, ghi4 - glo4)
+        window_fracs_b = [(0.06, 0.16), (0.30, 0.40), (0.54, 0.64), (0.78, 0.88)]
+        U4 = _thin_seed(T, max(8, min(28, len(T) // 260)))
+        if U4:
+            ulo4 = min(l for l, _ in U4)
+            blocks_b = []
+            for wi, (fa, fb) in enumerate(window_fracs_b):
+                win_lo = glo4 + int(round(fa * G4))
+                base = win_lo - ulo4
+                block = [(l + base, r + base) for (l, r) in U4]
+                if (BASE_SEED + wi) % 2 == 0:
+                    block = list(reversed(block))
+                blocks_b.append(block)
+            micro_b = _assemble_from_blocks(blocks_b, interleave=True, reverse_order=False, round_seed=(BASE_SEED * 3))
+            # add a few conservative long connectors tuned to full span to couple colors across the backbone
+            cross_connectors = [
+                (glo4 + int(round(0.12 * G4)), glo4 + int(round(0.66 * G4))),
+                (glo4 + int(round(0.20 * G4)), glo4 + int(round(0.82 * G4))),
+                (glo4 + int(round(0.36 * G4)), glo4 + int(round(0.90 * G4))),
+            ]
+            for a, b in cross_connectors:
+                if b > a:
+                    micro_b.append((a, b))
+            if len(micro_b) > room:
+                micro_b = micro_b[:room]
+            T.extend(micro_b)
+=======
+    # SECOND MICRO-PHASE (two-pass CAP-aware micro-phase anchored to spine span)
+    # Phase design:
+    #  - Phase1: deterministic 4-window micro blocks with strong cross-connectors,
+    #            reserve a portion of room for Phase2.
+    #  - Phase2: use remaining budget to add short pin intervals and a few long-range
+    #            connectors that couple many active colors across the full span.
+    room = CAP - len(T)
+    if room > 8:
+        # compute global span and an evenly-spaced thin seed
+        glo4 = min(l for l, _ in T)
+        ghi4 = max(r for _, r in T)
+        G4 = max(1, ghi4 - glo4)
+        # choose a small fixed reservation for phase2 (at least 8, at most 25% of room)
+        reserve = max(8, min(int(room * 0.25), 256))
+        phase1_budget = max(8, room - reserve)
+        phase2_budget = room - phase1_budget
+
+        # Phase 1 windows (deterministic four windows well inside span)
+        window_fracs_b = [(0.10, 0.18), (0.32, 0.40), (0.54, 0.62), (0.76, 0.84)]
+        U4 = _thin_seed(T, max(8, min(28, len(T) // 260)))
+        phase1 = []
+        if U4:
+            ulo4 = min(l for l, _ in U4)
+            # build 4 micro-blocks and interleave them deterministically
+            blocks_b = []
+            for wi, (fa, fb) in enumerate(window_fracs_b):
+                win_lo = glo4 + int(round(fa * G4))
+                base = win_lo - ulo4
+                block = [(l + base, r + base) for (l, r) in U4]
+                # deterministic local reversal to break symmetry
+                if (BASE_SEED + wi + (len(U4) % 3)) % 2 == 0:
+                    block = list(reversed(block))
+                blocks_b.append(block)
+            phase1 = _assemble_from_blocks(blocks_b, interleave=True, reverse_order=False, round_seed=(BASE_SEED * 11))
+            # conservative cross-connectors that tie windows together (phase1 scale)
+            for (fa, fb) in [(0.06, 0.30), (0.48, 0.72), (0.20, 0.84)]:
+                a = glo4 + int(round(fa * G4))
+                b = glo4 + int(round(fb * G4))
+                if b > a:
+                    phase1.append((a, b))
+            # trim to phase1 budget
+            if len(phase1) > phase1_budget:
+                phase1 = phase1[:phase1_budget]
+
+        # commit phase1
+        if phase1:
+            T.extend(phase1)
+
+        # Phase 2: use the reserved budget to sprinkle short pins and a few long-range connectors
+        room2 = CAP - len(T)
+        if room2 > 8 and phase2_budget > 0:
+            # recompute span after phase1
+            glo5 = min(l for l, _ in T)
+            ghi5 = max(r for _, r in T)
+            G5 = max(1, ghi5 - glo5)
+            # short pin windows (dense short intervals) anchored to fractional centers
+            centers = [0.14, 0.34, 0.58, 0.82]
+            pins = []
+            # choose a smaller thin seed for pin generation
+            U5 = _thin_seed(T, max(8, min(20, len(T) // 350)))
+            if U5:
+                ulo5 = min(l for l, _ in U5)
+                eps = max(1, G5 // 1024)
+                # generate small pins spread over centers to touch many active colors
+                for ci, c in enumerate(centers):
+                    if len(pins) >= phase2_budget:
+                        break
+                    win_center = glo5 + int(round(c * G5))
+                    base = win_center - ulo5
+                    # take up to 6 short pins from seed U5 shifted to center
+                    for jj, (l, r) in enumerate(U5[:6]):
+                        if len(pins) >= phase2_budget:
+                            break
+                        mid = (l + r) // 2
+                        L = mid + base - (eps // 2) + (jj % 3)
+                        R = L + max(1, eps)
+                        if R > L:
+                            pins.append((L, R))
+                # add a couple long connectors across the updated full span to couple colors globally
+                long_connectors = [
+                    (glo5 + int(round(0.12 * G5)), glo5 + int(round(0.68 * G5))),
+                    (glo5 + int(round(0.22 * G5)), glo5 + int(round(0.88 * G5))),
+                ]
+                for a, b in long_connectors:
+                    if len(pins) >= phase2_budget:
+                        break
+                    if b > a:
+                        pins.append((a, b))
+            # trim pins to available room and append
+            if pins:
+                if len(pins) > room2:
+                    pins = pins[:room2]
+                T.extend(pins)
+>>>>>>> REPLACE
+</DIFF>

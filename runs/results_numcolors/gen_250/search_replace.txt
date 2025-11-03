@@ -1,0 +1,44 @@
+<NAME>cap_margin_integration_step2</NAME>
+
+<DESCRIPTION>
+Introduce a small CAP_MARGIN constant and wire it into the two key capacity checks to allow a controlled additional micro-phase within the same CAP budget. This patch targets the exact spots in the current code where capacity is checked, ensuring compatibility with the existing structure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # CAP guard to keep total count under 10000
+  CAP = 9800
+=======
+  # CAP guard to keep total count under 10000
+  CAP = 9800
++  CAP_MARGIN = 64
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+-    if len(T) > CAP:
++    if len(T) > CAP - CAP_MARGIN:
+       break
+=======
+-    if len(T) > CAP - CAP_MARGIN:
++    if len(T) > CAP - CAP_MARGIN:
+       break
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+-  # If we are near the cap, return the strong baseline.
+-  if len(T) >= CAP - 16:
++  # If we are near the cap, return the strong baseline.
++  if len(T) >= CAP - CAP_MARGIN:
+     return T
+=======
+-  # If we are near the cap, return the strong baseline.
+-  if len(T) >= CAP - 16:
++  # If we are near the cap, return the strong baseline.
++  if len(T) >= CAP - CAP_MARGIN:
+     return T
+>>>>>>> REPLACE
+</DIFF>

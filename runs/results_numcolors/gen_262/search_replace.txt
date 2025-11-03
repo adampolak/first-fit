@@ -1,0 +1,97 @@
+<NAME>
+cross_scale_bridges_v1
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted enhancements aimed at increasing FirstFit pressure without significantly inflating the clique number:
+
+1) Cross-scale deterministic connectors inserted immediately after the KT spine. These span roughly 4–6 deltas by anchoring to the last round’s start template. They couple colors across non-adjacent blocks (s0↔s2, s1↔s3, and a coarse s0↔s3) and are capacity-guarded. The connectors are long enough to interact with diverse colors but kept sparse to avoid large omega spikes.
+
+2) Skip-one light bridges in the Stage 3 light-bridge round. In addition to the existing short bridges between consecutive blocks, I add even thinner bridges that tie block i to block i+2 with carefully chosen offsets (0.75 to 0.25 windows) and reduced width. This creates layered coupling (“towers”) across staggered starts without substantially increasing local peak overlap.
+
+These modifications follow the suggested heuristics: backbone spine with controlled omega, connector/cap engineering to occupy small colors early and force later intervals to take new colors, and layered cross-block coupling. They are CAP-guarded and maintain deterministic structure, seeking to push FF while preserving omega ≈ 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # If nearly at capacity return baseline
+  if len(T) >= CAP - 16:
+    return T[:CAP]
+
+  # Insert a few long-range caps near the tail (helps mixing late FF colors without raising omega much)
+  def _cap_at(lo, delta, a_frac, b_frac):
+=======
+  # If nearly at capacity return baseline
+  if len(T) >= CAP - 16:
+    return T[:CAP]
+
+  # Cross-scale connectors bridging separated KT blocks (span ~4–6 deltas), CAP-guarded.
+  # Anchored to the last used start template to couple distant color classes deterministically.
+  lo, hi, delta = _span_delta(T)
+  if len(T) < CAP - 4:
+    last_starts = template_bank[(depth - 1) % len(template_bank)] if rotate_starts else template_bank[0]
+    s0, s1, s2, s3 = last_starts
+    cs = [
+      ((s0 + 1) * delta + lo, (s2 + 1) * delta + lo),  # mid-left to mid-right
+      ((s1 + 1) * delta + lo, (s3 + 1) * delta + lo),  # inner-right to outer-right
+      ((s0 + 0) * delta + lo, (s3 + 0) * delta + lo),  # coarse outer span
+    ]
+    # Append only if long enough and capacity allows; lengths near 4*delta help FF while keeping omega modest.
+    for a, b in cs:
+      if len(T) >= CAP:
+        break
+      if b > a and (b - a) >= int(0.9 * (s1 - s0) * delta):
+        T.append((a, b))
+
+  # Insert a few long-range caps near the tail (helps mixing late FF colors without raising omega much)
+  def _cap_at(lo, delta, a_frac, b_frac):
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # build translated blocks (use small reversed sub-blocks occasionally)
+  for i, st in enumerate(block_order):
+    inner = T if ((len(T) + i) % 2 == 0) else list(reversed(T))
+    base_off = delta * st - lo
+    for (l, r) in inner:
+      S.append((l + base_off, r + base_off))
+    # add a tiny light-bridge interval tying this block to next (short to avoid omega growth)
+    if i + 1 < len(block_order):
+      nxt = block_order[i + 1]
+      bstart = delta * (st + 0.5) - lo
+      bend = delta * (nxt + 0.5) - lo
+      # make bridge extremely short and integerized
+      a = int(min(bstart, bend) + max(1, delta // 1000))
+      b = int(max(bstart, bend) - max(1, delta // 1000))
+      if b > a:
+        S.append((a, b))
+=======
+  # build translated blocks (use small reversed sub-blocks occasionally)
+  for i, st in enumerate(block_order):
+    inner = T if ((len(T) + i) % 2 == 0) else list(reversed(T))
+    base_off = delta * st - lo
+    for (l, r) in inner:
+      S.append((l + base_off, r + base_off))
+    # add a tiny light-bridge interval tying this block to next (short to avoid omega growth)
+    if i + 1 < len(block_order):
+      nxt = block_order[i + 1]
+      bstart = delta * (st + 0.5) - lo
+      bend = delta * (nxt + 0.5) - lo
+      # make bridge extremely short and integerized
+      w = max(1, delta // 1000)
+      a = int(min(bstart, bend) + w)
+      b = int(max(bstart, bend) - w)
+      if b > a:
+        S.append((a, b))
+    # add a skip-one light-bridge tying this block to the block after next (even thinner to limit omega)
+    if i + 2 < len(block_order):
+      nxt2 = block_order[i + 2]
+      bstart2 = delta * (st + 0.75) - lo
+      bend2 = delta * (nxt2 + 0.25) - lo
+      w2 = max(1, delta // 1500)
+      a2 = int(min(bstart2, bend2) + w2)
+      b2 = int(max(bstart2, bend2) - w2)
+      if b2 > a2:
+        S.append((a2, b2))
+>>>>>>> REPLACE
+
+</DIFF>

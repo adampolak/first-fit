@@ -1,0 +1,187 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+    """
+    Construct intervals to maximize FirstFit colors / clique number.
+    Implements:
+      - Two-seed start
+      - 4-template rotated KT-spine with multiplier K
+      - Cross4 connectors
+      - Three-scale micro-phase (delta2, delta2, delta4)
+    """
+    CAP = 9800
+
+    # Two non-overlapping seeds to avoid early ω inflation
+    T = [(0, 1), (3, 4)]
+
+    # 4-template bank for spine rotations
+    template_bank = [
+        [2, 6, 10, 14],
+        [1, 5, 9, 13],
+        [3, 7, 11, 15],
+        [4, 8, 12, 16],
+    ]
+    K = 2  # multiplier on spine translations
+
+    # Stage 1: rotated KT-style spine with cross4
+    def next_size(sz):
+        return 4 * sz + 4
+    depth = 0
+    size = len(T)
+    # find max spine rounds within CAP
+    while depth < rounds and next_size(size) <= CAP:
+        size = next_size(size)
+        depth += 1
+
+    for r in range(depth):
+        starts = template_bank[r % len(template_bank)] if rotate_starts else template_bank[0]
+        lo = min(l for (l, _) in T)
+        hi = max(r_ for (_, r_) in T)
+        delta = max(1, hi - lo)
+
+        # build 4 translated blocks
+        blocks = []
+        for idx, s in enumerate(starts):
+            src = list(reversed(T)) if (reverse_block_parity and idx % 2 == 1) else T
+            base = s * delta * K - lo
+            blocks.append([(l + base, r_ + base) for (l, r_) in src])
+
+        # interleave or concatenate
+        S = []
+        if interleave_blocks:
+            maxlen = max(len(b) for b in blocks)
+            order = list(range(len(blocks)))
+            # rotate block order to avoid patterns
+            shift = r % len(order)
+            order = order[shift:] + order[:shift]
+            for i in range(maxlen):
+                for j in order:
+                    if i < len(blocks[j]):
+                        S.append(blocks[j][i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+
+        # classic connectors + cross4
+        s0, s1, s2, s3 = starts[:4]
+        connectors = [
+            ((s0 - 1) * delta * K, (s1 - 1) * delta * K),
+            ((s2 + 2) * delta * K, (s3 + 2) * delta * K),
+            ((s0 + 2) * delta * K, (s2 - 1) * delta * K),
+            ((s1 + 2) * delta * K, (s3 - 1) * delta * K),
+            ((s0 + 4) * delta * K, (s3 + 4) * delta * K),  # cross4
+        ]
+        S.extend(connectors)
+        T = S
+
+    # Stage 2: multi-scale micro rounds (delta2, delta2, delta4)
+    def thin_seed(U, m):
+        n = len(U)
+        if n == 0 or m <= 0:
+            return []
+        step = max(1, n // m)
+        return U[::step][:m]
+
+    def micro_round(curr, round_id, scale_div):
+        if not curr:
+            return []
+        lo = min(l for (l, _) in curr)
+        hi = max(r_ for (_, r_) in curr)
+        G = max(1, hi - lo)
+        delta = max(1, G // scale_div)
+
+        # budget-aware thin sampling
+        budget = CAP - len(curr)
+        per = max(8, min(64, budget // 12))
+        U = thin_seed(curr, per)
+        if not U:
+            return []
+
+        # build four micro blocks with parity reversal
+        micro = []
+        ulo = min(l for (l, _) in U)
+        micro_starts = template_bank[0]  # classic pattern
+        blocks = []
+        for idx, s in enumerate(micro_starts):
+            base = s * delta - ulo
+            blk = [(l + base, r_ + base) for (l, r_) in U]
+            if ((s // 2) % 2) == (round_id % 2):
+                blk = list(reversed(blk))
+            blocks.append(blk)
+
+        if round_id % 2 == 0:
+            maxlen = max(len(b) for b in blocks)
+            for i in range(maxlen):
+                for blk in blocks:
+                    if i < len(blk):
+                        micro.append(blk[i])
+        else:
+            maxlen = max(len(b) for b in blocks)
+            for i in range(maxlen):
+                for blk in reversed(blocks):
+                    if i < len(blk):
+                        micro.append(blk[i])
+
+        # connectors cross1-3 + cross4
+        s0, s1, s2, s3 = micro_starts[:4]
+        conn = [
+            ((s0 - 1) * delta + lo, (s1 - 1) * delta + lo),
+            ((s2 + 2) * delta + lo, (s3 + 2) * delta + lo),
+            ((s0 + 2) * delta + lo, (s2 - 1) * delta + lo),
+            ((s1 + 2) * delta + lo, (s3 - 1) * delta + lo),
+            ((s0 + 3) * delta + lo, (s3 + 3) * delta + lo),
+            ((s0 + 4) * delta + lo, (s3 + 4) * delta + lo),  # cross4
+        ]
+        micro.extend(conn)
+
+        # sparse caps
+        cap1 = (lo + delta // 4, lo + int(1.8 * delta))
+        cap2 = (lo + int(0.9 * delta), lo + int(2.6 * delta))
+        mid = lo + G // 2
+        cap3 = (mid - max(1, delta // 8), mid + max(1, delta // 8))
+        for cap in (cap1, cap2, cap3):
+            if cap[1] > cap[0]:
+                micro.append(cap)
+
+        # enforce budget
+        if len(micro) > budget:
+            micro = micro[:budget]
+        return micro
+
+    # run micro rounds
+    for rid, div in enumerate([2, 2, 4]):
+        if len(T) >= CAP:
+            break
+        mr = micro_round(T, rid, div)
+        if mr:
+            T.extend(mr)
+
+    # normalize to non-negative integers
+    if T:
+        min_l = min(l for (l, _) in T)
+        if min_l < 0:
+            T = [(l - min_l, r_ - min_l) for (l, r_) in T]
+
+    intervals = []
+    for (l, r_) in T:
+        li = int(round(l))
+        ri = int(round(r_))
+        if ri <= li:
+            ri = li + 1
+        intervals.append((li, ri))
+
+    # cap total intervals
+    if len(intervals) > CAP:
+        intervals = intervals[:CAP]
+
+    return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

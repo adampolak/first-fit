@@ -1,0 +1,40 @@
+<NAME>
+add_preload_blockers</NAME>
+
+<DESCRIPTION>
+Add a new parameter `preload_blockers` (default 1) to insert tiny blocker intervals at the start of each translated block. These small intervals occupy low FirstFit colors early, forcing the algorithm to spread into higher colors without increasing the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6, rotate_starts=False, reverse_block_parity=False, phase2_iters=0):
+=======
+def construct_intervals(rounds=6, rotate_starts=False, reverse_block_parity=False, phase2_iters=0, preload_blockers=1):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Clone 4 translated copies; optionally reverse every odd block to hinder FF reuse
+  for b_idx, s in enumerate(starts):
+    block = (T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T)
+    base = s * delta - lo
+    for (l, r) in block:
+      # All integer arithmetic to avoid FP artifacts
+      S.append((l + base, r + base))
+=======
+  # Clone 4 translated copies; optionally reverse every odd block, with preload blockers
+  for b_idx, s in enumerate(starts):
+    base = s * delta - lo
+    # preload small blockers to consume low colors: length ~2% of span, spaced by ~3%
+    step = max(1, delta * 3 // 100)
+    blen = max(1, delta * 2 // 100)
+    for pb in range(preload_blockers):
+      bstart = base + (pb + 1) * step
+      S.append((bstart, bstart + blen))
+    # main block intervals
+    block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+    for (l, r) in block_src:
+      S.append((l + base, r + base))
+>>>>>>> REPLACE
+</DIFF>

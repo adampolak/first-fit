@@ -1,0 +1,125 @@
+<NAME>
+dual_microphase_cross4
+</NAME>
+
+<DESCRIPTION>
+I add a second guarded micro-phase using an alternate fixed window set to push FirstFit higher without increasing the clique number. This mirrors known constructions that interleave multiple KT-like micro-blocks at distinct window placements to force additional color usage while keeping omega controlled. I also introduce a single long cross cap (0.18, 0.84) in Micro-phase A to couple distant colors across the span (a light version of a cross4 connector). Both additions are strictly CAP-gated to keep the total number of intervals below 9800.
+
+Rationale:
+- The current best variants plateau at competitive_ratio ≈ 2.30 using one micro-phase. Literature-inspired designs often stack two micro phases with different fixed windows to increase interference patterns (while carefully limiting overlap depth).
+- The extra long cross cap is designed to tie layers without creating a large clique, as it overlaps many colors sparsely across the span.
+
+These are targeted, deterministic changes that preserve reproducibility and should improve the combined score by nudging FirstFit to use more colors without significantly increasing omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  for c in caps:
+    if len(T) >= CAP:
+      break
+    T.append(c)
+=======
+  # Add a fourth long cross cap to couple distant colors while keeping omega tame
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92), cap_at(0.18, 0.84)]
+  for c in caps:
+    if len(T) >= CAP:
+      break
+    T.append(c)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # One safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+=======
+  # One safeguarded micro-round (empirically strong baseline)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Second guarded micro-phase with alternate window family (fixed, well inside span)
+  def build_micro_delta_round_alt(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Slightly larger thin seed to strengthen coupling while bounded
+    seed_sz = max(8, min(40, len(current_T) // 250))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Alternate window set; chosen to avoid boundaries and control omega
+    window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+    # Build translated micro-blocks aligned to these windows with internal parity reversals
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Break symmetry on alternating windows deterministically
+      if (int(round(fa * 100)) // 5) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Reverse-order interleaving to diversify cross-block mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in reversed(blocks):
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Fractional-span connectors including a long cross to tie distant colors
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      (glo + int(round(0.18 * G)), glo + int(round(0.84 * G))),
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute alternate micro-phase if capacity allows
+  room = CAP - len(T)
+  if room > 8:
+    micro_alt = build_micro_delta_round_alt(T, room)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,253 @@
+--- a/original.py
++++ b/original.py
+@@ -1,174 +1,112 @@
+ # EVOLVE-BLOCK-START
+ 
+-def _rounds_allowed_under_cap(max_intervals, base_size=4, per_round_copies=4, per_round_connectors=4, target_rounds=6):
+-    """
+-    Compute how many rounds of the recurrence:
+-       size_{k+1} = per_round_copies * size_k + per_round_connectors
+-    fit under max_intervals, up to target_rounds.
+-    Returns (rounds_used, final_size).
+-    base_size counts the initial seed block count.
+-    """
+-    size = base_size
+-    rounds = 0
+-    while rounds < target_rounds:
+-        next_size = per_round_copies * size + per_round_connectors
+-        if next_size > max_intervals:
++def _rounds_allowed(max_intervals, base_size, copies, connectors, target):
++    size, rounds = base_size, 0
++    while rounds < target:
++        nxt = copies * size + connectors
++        if nxt > max_intervals:
+             break
+-        size = next_size
+-        rounds += 1
+-    return rounds, size
++        size, rounds = nxt, rounds + 1
++    return rounds
+ 
+-def _build_translated_blocks(T, delta, lo, starts):
+-    """
+-    Build translated blocks sequentially (no interleaving).
+-    Each block is a translated copy of T offset by base = s*delta - lo.
+-    Returns a list of blocks (each block is a list of (l,r)).
+-    """
++def _build_blocks(T, delta, lo, starts, K):
+     blocks = []
+     for s in starts:
+-        base = s * delta - lo
++        base = s * delta * K - lo
+         blocks.append([(l + base, r + base) for (l, r) in T])
+     return blocks
+ 
+ def _append_connectors(S, delta, starts):
+-    """
+-    Add the four classic connectors that couple colors across blocks without
+-    blowing up the clique number. Keeps exactly 4 connectors to fit budgets.
+-    """
+-    s0, s1, s2, s3 = (starts[0], starts[1], starts[2], starts[3])
++    s0, s1, s2, s3 = starts
++    # five gadgets: left cap, right cap, cross1, cross2, cross4 (new)
+     connectors = [
+-        ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+-        ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+-        ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+-        ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
++        ((s0 - 1) * delta,   (s1 - 1) * delta),
++        ((s2 + 2) * delta,   (s3 + 2) * delta),
++        ((s0 + 2) * delta,   (s2 - 1) * delta),
++        ((s1 + 2) * delta,   (s3 - 1) * delta),
++        ((s0 + s3) * delta//2, (s1 + s2) * delta//2)  # cross4: ties extremes
+     ]
+     S.extend(connectors)
+ 
+-def _normalize_to_int_intervals(intervals, cap=None):
+-    """
+-    Normalize a list of intervals to non-negative integer endpoints with
+-    positive length. Optionally truncate to cap elements.
+-    """
++def _normalize(intervals, cap=None):
+     if not intervals:
+         return []
+-    min_l = min(l for (l, _) in intervals)
++    min_l = min(l for l,_ in intervals)
+     if min_l < 0:
+-        intervals = [(l - min_l, r - min_l) for (l, r) in intervals]
+-    out = []
+-    for (l, r) in intervals:
+-        li = int(round(l))
+-        ri = int(round(r))
+-        if ri <= li:
+-            ri = li + 1
+-        out.append((li, ri))
+-    if cap is not None and len(out) > cap:
+-        out = out[:cap]
++        intervals = [(l-min_l, r-min_l) for (l,r) in intervals]
++    out=[]
++    for l,r in intervals:
++        li,ri=int(round(l)),int(round(r))
++        if ri<=li: ri=li+1
++        out.append((li,ri))
++    if cap and len(out)>cap:
++        out=out[:cap]
+     return out
+ 
+-def _append_micro_phase(T, lo, hi, delta, max_extra=8):
+-    """Append a small micro-phase at the end to sprinkle long caps, bounded by max_extra."""
+-    if max_extra <= 0:
+-        return T
+-    d2 = max(1, delta // 4)
+-    micro = [
+-        (lo + 1 * d2, lo + 5 * d2),
+-        (hi - 6 * d2, hi - 2 * d2),
+-        (lo + 3 * d2, lo + 8 * d2),
+-        (hi - 8 * d2, hi - 3 * d2),
+-    ]
+-    for i, interval in enumerate(micro):
+-        pos = len(T) - (i * 2 + 1)
+-        if pos < 0:
+-            T.append(interval)
+-        else:
+-            T.insert(pos, interval)
++def _micro_phase(T, lo, hi, delta, scales, max_extra, cap):
++    """Append micro phases at scales in 'scales' list (fractions)."""
++    extras=[]
++    for frac in scales:
++        d = max(1, int(delta*frac))
++        extras.extend([
++            (lo + 1*d, lo + 5*d),
++            (hi - 6*d, hi - 2*d)
++        ])
++    # insert alternating near-end to touch many active colors
++    for i,iv in enumerate(extras[:max_extra]):
++        pos=len(T)-(2*i+1)
++        if pos<0: T.append(iv)
++        else: T.insert(pos,iv)
++        if len(T)>=cap: break
+     return T
+ 
+-def construct_intervals(max_intervals=9800,
+-                        depth=6,
+-                        rotate_starts=True,
+-                        interleave_blocks=True,
+-                        micro_phase=True):
++def construct_intervals(max_intervals=9800, depth=6):
+     """
+-    Adaptive six-round construction with 4-start blocks, 4 connectors per round,
+-    and optional interleaving. Seeds with four disjoint unit intervals to boost FF pressure
+-    while controlling omega through cap budgeting.
++    Produces a sequence of open intervals to maximize FirstFit/opt ratio.
++    """
++    # 1) two‐seed initialization
++    T=[(0,1),(2,3)]
++    base_size=len(T)
+ 
+-    Returns:
+-      intervals: list[(l, r)] of open intervals with integer endpoints, in arrival order.
+-    """
+-    # Deterministic four-pattern cycle (ascending starts)
+-    start_patterns = [
+-        (2, 6, 10, 14),  # classic 4-wave
+-        (1, 5, 9, 13),   # left-shifted
+-        (3, 7, 11, 15),  # right-shifted
+-        (2, 4, 8, 12),   # compressed variant
++    # 2) eight‐template rotation bank
++    templates = [
++      (2,6,10,14),(1,5,9,13),(3,7,11,15),(4,8,12,16),
++      (2,5,8,11),(3,6,9,12),(1,4,7,10),(5,7,9,11)
+     ]
+ 
+-    # Seed: four disjoint unit intervals
+-    T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+-    base_size = len(T)
++    # parameters
++    COPIES, CONNECTORS = 4, 5
++    K=2  # delta multiplier
++    rounds = _rounds_allowed(max_intervals, base_size, COPIES, CONNECTORS, depth)
+ 
+-    # Compute allowed rounds under budget
+-    rounds_allowed, _ = _rounds_allowed_under_cap(
+-        max_intervals=max_intervals,
+-        base_size=base_size,
+-        per_round_copies=4,
+-        per_round_connectors=4,
+-        target_rounds=int(depth) + 1
+-    )
+-    if rounds_allowed <= 0:
+-        return [(0, 1)]
+-
+-    # Main expansion
+-    for round_idx in range(rounds_allowed):
+-        lo = min(l for l, _ in T)
+-        hi = max(r for _, r in T)
+-        delta = hi - lo
+-        if delta <= 0:
+-            delta = 1
+-
+-        starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+-
+-        # Build four translated blocks in sequential order
+-        blocks = _build_translated_blocks(T, delta, lo, starts)
+-
+-        # Interleave blocks if requested
+-        S = []
+-        if interleave_blocks:
+-            maxlen = max((len(b) for b in blocks), default=0)
+-            order = list(range(len(blocks)))
+-            if round_idx % 2 == 1:
+-                order = order[::-1]
+-            krot = round_idx % len(order)
+-            order = order[krot:] + order[:krot]
+-            for i in range(maxlen):
+-                for idx in order:
+-                    blk = blocks[idx]
+-                    if i < len(blk):
+-                        S.append(blk[i])
+-        else:
+-            for blk in blocks:
+-                S.extend(blk)
+-
+-        # Deterministic connectors (caps) derived from the first four starts
+-        _append_connectors(S, delta, starts)
+-
++    # 3) main spine rounds
++    for r in range(rounds):
++        lo = min(l for l,_ in T)
++        hi = max(rg for _,rg in T)
++        span = hi - lo or 1
++        starts = templates[r % len(templates)]
++        blocks = _build_blocks(T, span, lo, starts, K)
++        # sequential assembly
++        S=[]
++        for blk in blocks: S.extend(blk)
++        _append_connectors(S, span*K, starts)
+         T = S
+ 
+-    # Optional micro-phase sprinkled at end
+-    if micro_phase and len(T) + 8 <= max_intervals:
+-        lo = min(l for l, _ in T)
+-        hi = max(r for _, r in T)
+-        delta = max(1, hi - lo)
+-        T = _append_micro_phase(T, lo, hi, delta, max_extra=8)
++    # 4) three micro phases: delta2, delta3
++    lo = min(l for l,_ in T); hi = max(r for _,r in T)
++    delta = hi - lo or 1
++    # scales chosen to avoid clique growth
++    T = _micro_phase(T, lo, hi, delta, scales=[1/4,1/8], max_extra=8, cap=max_intervals)
++    lo = min(l for l,_ in T); hi = max(r for _,r in T)
++    delta = hi - lo or 1
++    T = _micro_phase(T, lo, hi, delta, scales=[1/16],   max_extra=4, cap=max_intervals)
+ 
+-    # Normalize and cap
+-    intervals = _normalize_to_int_intervals(T, cap=max_intervals)
++    # 5) normalize and cap
++    intervals = _normalize(T, cap=max_intervals)
+     return intervals
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

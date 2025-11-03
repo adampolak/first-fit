@@ -1,0 +1,87 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=3):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it tends to maximize the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+  through a recursive wave construction.
+
+  Improvements over the previous version:
+  - start with multiple disjoint unit intervals to seed richer early overlaps
+  - use a small bank of four-interval "templates" and pick a template per round
+    (breaks strict self-similarity)
+  - cycle through a list of start-patterns across rounds so translated copies
+    land in different relative offsets each round
+  - default to 3 rounds to allow one more expansion (still modest total size)
+  """
+  # seed with several disjoint unit intervals (keeps omega small but provides coupling)
+  T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+
+  # a small bank of four-interval templates (variants of the gadget)
+  templates = [
+    # template A: original pattern
+    [(1, 5), (12, 16), (4, 9), (8, 13)],
+    # template B: shifted variant
+    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
+    # template C: tighter local overlaps
+    [(1, 4), (6, 9), (3, 7), (9, 13)],
+    # template D: staggered caps
+    [(2, 6), (7, 11), (0, 3), (10, 14)]
+  ]
+
+  # a short deterministic cycle of start patterns (each element is a tuple/list of starts)
+  start_patterns = [
+    (2, 6, 10, 14),             # compact 4-wave pattern
+    (2, 4, 6, 8, 10, 12, 14, 16),  # denser pattern
+    (2, 5, 8, 11, 14, 17, 20),  # staggered 7-wave
+  ]
+
+  for round_idx in range(rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+
+    # choose start pattern and template deterministically based on round index
+    starts = list(start_patterns[round_idx % len(start_patterns)])
+    template = templates[round_idx % len(templates)]
+
+    # vary the inner order of clones to make FirstFit reuse harder
+    for idx, start in enumerate(starts):
+      if idx % 2 == 0:
+        base = T
+      else:
+        base = list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+
+    # place the chosen template intervals scaled by delta
+    S += [(delta * a, delta * b) for (a, b) in template]
+
+    # add a few sparse caps that span small neighborhoods of starts to couple colors
+    # without raising omega too much
+    max_start = max(starts)
+    for j in range(2, max_start, max(3, int(max_start // 6))):
+      S.append((delta * (j - 0.5), delta * (j + 1.5)))
+
+    T = S
+
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

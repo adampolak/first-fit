@@ -1,0 +1,50 @@
+<NAME>interleave_blocks</NAME>
+<DESCRIPTION>
+Replace simple concatenation of translated copies with interleaving to maximize cross-block overlap and increase FirstFit pressure without raising the offline clique number.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    S = []
+    # choose the start tuple for this round
+    starts = start_patterns[round_idx % len(start_patterns)]
+    # build translated copies
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # dynamic connectors based on the current starts
+=======
+    # choose the start tuple for this round
+    starts = start_patterns[round_idx % len(start_patterns)]
+    # build translated blocks
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+    # interleave translated blocks to maximize cross-block overlap
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          S.append(blk[i])
+    # dynamic connectors based on the current starts
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>micro_phase_caps</NAME>
+<DESCRIPTION>
+After completing the main rounds, add a small micro-phase of sparse long-range connector intervals at a smaller scale to further pressure FirstFit without increasing the maximum clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  return T
+=======
+  # micro-phase: small-scale delta expansion to sprinkle long caps
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta2 = max(1, (hi - lo) // 4)
+  # create sparse long-range caps overlapping many active colors
+  micro = [(lo + delta2, lo + 5 * delta2), (hi - 6 * delta2, hi - 2 * delta2)]
+  for it in micro:
+    T.append(it)
+  return T
+>>>>>>> REPLACE
+</DIFF>

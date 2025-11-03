@@ -1,0 +1,47 @@
+<NAME>rotate_stage1_templates</NAME>
+
+<DESCRIPTION>
+Introduce a rotating start-pattern bank for the KT spine rounds to diversify block offsets and connectors across the six main rounds. Replace the single static spine_starts with a template_bank, select starts = template_bank[ridx % len(template_bank)] at the top of each round, and update both the block‐construction loops and connector assignments to use these per-round starts. This should amplify FirstFit pressure without increasing the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  spine_starts = (2, 6, 10, 14)
+=======
+  # Use rotating KT start-pattern templates for strong coupling and diversity
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+  spine_starts = template_bank[0]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(6):
+=======
+  for ridx in range(6):
+    # select rotating template from bank
+    starts = template_bank[ridx % len(template_bank)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for start in spine_starts:
+=======
+    for start in starts:
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    s0, s1, s2, s3 = spine_starts
+=======
+    s0, s1, s2, s3 = starts
+>>>>>>> REPLACE
+</DIFF>

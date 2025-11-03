@@ -1,0 +1,45 @@
+<NAME>
+interleave_even_rounds_and_add_micro_caps
+</NAME>
+
+<DESCRIPTION>
+We introduce an interleaving strategy on even rounds to mix colors more aggressively, balancing sequential expansion on odd rounds to preserve structure. Additionally, we add a simple micro-phase of two long “caps” after the main 6 rounds to increase FirstFit pressure without increasing clique size. These changes aim to boost the competitive ratio by forcing FF to open new colors late in the sequence.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    S = []
+    for blk in blocks:
+      S.extend(blk)
+=======
+    S = []
+    # interleave blocks on even rounds, sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # No micro-phase: returning the classic KT construction maximizes FF pressure here
+  return T
+=======
+  # Micro-phase: add two long sparse caps to boost late FirstFit color usage
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  # cap across almost entire span but avoid increasing omega
+  cap1 = (lo + 0.1 * delta, lo + 0.9 * delta)
+  cap2 = (lo + 0.2 * delta, lo + 0.8 * delta)
+  T.append(cap1)
+  T.append(cap2)
+  return T
+>>>>>>> REPLACE
+</DIFF>

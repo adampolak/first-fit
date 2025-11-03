@@ -1,0 +1,31 @@
+<NAME>
+add_nested_tower_phase</NAME>
+
+<DESCRIPTION>
+Introduce a lightweight “tower” micro-phase before the final cross-scale connectors. We sample a small number of existing intervals and build a nested sequence of slightly longer intervals (a “tower”), each overlapping the previous. This construction forces FirstFit to open new colors in succession without increasing the clique number (since all are nested, clique = 1). It creates extra FF pressure at the end and should push FF color usage up while respecting CAP and omega constraints.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Deterministic cross-scale connectors anchored to current span (CAP-aware)
+=======
+  # Stage 3: lightweight nested tower micro-phase to boost FF depth without increasing omega
+  if len(T) < CAP - 6:
+    # sample up to 5 seed intervals evenly from T
+    sample_sz = min(5, len(T))
+    step = max(1, len(T) // sample_sz)
+    tower_seed = [T[i] for i in range(0, len(T), step)][:sample_sz]
+    # build a nested tower: each interval slightly longer than the previous
+    for i, (l0, r0) in enumerate(tower_seed):
+      lo_i = l0 - (i + 1)
+      hi_i = r0 + (i + 1)
+      # ensure strictly positive length
+      if hi_i <= lo_i:
+        hi_i = lo_i + 1
+      T.append((lo_i, hi_i))
+      if len(T) >= CAP:
+        break
+
+  # Deterministic cross-scale connectors anchored to current span (CAP-aware)
+>>>>>>> REPLACE
+</DIFF>

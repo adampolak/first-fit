@@ -1,0 +1,161 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1):
+    """
+    Construct intervals presented to FirstFit to maximize FF colors / omega.
+    Signature preserved: construct_intervals(seed_count=1) -> list[(l, r)]
+    """
+    CAP = 9800
+    TEMPLATE_BANK = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+    ]
+    # -- Helpers --
+    def _span_delta(T):
+        lo = T[0][0]; hi = T[0][1]
+        for l, r in T:
+            if l < lo: lo = l
+            if r > hi: hi = r
+        delta = hi - lo
+        return lo, hi, delta if delta > 0 else 1
+
+    def _rebase_zero(T):
+        lo, _, _ = _span_delta(T)
+        if lo == 0:
+            return T
+        return [(l - lo, r - lo) for (l, r) in T]
+
+    def _max_rounds_within_cap(sz, max_rounds):
+        done = 0
+        for _ in range(int(max_rounds)):
+            nxt = 4 * sz + 4
+            if nxt > CAP:
+                break
+            sz = nxt; done += 1
+        return done
+
+    def _cap_at(lo, span, a_frac, b_frac):
+        L = lo + max(1, int(round(a_frac * span)))
+        R = lo + max(1, int(round(b_frac * span)))
+        if R <= L:
+            R = L + 1
+        return (L, R)
+
+    def _insert_near_tail(seq, caps):
+        out = list(seq)
+        for i, iv in enumerate(caps):
+            pos = len(out) - (2 * i + 1)
+            if pos < 0:
+                out.append(iv)
+            else:
+                out.insert(pos, iv)
+        return out
+
+    def _apply_kt_round(T, starts, ridx):
+        lo, hi, delta = _span_delta(T)
+        blocks = []
+        # build 4 translated blocks, reverse source on odd ridx & odd block index
+        for b_idx, s in enumerate(starts):
+            src = T[::-1] if (ridx % 2 == 1 and b_idx % 2 == 1) else T
+            base = s * delta - lo
+            blocks.append([(l + base, r + base) for (l, r) in src])
+        # connectors
+        s0, s1, s2, s3 = starts
+        left_cap = ((s0 - 1) * delta, (s1 - 1) * delta)
+        cross1   = ((s0 + 2) * delta, (s2 - 1) * delta)
+        cross2   = ((s1 + 2) * delta, (s3 - 1) * delta)
+        right_cap= ((s2 + 2) * delta, (s3 + 2) * delta)
+        S = []
+        # arrival-order engineering
+        if ridx % 2 == 0:
+            S.extend(blocks[0]); S.append(left_cap)
+            S.extend(blocks[1]); S.append(cross1)
+            S.extend(blocks[2]); S.append(cross2)
+            S.extend(blocks[3]); S.append(right_cap)
+        else:
+            S.extend(blocks[2]); S.append(cross2)
+            S.extend(blocks[3]); S.append(right_cap)
+            S.extend(blocks[0]); S.append(left_cap)
+            S.extend(blocks[1]); S.append(cross1)
+        return S
+
+    def _build_micro_round(T, budget):
+        glo, ghi, G = _span_delta(T)
+        # thin seed
+        n = len(T)
+        seed_sz = max(8, min(32, n // 300))
+        stride = max(1, n // seed_sz)
+        U = [T[i] for i in range(0, n, stride)][:seed_sz]
+        if not U:
+            return []
+        ulo = min(l for l, _ in U)
+        # windows
+        fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+        blocks = []
+        for fa, fb in fracs:
+            win_lo = glo + int(round(fa * G))
+            base = win_lo - ulo
+            blocks.append([(l + base, r + base) for (l, r) in U])
+        # full interleaving
+        micro = []
+        ml = max(len(b) for b in blocks)
+        for i in range(ml):
+            for blk in blocks:
+                if i < len(blk):
+                    micro.append(blk[i])
+        # fractional caps
+        caps = [
+            (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+            (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+            (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+            (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+        ]
+        for a, b in caps:
+            if b > a:
+                micro.append((a, b))
+        return micro[:budget]
+
+    # -- Stage 1: KT spine --
+    T = [(0, 1)]
+    rounds = _max_rounds_within_cap(len(T), 6)
+    for ridx in range(rounds):
+        starts = TEMPLATE_BANK[ridx % len(TEMPLATE_BANK)]
+        T = _apply_kt_round(T, starts, ridx)
+        if len(T) >= CAP:
+            return T[:CAP]
+        T = _rebase_zero(T)
+    if len(T) >= CAP - 8:
+        return T
+
+    # -- Micro-phase A: near-tail long caps --
+    lo, hi, span = _span_delta(T)
+    caps = [
+        _cap_at(lo, span, 0.08, 0.60),
+        _cap_at(lo, span, 0.25, 0.75),
+        _cap_at(lo, span, 0.75, 0.92),
+    ]
+    room = CAP - len(T)
+    if room > 0:
+        T = _insert_near_tail(T, caps[:room])
+        T = _rebase_zero(T)
+    if len(T) >= CAP - 16:
+        return T
+
+    # -- Micro-phase B: one fractional-window micro round --
+    room = CAP - len(T)
+    if room > 8:
+        micro = _build_micro_round(T, room)
+        if micro:
+            T.extend(micro)
+            T = _rebase_zero(T)
+    if len(T) > CAP:
+        T = T[:CAP]
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

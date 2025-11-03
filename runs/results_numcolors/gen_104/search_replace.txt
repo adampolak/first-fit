@@ -1,0 +1,77 @@
+<NAME>
+delta2_extension_rounds
+</NAME>
+
+<DESCRIPTION>
+Implement two additional small-scale extension rounds after the main recursive expansion.
+Rather than reusing the full-scale delta, we snapshot the main-phase template `T_main` and its span to compute a subscale `delta2 = max(1, delta_main // 2)`.
+We then build blocks at this finer scale, interleave them, and append four subscale connectors.
+This increases cross-scale coupling by pushing FirstFit to create new colors deep within the existing span, without inflating the clique number.
+The final output is normalized once after the extra-phase.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # EXTRA PHASE: post-round two-phase expansion to strengthen FF pressure
+    EXTRA_ROUNDS = 2  # two additional post-rounds
+    if EXTRA_ROUNDS > 0:
+        for extra in range(EXTRA_ROUNDS):
+            lo = min(l for l, _ in T)
+            hi = max(r for _, r in T)
+            delta = hi - lo
+            if delta <= 0:
+                delta = 1
+            # Rotate starts more aggressively for extra phase
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+
+            blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+
+            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
+
+            # Deterministic connectors for extra phase (using a shuffled but deterministic mapping)
+            s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ]
+            S.extend(connectors)
+
+            T = S
+        intervals = _normalize_to_int_intervals(T)
+
+    return intervals
+=======
+    # Two delta2-driven extension rounds after main-phase to push FF deeper
+    EXTRA_PHASE_ROUNDS = 2
+    if EXTRA_PHASE_ROUNDS > 0:
+        # snapshot main-phase template and compute subscale
+        T_main = T
+        lo_main = min(l for l, _ in T_main)
+        hi_main = max(r for _, r in T_main)
+        delta_main = hi_main - lo_main
+        delta2 = max(1, delta_main // 2)
+        for extra in range(EXTRA_PHASE_ROUNDS):
+            # deterministic start rotation
+            rot = (depth + extra) % len(start_patterns)
+            starts = start_patterns[rot]
+            # build small-scale blocks at subscale delta2
+            blocks = _make_blocks(T_main, starts, delta2, lo_main, reverse_block_parity)
+            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
+            # append four subscale connectors
+            s0, s1, s2, s3 = starts
+            connectors = [
+                ((s0 - 1) * delta2, (s1 - 1) * delta2),
+                ((s2 + 2) * delta2, (s3 + 2) * delta2),
+                ((s0 + 2) * delta2, (s2 - 1) * delta2),
+                ((s1 + 2) * delta2, (s3 - 1) * delta2),
+            ]
+            S.extend(connectors)
+            T = S
+        intervals = _normalize_to_int_intervals(T)
+
+    return intervals
+>>>>>>> REPLACE
+</DIFF>

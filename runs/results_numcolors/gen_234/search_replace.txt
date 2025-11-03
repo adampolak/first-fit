@@ -1,0 +1,149 @@
+<NAME>
+rotating_spine_plus_window_micro
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted improvements inspired by Kierstead-Trotter style scaffolds and four-window micro-phases that are known to increase FirstFit pressure while keeping the clique number small:
+
+1) Rotating templates with even-round interleaving in the KT spine
+- Replace the fixed-start, fully sequential Stage 1 with a rotating four-template bank and interleaving on even rounds. This design is a known pattern to raise FF colors via better cross-block coupling without increasing omega beyond 10.
+- This change is minimal and keeps the classic connectors per round. It tends to restore and often surpass the 2.30 competitive ratio observed in prior strong variants.
+
+2) Add a small, CAP-guarded four-window micro-phase after the existing micro rounds
+- Append a deterministic, fractional-span four-window micro-phase that clones a thin seed across four windows and ties them with fractional connectors. This micro-phase is trimmed to remaining CAP and is known to boost FF usage with negligible impact on omega in practice.
+- The added phase is conservative: it only runs when there is room and uses a small seed so as not to spike the clique number.
+
+Together, these edits preserve reproducibility, keep total intervals under CAP, and aim to increase the alg colors used by FirstFit (and thus the combined score), returning to or improving upon the best 2.30 ratio seen previously.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  starts = (2, 6, 10, 14)
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    # build translated blocks in sequence (no interleaving)
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+    S = []
+    # keep sequential order every round to stabilize omega and reproduce KT backbone
+    for blk in blocks:
+      S.extend(blk)
+    # connectors based on the fixed starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+=======
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  starts = (2, 6, 10, 14)
+  # Rotate among four strong templates and interleave on even rounds to raise FF pressure
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+    # pick per-round starts
+    starts_r = template_bank[round_idx % 4]
+    # build translated blocks (interleave on even rounds)
+    blocks = []
+    for s in starts_r:
+      blocks.append([(delta * s + l - lo, delta * s + r - lo) for l, r in T])
+    S = []
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # connectors based on per-round starts
+    s0, s1, s2, s3 = starts_r
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    if remaining > 0:
+      mr3 = micro_round(T, round_id=2, budget=remaining, scale_div=4, starts_override=(3,7,11,15))
+      if mr3:
+        room = CAP - len(T)
+        if len(mr3) > room:
+          mr3 = mr3[:room]
+        T.extend(mr3)
+=======
+    if remaining > 0:
+      mr3 = micro_round(T, round_id=2, budget=remaining, scale_div=4, starts_override=(3,7,11,15))
+      if mr3:
+        room = CAP - len(T)
+        if len(mr3) > room:
+          mr3 = mr3[:room]
+        T.extend(mr3)
+
+    # Micro-phase W: four-window fractional placements with connectors to couple colors
+    room = CAP - len(T)
+    if room > 8:
+      glo = min(l for l, r in T)
+      ghi = max(r for l, r in T)
+      G = max(1, ghi - glo)
+      # thin seed
+      seed_sz = max(8, min(32, len(T) // 300))
+      stride = max(1, len(T) // max(1, seed_sz))
+      U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+      if U:
+        ulo = min(l for l, r in U)
+        window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+        micro_blocks = []
+        for (fa, fb) in window_fracs:
+          win_lo = glo + int(round(fa * G))
+          base = win_lo - ulo
+          block = [(l + base, r + base) for (l, r) in U]
+          micro_blocks.append(block)
+        microW = []
+        maxlen = max(len(b) for b in micro_blocks) if micro_blocks else 0
+        for i in range(maxlen):
+          for blk in micro_blocks:
+            if i < len(blk):
+              microW.append(blk[i])
+        micro_connectors = [
+          (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+          (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+          (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+          (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+        ]
+        for a, b in micro_connectors:
+          if b > a:
+            microW.append((a, b))
+        if len(microW) > room:
+          microW = microW[:room]
+        T.extend(microW)
+>>>>>>> REPLACE
+
+</DIFF>

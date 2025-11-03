@@ -1,0 +1,279 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+  # Margin to retain headroom for micro-phases (prevents late omega spikes)
+  CAP_MARGIN = 32
+
+  # Stage 1: Deterministic KT-style spine with rotating start patterns to diversify block interactions
+  templates = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (4, 8, 12, 16),
+  ]
+
+  # Seed: keep a single unit interval; multi-seed tends to inflate omega too early.
+  T = [(0, 1)]
+
+  # Perform up to six spine rounds unless capacity would be exceeded (it won't for this growth).
+  for ridx in range(6):
+    # Compute span and delta
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Rotate start pattern and build four translated blocks
+    starts = templates[ridx % len(templates)]
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in T]
+      blocks.append(block)
+
+    # Interleave blocks on even rounds; keep sequential on odd rounds
+    S = []
+    if ridx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # Classic connectors (Figure 4 style), now using the rotated pattern
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    T = S
+
+    if len(T) > CAP:
+      break
+
+  # Stage 2: delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard and keep OPT <= 10 by avoiding dense local overlaps.
+
+  # Micro-phase A: insert three long caps near the tail to mix colors without spiking omega
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  # Long caps positioned as fractions of the current span; endpoints are monotone.
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = max(1, hi - lo)
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  room = CAP - len(T)
+  if room > 0 and len(T) <= CAP - CAP_MARGIN:
+    to_add = caps[:min(len(caps), room)]
+    T = _insert_near_tail(T, to_add)
+
+  remaining = CAP - len(T)
+  if remaining <= CAP_MARGIN:
+    return T
+
+  def thin_seed(current_T, max_seed):
+    n = len(current_T)
+    if n == 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    return current_T[::step][:max_seed]
+
+  def micro_round(current_T, round_id, budget):
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Use delta2 at half-scale to avoid expanding the global span too aggressively.
+    delta2 = max(1, G // 2)
+
+    # Thin seed: bounded and deterministic size to respect budget.
+    per_block_target = max(8, min(64, budget // 12))
+    U = thin_seed(current_T, per_block_target)
+    if not U:
+      return []
+
+    # Build four translated blocks using a fixed 4-start template to stabilize omega.
+    starts = (2, 6, 10, 14)
+    blocks = []
+    ulo = min(l for l, r in U)
+    for s in starts:
+      base = s * delta2 - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Add a tiny deterministic internal reversal to break symmetry every other block
+      if ((s // 2) % 2) == (round_id % 2):
+        block = list(reversed(block))
+      blocks.append(block)
+
+    micro = []
+    if round_id % 2 == 0:
+      # Forward interleave
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+    else:
+      # Reverse interleave (swap block order)
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in reversed(blocks):
+          if i < len(blk):
+            micro.append(blk[i])
+
+    # Deterministic connectors at delta2 scale, including a cross3 and cross4 extension.
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+      ((s1 + 4) * delta2 + glo, (s2 + 4) * delta2 + glo),  # cross4 (extended coupling)
+    ]
+    micro.extend(connectors)
+
+    # Sparse micro caps: add three long but safe caps at half-scale
+    cap1 = (glo + (delta2 // 4), glo + int(1.8 * delta2))
+    cap2 = (glo + int(0.9 * delta2), glo + int(2.6 * delta2))
+    mid = glo + G // 2
+    cap3 = (mid - max(1, delta2 // 8), mid + max(1, delta2 // 8))
+    for cap in (cap1, cap2, cap3):
+      if cap[1] > cap[0]:
+        micro.append(cap)
+
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute two micro rounds with strong guards (leave CAP_MARGIN for a window micro-phase)
+  remaining = CAP - len(T)
+  budget1 = max(0, remaining - CAP_MARGIN)
+  mr1 = micro_round(T, round_id=0, budget=max(0, budget1 // 2))
+  if mr1:
+    room = CAP - len(T) - CAP_MARGIN
+    room = max(0, room)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  budget2 = max(0, (CAP - len(T)) - CAP_MARGIN)
+  mr2 = micro_round(T, round_id=1, budget=budget2)
+  if mr2:
+    room = CAP - len(T) - CAP_MARGIN
+    room = max(0, room)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Secondary micro-phase: four-window thin-seed injection with short pins
+  room2 = CAP - len(T)
+  if room2 > CAP_MARGIN // 2:
+    glo2 = min(l for l, r in T)
+    ghi2 = max(r for l, r in T)
+    G2 = max(1, ghi2 - glo2)
+
+    # Even thinner seed to avoid omega spikes
+    seed_sz2 = max(8, min(24, len(T) // 400))
+    stride2 = max(1, len(T) // max(1, seed_sz2))
+    U2 = [T[i] for i in range(0, len(T), stride2)][:seed_sz2]
+
+    if U2:
+      ulo2 = min(l for l, r in U2)
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      blocks2 = []
+      for (fa, fb) in windows2:
+        win_lo2 = glo2 + int(round(fa * G2))
+        base2 = win_lo2 - ulo2
+        block2 = [(l + base2, r + base2) for (l, r) in U2]
+        # Alternate reversal on two windows to break symmetry
+        if int(round(fa * 100)) % 20 == 0:
+          block2 = list(reversed(block2))
+        blocks2.append(block2)
+
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+
+      # Tiny pin connectors to couple windows without inflating omega
+      eps = max(1, G2 // 512)
+      for pf in (0.09, 0.33, 0.66, 0.87):
+        a = glo2 + int(round(pf * G2))
+        b = a + eps
+        if b > a:
+          micro2.append((a, b))
+
+      avail2 = CAP - len(T)
+      if avail2 > 0:
+        if len(micro2) > avail2:
+          micro2 = micro2[:avail2]
+        T.extend(micro2)
+
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

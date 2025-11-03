@@ -1,0 +1,63 @@
+<NAME>
+fixed_spine_with_parity_blocks
+</NAME>
+
+<DESCRIPTION>
+We revert to a fixed-start spine to match the strongest prior performance and wire in an optional block-parity reversal that was previously unused. Empirically, the fixed (2,6,10,14) starts with sequential block ordering yielded a higher competitive ratio in earlier runs. We therefore set rotate_starts to False by default. Additionally, we modify the block builder to support per-block reversal (reverse every odd-indexed block when reverse_block_parity is enabled), which is a classic trick to inhibit color reuse across blocks without increasing the clique number. The default remains disabled (False) to preserve the previously best behavior, but the capability is now available for further tuning. These targeted changes keep the construction small-omega while increasing FF pressure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _build_translated_blocks(T, delta, lo, starts):
+    """
+    Build translated blocks sequentially (no interleaving).
+    This ordering is known to increase FF pressure.
+    """
+    S = []
+    for s in starts:
+        shift = s * delta - lo
+        S.extend((l + shift, r + shift) for (l, r) in T)
+    return S
+=======
+def _build_translated_blocks(T, delta, lo, starts, reverse_block_parity=False):
+    """
+    Build translated blocks sequentially (no interleaving).
+    Optionally reverse every odd-indexed block to disrupt color reuse.
+    This ordering is known to increase FF pressure.
+    """
+    S = []
+    for b_idx, s in enumerate(starts):
+        src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+        shift = s * delta - lo
+        S.extend((l + shift, r + shift) for (l, r) in src)
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,   # kept for interface; not used in the classic recipe
+                        interleave_blocks=False,     # default to sequential, which empirically boosts FF
+                        micro_phase=True):
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=False,
+                        reverse_block_parity=False,  # now supported in block builder; default off (best prior)
+                        interleave_blocks=False,     # default to sequential, which empirically boosts FF
+                        micro_phase=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Build four translated blocks in sequential order (no interleaving)
+        S = _build_translated_blocks(T, delta, lo, starts)
+=======
+        # Build four translated blocks in sequential order (no interleaving)
+        S = _build_translated_blocks(T, delta, lo, starts, reverse_block_parity)
+>>>>>>> REPLACE
+</DIFF>

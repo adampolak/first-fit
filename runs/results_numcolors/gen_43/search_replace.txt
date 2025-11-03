@@ -1,0 +1,77 @@
+<NAME>
+classic_4block_depth6
+</NAME>
+
+<DESCRIPTION>
+Based on empirical results in your prior runs and classical Kierstead–Trotter constructions (Figure 4 of the cited paper), the pure four-block recursion with fixed starts [2,6,10,14], four connectors per round, and depth 6 consistently yields a stronger FirstFit pressure without inflating the clique number, achieving a notably higher competitive ratio (≈2.71) than the more complex rotated/interleaved variants you tried (≈1.71–1.86).
+
+This edit reverts to the classic four-block template with:
+- a single start pattern [2,6,10,14],
+- depth default set to 6 (producing 9556 intervals, under the cap),
+- adaptive size recurrence corrected to 4*size + 4 (four copies + four connectors),
+- default toggles set to conservative values (no rotation, no interleaving, no parity reversal, no micro-phase), preserving parameters if you want to experiment later.
+
+These targeted changes align with both theory and your best prior empirical result while keeping omega modest (≈7), thus improving the combined score substantially relative to the current program.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=4,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=6,
+                        rotate_starts=False,
+                        reverse_block_parity=False,
+                        interleave_blocks=False,
+                        micro_phase=False):
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Deterministic bank of start-pattern templates (4-block offsets) with 7 copies each round
+  start_patterns = [
+    [2, 6, 10, 14, 18, 22, 26],  # classic extended
+    [1, 5, 9, 13, 17, 21, 25],   # left-shifted
+    [3, 7, 11, 15, 19, 23, 27],  # right-shifted
+    [2, 4, 8, 12, 16, 20, 24],   # compressed variant
+  ]
+=======
+  # Deterministic single classic 4-block start pattern (Kierstead–Trotter Figure 4)
+  start_patterns = [
+    [2, 6, 10, 14],
+  ]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Adaptive depth cap given max_intervals
+  depth = max(0, int(depth))
+  size = 1
+  allowed = 0
+  # Each round roughly grows size -> size*7 + 11 (7 copies + 11 connectors)
+  while allowed < depth:
+    next_size = size * 7 + 11
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed if allowed > 0 else 0
+=======
+  # Adaptive depth cap given max_intervals
+  depth = max(0, int(depth))
+  size = 1
+  allowed = 0
+  # Each round grows size -> 4*size + 4 (4 copies + 4 connectors)
+  while allowed < depth:
+    next_size = size * 4 + 4
+    if next_size > max_intervals:
+      break
+    size = next_size
+    allowed += 1
+  depth = allowed
+>>>>>>> REPLACE
+
+</DIFF>

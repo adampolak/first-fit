@@ -1,0 +1,69 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  starts = (2, 6, 10, 14)
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    # build translated blocks in sequence (no interleaving)
+    # build translated blocks with parity reversal on odd rounds to disrupt FF reuse
+    blocks = []
+    for b_idx, start in enumerate(starts):
+      src = T[::-1] if (round_idx % 2 == 1 and (b_idx % 2 == 1)) else T
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in src])
+
+    # arrival-order engineering: insert connectors between blocks instead of after all
+    S = []
+    s0, s1, s2, s3 = starts
+    left_cap = (delta * (s0 - 1), delta * (s1 - 1))   # left cap
+    right_cap = (delta * (s2 + 2), delta * (s3 + 2))  # right cap
+    cross1 = (delta * (s0 + 2), delta * (s2 - 1))     # cross 1
+    cross2 = (delta * (s1 + 2), delta * (s3 - 1))     # cross 2
+
+    if round_idx % 2 == 0:
+      S.extend(blocks[0]); S.append(left_cap)
+      S.extend(blocks[1]); S.append(cross1)
+      S.extend(blocks[2]); S.append(cross2)
+      S.extend(blocks[3]); S.append(right_cap)
+    else:
+      # start from middle blocks to increase cross-layer coupling before ends arrive
+      S.extend(blocks[2]); S.append(cross2)
+      S.extend(blocks[3]); S.append(right_cap)
+      S.extend(blocks[0]); S.append(left_cap)
+      S.extend(blocks[1]); S.append(cross1)
+    T = S
+  # No micro-phase: returning the classic KT construction maximizes FF pressure here
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

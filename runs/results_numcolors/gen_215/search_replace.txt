@@ -1,0 +1,56 @@
+<NAME>add_cross4_connectors</NAME>
+
+<DESCRIPTION>
+Introduce an extra long-range “cross4” connector in each KT spine iteration to couple the extreme blocks more tightly, and add a mid-range cross4 in every micro-phase to further intertwine micro-blocks with the global span. These additional connectors increase FirstFit’s color pressure by creating subtle overlaps across distant branches, without substantially raising the clique number or exceeding capacity.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _append_connectors(S, starts, delta):
+    # Classic four connectors; preserves strong FF pressure while keeping omega modest.
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+=======
+  def _append_connectors(S, starts, delta):
+    # Classic four connectors; preserves strong FF pressure while keeping omega modest.
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+    # Additional long-range cross4 connector for enhanced cross-scale coupling
+    S.append(((s0 - 2) * delta, (s3 + 3) * delta))  # cross 3
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add a longer-range cross4 only for the alternate micro-phase
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+=======
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Additional mid-range cross4 connector for non-alternate micro-phases
+    micro_connectors.append((glo + int(round(0.15 * G)), glo + int(round(0.85 * G))))
+    # Add a longer-range cross4 only for the alternate micro-phase
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+>>>>>>> REPLACE
+</DIFF>

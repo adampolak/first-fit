@@ -1,0 +1,173 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of open intervals (l, r) in the order presented to FirstFit.
+  Goal: maximize FF colors while keeping omega modest (<~10) and total intervals < 10000.
+  Deterministic, integer endpoints.
+  """
+
+  CAP = 9800  # hard cap to keep under 10000
+
+  # Bank of starts; cycle deterministically to diversify coupling
+  template_bank = [
+    (2, 6, 10, 14),  # A: classic KT
+    (3, 7, 11, 15),  # B: right-shifted
+    (1, 5, 9, 13),   # C: left-shifted
+    (2, 4, 8, 12),   # D: compressed inner
+    (3, 5, 9, 13),   # E: gentle left pack
+    (1, 7, 11, 15),  # F: wide skew
+    (2, 8, 10, 12),  # G: inner symmetric
+    (4, 6, 8, 10),   # H: tight middle
+  ]
+
+  def build_blocks(current_T, starts, delta, lo, interleave=True, round_idx=0, cadence_span=2):
+    # Build four translated blocks
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base = s * delta - lo
+      # Parity reversal inside blocks for odd b_idx when in reverse cadence
+      direction_flag = ((round_idx // cadence_span) % 2 == 1)
+      src = current_T[::-1] if (direction_flag and (b_idx % 2 == 1)) else current_T
+      block = [(l + base, r + base) for (l, r) in src]
+      blocks.append(block)
+
+    # Interleave policy (forward for two rounds, reverse for next two)
+    if not interleave:
+      S = []
+      for blk in blocks:
+        S.extend(blk)
+      return S
+
+    forward = ((round_idx // cadence_span) % 2 == 0)
+    order = list(range(4))
+    if not forward:
+      order = order[::-1]
+    # rotate by round_idx to disturb stable overlaps
+    krot = round_idx % len(order)
+    order = order[krot:] + order[:krot]
+
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+    return S
+
+  def append_connectors(S, starts, delta):
+    s0, s1, s2, s3 = starts
+    # classic four + extended cross3
+    conns = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross2
+      ((s0 + 3) * delta, (s3 - 2) * delta),  # cross3 (new)
+    ]
+    S.extend(conns)
+
+  def append_mid_cap(S, lo, delta):
+    # mid-span micro cap (keep thin relative to delta to avoid raising omega)
+    half = lo + delta // 2
+    w = max(1, delta // 20)
+    L = half - w
+    R = half + w
+    if R > L:
+      S.append((L, R))
+
+  # Seed
+  T = [(0, 1)]
+
+  # Main rounds (depth 6 like baseline; enhanced interleaving + connectors)
+  MAIN_ROUNDS = 6
+  for ridx in range(MAIN_ROUNDS):
+    lo = min(l for l, _ in T)
+    hi = max(r for _, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    starts = template_bank[ridx % len(template_bank)]
+
+    S = build_blocks(T, starts, delta, lo, interleave=True, round_idx=ridx, cadence_span=2)
+    append_connectors(S, starts, delta)
+    append_mid_cap(S, lo, delta)
+
+    T = S
+    if len(T) >= CAP - 64:
+      # leave small slack for a tiny micro-phase
+      break
+
+  # Final delta2 micro-phase:
+  # - Add a few long-range caps based on reduced delta2
+  # - Add a very thin interleaved micro-block sampled from T to couple colors across scales
+  if T:
+    glo = min(l for l, _ in T)
+    ghi = max(r for _, r in T)
+    G = max(1, ghi - glo)
+    delta2 = max(1, G // 2)
+
+    # Sparse caps, avoiding densest core
+    micro_caps = [
+      (glo + max(1, delta2 // 8), glo + max(2, delta2 // 2)),
+      (glo + G - max(2, delta2 // 2), glo + G - max(1, delta2 // 8)),
+      (glo + G // 3, glo + (2 * G) // 3),
+    ]
+    for it in micro_caps:
+      if len(T) < CAP:
+        L, R = it
+        if R > L:
+          T.append((L, R))
+
+    # Tiny interleaved micro-block sampled from T using delta2 translations
+    # Sample at large stride to keep size very small
+    stride = max(1, len(T) // 128)
+    U = [T[i] for i in range(0, len(T), stride)][:64]  # at most 64 seed intervals
+    if U and len(T) < CAP - 64:
+      # Four local windows determined by delta2; keep all inside [glo, ghi]
+      starts2 = (2, 6, 10, 14)
+      blocks = []
+      for s in starts2:
+        base = s * delta2 - glo
+        block = [(l + base, r + base) for (l, r) in U]
+        blocks.append(block)
+      # forward interleaving
+      maxlen = max(len(b) for b in blocks)
+      micro_S = []
+      for i in range(maxlen):
+        for b in blocks:
+          if i < len(b):
+            micro_S.append(b[i])
+      # connectors for the micro-phase with delta2
+      s0, s1, s2, s3 = starts2
+      connectors2 = [
+        ((s0 - 1) * delta2, (s1 - 1) * delta2),
+        ((s2 + 2) * delta2, (s3 + 2) * delta2),
+        ((s0 + 2) * delta2, (s2 - 1) * delta2),
+        ((s1 + 2) * delta2, (s3 - 1) * delta2),
+        ((s0 + 3) * delta2, (s3 - 2) * delta2),  # cross3
+      ]
+      micro_S.extend(connectors2)
+
+      # Mid cap for micro-phase
+      half = glo + G // 2
+      w = max(1, delta2 // 10)
+      micro_S.append((half - w, half + w))
+
+      # Capacity guard: append only as many as fit
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro_S) > room:
+          micro_S = micro_S[:room]
+        # Filter to ensure positive length
+        micro_S = [(l, r) for (l, r) in micro_S if r > l]
+        T.extend(micro_S)
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

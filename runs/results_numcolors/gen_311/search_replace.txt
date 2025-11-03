@@ -1,0 +1,35 @@
+<NAME>spine_densify_shrunk_seed</NAME>
+
+<DESCRIPTION>
+Introduce a lightweight “spine densification” step immediately after the KT backbone but before micro-phases. We uniformly sample a small seed of intervals from the current spine, shrink each by a tiny ε proportional to the global span, and reinsert these short copies. This boosts FirstFit pressure locally without increasing the maximum clique size significantly, adding only a handful of intervals (<20) and preserving capacity for subsequent micro-phases.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Early exit if nearly at capacity
+  if len(T) >= CAP - 8:
+    return T
+=======
+  # Early exit if nearly at capacity (before micro-phases)
+  if len(T) >= CAP - 8:
+    return T
+
+  # Spine densification: duplicate a thin seed of intervals with slight shrink to boost FF pressure
+  room = CAP - len(T)
+  if room > 16:
+    # Sample a small seed of intervals uniformly from the KT spine
+    stride = max(1, len(T) // 100)
+    seed = [T[i] for i in range(0, len(T), stride)][:10]
+    lo_d, hi_d, span_d = _span(T)
+    eps = max(1, span_d // 1000)
+    densify = []
+    for (l, r) in seed:
+      if r - l > 2 * eps:
+        densify.append((l + eps, r - eps))
+    # Insert densified intervals if capacity allows
+    for iv in densify:
+      if len(T) >= CAP:
+        break
+      T.append(iv)
+>>>>>>> REPLACE
+</DIFF>

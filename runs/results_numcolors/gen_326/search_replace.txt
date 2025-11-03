@@ -1,0 +1,24 @@
+<NAME>
+spine_density_boost</NAME>
+
+<DESCRIPTION>
+After each spine round, add a small density boost by duplicating a fraction of the current intervals, slightly shrunk, to increase FirstFit pressure without significantly raising ω. We cap the number of boosted intervals and ensure we stay under CAP. This controlled densification injects short “micro-boosters” at each scale, potentially increasing FF colors used while maintaining the clique number.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+    # Spine-density boost: duplicate a small fraction of intervals shrunk slightly to increase FF pressure
+    if len(T) < CAP:
+      lo_s, hi_s, span_s = _span(T)
+      eps = max(1, span_s // 1000)
+      # boost up to 5 intervals or 10% of current T, staying within capacity
+      boost = min(5, CAP - len(T), len(T) // 10)
+      for (l_s, r_s) in T[:boost]:
+        if r_s - l_s > 2 * eps:
+          T.append((l_s + eps, r_s - eps))
+>>>>>>> REPLACE
+</DIFF>

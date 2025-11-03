@@ -1,0 +1,94 @@
+<NAME>template_bank_expansion_start_patterns</NAME>
+<DESCRIPTION>Expand the four-start template bank to increase interaction diversity across rounds. Replace the fixed start_patterns with a larger, deterministic template_bank to promote richer inter-block coupling without randomness.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Rotation cycle for the four translated copies per round.
+  # These are carefully chosen to preserve coupling while varying interactions:
+  start_patterns = [
+    [2, 6, 10, 14],  # classic
+    [1, 5, 9, 13],   # left-shifted
+    [3, 7, 11, 15],  # right-shifted
+    [2, 4, 8, 12],   # compressed left pair
+  ]
+=======
+  # Expanded template bank to increase interaction diversity across rounds.
+  template_bank = [
+    [2, 6, 10, 14],  # classic
+    [1, 5, 9, 13],   # left-shifted
+    [3, 7, 11, 15],  # right-shifted
+    [2, 4, 8, 12],   # compressed left pair
+    [1, 9, 5, 13],   # additional variety
+    [0, 4, 8, 12],   # wider left gap
+    [3, 11, 7, 15],  # alternate skew
+    [4, 6, 8, 10],   # compact middle
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>use_template_bank_for_round_starts</NAME>
+<DESCRIPTION>Switch to using template_bank for per-round starts, cycling deterministically through a larger set of templates. This replaces the previous fixed start_patterns usage to promote richer interaction patterns without randomness.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Choose the starts for this round
+    if rotate_starts:
+      starts = start_patterns[round_idx % len(start_patterns)]
+    else:
+      starts = start_patterns[0]
+=======
+    # Choose the starts for this round
+    if rotate_starts:
+      starts = template_bank[round_idx % len(template_bank)]
+    else:
+      starts = template_bank[0]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>two_level_microcaps_microphase</NAME>
+<DESCRIPTION>Replace the single shallow micro-cap phase with two-tier microcaps (two scales) to create hierarchical long-range interactions. This aims to push FirstFit colors higher while keeping omega under control, improving the combined score in a deterministic fashion.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if phase2_iters > 0:
+    for k in range(phase2_iters):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      # Use a smaller subscale to sprinkle a few caps; keep them sparse.
+      d2 = max(1, delta // 4)
+      # Choose a rotating micro-template; keep count constant per phase.
+      micro = [
+        (lo + 1 * d2, lo + 5 * d2),
+        (hi - 6 * d2, hi - 2 * d2),
+        (lo + 3 * d2, lo + 8 * d2),
+        (hi - 8 * d2, hi - 3 * d2),
+      ]
+      # Order interleaved with existing to increase FF pressure slightly.
+      T.extend(micro)
+=======
+  if phase2_iters > 0:
+    for k in range(phase2_iters):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      d2a = max(1, delta // 6)
+      d2b = max(1, delta // 2)
+
+      micro1 = [
+        (lo + 1 * d2a, lo + 4 * d2a),
+        (hi - 4 * d2a, hi - 1 * d2a),
+        (lo + 2 * d2a, lo + 5 * d2a),
+        (hi - 5 * d2a, hi - 2 * d2a),
+      ]
+      micro2 = [
+        (lo + 1 * d2b, lo + 6 * d2b),
+        (hi - 6 * d2b, hi - 2 * d2b),
+      ]
+      micro = micro1 + micro2
+      # Order interleaved with existing to increase FF pressure slightly.
+      if len(micro) > (CAP - len(T)):
+        micro = micro[:(CAP - len(T))]
+      T.extend(micro)
+>>>>>>> REPLACE
+</DIFF>

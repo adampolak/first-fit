@@ -1,0 +1,100 @@
+database_config:
+  archive_size: 40
+  db_path: results73omegav2/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: text-embedding-3-small
+  init_program_path: initial73.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 32768
+    reasoning_efforts:
+    - auto
+    - low
+    - medium
+    - high
+    temperatures:
+    - 0.0
+    - 0.5
+    - 1.0
+  llm_models:
+  - o4-mini
+  - gpt-5
+  - gpt-5-mini
+  - gpt-5-nano
+  max_novelty_attempts: 3
+  max_parallel_jobs: 5
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - gpt-5-nano
+  meta_max_recommendations: 5
+  meta_rec_interval: 10
+  novelty_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gpt-5-nano
+  num_generations: 400
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results73omegav2
+  task_sys_msg: "You are an expert mathematician and theoretical computer scientist\
+    \ specializing in online graph coloring algorithms, interval graphs, and computational\
+    \ geometry.\n\nTry to construct a sequence of open intervals that can be optimally\
+    \ colored with at most 10 colors and maximizes the number of colors used by the\
+    \ FirstFit algorithm.\n\nNote that the offline optimum is equal to the clique\
+    \ number of the intersection graph of the intervals, which in turn is equal to\
+    \ the largest number of intervals that cover a single point.\n\nThe best known\
+    \ lower bound for the competitive ratio of FirstFit is 5. The best known upper\
+    \ bound is 8.\n\nTry using recursive strategies.\n\nTry getting inspired by this\
+    \ paper: https://arxiv.org/abs/1506.00192\n\nFor further inspiration try searching\
+    \ scientific literature on various variants of online interval coloring and related\
+    \ problems.\n\nHeuristics that tend to raise FF without raising omega (suggestions)\n\
+    - Keep a low omega \"spine\" (e.g., 3 <= omega <= 5) of long intervals, and inject\
+    \ waves of short intervals that pairwise avoid forming larger cliques but overlap\
+    \ many active colors so FF is forced upward.\n- Use arrival\u2011order engineering:\
+    \ place blocker intervals to occupy small colors early; later intervals that overlap\
+    \ these blockers but mutually avoid forming a bigger clique push FF to assign\
+    \ new colors beyond 5*omega.\n- Build towers: layered stacks of intervals with\
+    \ staggered starts/ends; then caps that overlap one piece from each tower to couple\
+    \ colors across layers.\n- Periodically run the shrinker to keep n and span modest;\
+    \ smaller witnesses are easier to verify.\n\nFor practical reasons the sequence\
+    \ must contain less than 10000 intervals.\n\nBe creative and try to find a new\
+    \ solution better than the best known lower bound."
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate_omega.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results73omegav2
+timestamp: '2025-10-19T17:02:34.059388'

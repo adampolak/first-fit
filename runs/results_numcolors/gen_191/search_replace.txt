@@ -1,0 +1,90 @@
+<NAME>
+second_micro_phase_pins
+</NAME>
+
+<DESCRIPTION>
+I add a second, capacity-guarded micro-phase that uses a distinct set of fractional windows and a pin-shrinker to raise FirstFit pressure without noticeably inflating the clique number. This follows a known strategy: after the KT-style backbone and a first micro-phase, insert another thin wave of intervals placed in new windows [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)] and shrink each copied interval to a short “pin.” The pins are slightly staggered to avoid co-location and are interleaved in a different block order to diversify coupling. Two very short cap-pins are added to tie windows. The entire phase is strictly budgeted by CAP and only runs if capacity remains. This deterministic, small-footprint layer has been empirically effective in prior variants to increase FF colors while keeping omega in check, and aligns with the recommended multi-phase strategy and parity-based mixing.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+      # Capacity guard
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+
+  return T
+=======
+      # Capacity guard
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+
+  # Micro-phase C: second guarded micro-round using distinct windows and pin shrinking
+  if len(T) < CAP - 8:
+    glo2 = min(l for l, r in T)
+    ghi2 = max(r for l, r in T)
+    G2 = ghi2 - glo2 if ghi2 > glo2 else 1
+
+    # Thin seed again (slightly smaller to limit omega growth)
+    seed_sz2 = max(8, min(24, len(T) // 400))
+    stride2 = max(1, len(T) // max(1, seed_sz2))
+    U2 = [T[i] for i in range(0, len(T), stride2)][:seed_sz2]
+
+    if U2:
+      ulo2 = min(l for l, r in U2)
+
+      # New window set to avoid stacking with phase B windows
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      # Short pins to reduce clique growth; slight stagger to avoid co-location
+      eps = max(1, G2 // 512)
+      blocks2 = []
+      for (fa, fb) in windows2:
+        win_lo2 = glo2 + int(round(fa * G2))
+        base2 = win_lo2 - ulo2
+        block = []
+        for idx, (l, r) in enumerate(U2):
+          mid = (l + r) // 2
+          L = mid + base2 - (eps // 2) + (idx % 3)
+          R = L + eps
+          if R > L:
+            block.append((L, R))
+        blocks2.append(block)
+
+      # Interleave with a different order to diversify coupling
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+
+      # Very short cap-pins to tie windows without inflating omega
+      caps2 = [
+        (glo2 + int(round(0.09 * G2)), glo2 + int(round(0.09 * G2)) + eps),
+        (glo2 + int(round(0.64 * G2)), glo2 + int(round(0.64 * G2)) + eps),
+      ]
+      for a, b in caps2:
+        if b > a:
+          micro2.append((a, b))
+
+      # Capacity guard
+      room2 = CAP - len(T)
+      if room2 > 0:
+        if len(micro2) > room2:
+          micro2 = micro2[:room2]
+        T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

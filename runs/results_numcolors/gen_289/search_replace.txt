@@ -1,0 +1,91 @@
+<NAME>
+phase_wave_injector_v2
+</NAME>
+
+<DESCRIPTION>
+Implement a robust, deterministic phase-wave injector and hook it into the KT-spine construction. The patch adds a new helper _phase_wave that generates a small, deterministic batch of short intervals across the current span and injects them after the existing tail-caps step. It replaces the previous tail-caps helper with a combined definition that includes the phase-wave capability and updates the tail-caps usage accordingly. The changes are designed to be minimal, deterministic, and CAP-safe, aiming to push FirstFit to use more colors without increasing omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _insert_tail_caps(T, caps, cap_cap):
+    """Safely insert tail caps up to a cap_cap budget."""
+    room = cap_cap - len(T)
+    if room <= 0:
+        return T
+    for i, iv in enumerate(caps[:room]):
+        pos = len(T) - (i * 2 + 1)
+        if pos < 0:
+            T.append(iv)
+        else:
+            T.insert(pos, iv)
+    return T
+=======
+def _phase_wave(T, cap_cap, wave_count=2, points_per_wave=8, length=1):
+    """Phase-wave injector: generate a small, deterministic wave of short intervals across the current span.
+    This aims to boost the number of colors used by FirstFit while keeping omega small.
+    """
+    lo = min(l for l, _ in T)
+    hi = max(r for _, r in T)
+    delta = hi - lo
+    if delta <= 0:
+        delta = 1
+    span = max(1, delta)
+    wave = []
+    for w in range(wave_count):
+        for j in range(1, points_per_wave + 1):
+            pos = lo + int((j * span) / (points_per_wave + 1)) + w * max(1, span // (wave_count + 1))
+            wave.append((pos, pos + length))
+    # Deduplicate preserving order
+    seen = set()
+    waves = []
+    for iv in wave:
+        if iv not in seen:
+            seen.add(iv)
+            waves.append(iv)
+    room = cap_cap - len(T)
+    if room <= 0:
+        return []
+    if len(waves) > room:
+        waves = waves[:room]
+    return waves
+
+def _insert_tail_caps(T, caps, cap_cap):
+    """Safely insert tail caps up to a cap_cap budget."""
+    room = cap_cap - len(T)
+    if room <= 0:
+        return T
+    for i, iv in enumerate(caps[:room]):
+        pos = len(T) - (i * 2 + 1)
+        if pos < 0:
+            T.append(iv)
+        else:
+            T.insert(pos, iv)
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    tail_caps = [
+        (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+        (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+        (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+    ]
+    T = _insert_tail_caps(T, tail_caps, CAP)
+=======
+    tail_caps = [
+        (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+        (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+        (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+    ]
+    T = _insert_tail_caps(T, tail_caps, CAP)
+    # Phase-wave injection to slightly perturb layout and raise color usage deterministically
+    wave = _phase_wave(T, CAP, wave_count=2, points_per_wave=8, length=1)
+    if wave:
+        avail = CAP - len(T)
+        if len(wave) > avail:
+            wave = wave[:avail]
+        T.extend(wave)
+>>>>>>> REPLACE
+</DIFF>

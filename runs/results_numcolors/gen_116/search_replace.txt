@@ -1,0 +1,107 @@
+<NAME>
+neighbor_bridges_and_depth_cap
+</NAME>
+
+<DESCRIPTION>
+I add two short neighbor-bridge intervals per round to couple adjacent blocks (0–1 and 2–3) without significantly increasing the clique number. These bridges span from (s0+1)*delta to s1*delta and from (s2+1)*delta to s3*delta. They function as "blocker" intervals that pressure FirstFit to open new colors by tying the end of one block to the start of the next, while avoiding large all-at-once overlaps. This is inspired by layered tower/cap strategies in online interval coloring, aiming to raise FF colors without inflating omega.
+
+To keep within the interval cap, I update the adaptive depth computation to account for two additional intervals per round (+6 instead of +4). Finally, I switch normalization to rounding instead of flooring to prevent systematic bias toward shorter spans that can slightly alter overlap structure.
+
+These changes preserve determinism and the existing structure, while adding a modest, theoretically informed coupling gadget that should improve the combined score.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _normalize_to_int_intervals(intervals):
+    """Convert to non-negative integer endpoints with minimal adjustments."""
+    if not intervals:
+        return []
+    min_l = min(l for l, _ in intervals)
+    if min_l < 0:
+        intervals = [(l - min_l, r - min_l) for l, r in intervals]
+    # Ensure strictly positive span per interval
+    normalized = []
+    for (l, r) in intervals:
+        li = int(l)
+        ri = int(r)
+        if ri <= li:
+            ri = li + 1
+        normalized.append((li, ri))
+    return normalized
+=======
+def _normalize_to_int_intervals(intervals):
+    """Convert to non-negative integer endpoints with minimal adjustments (use rounding)."""
+    if not intervals:
+        return []
+    min_l = min(l for l, _ in intervals)
+    if min_l < 0:
+        intervals = [(l - min_l, r - min_l) for l, r in intervals]
+    # Ensure strictly positive span per interval
+    normalized = []
+    for (l, r) in intervals:
+        li = int(round(l))
+        ri = int(round(r))
+        if ri <= li:
+            ri = li + 1
+        normalized.append((li, ri))
+    return normalized
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    while allowed < depth:
+        next_size = size * 4 + 4  # 4 copies + 4 connectors (rough bound)
+        if next_size > MAX_INTERVALS:
+            break
+        size = next_size
+        allowed += 1
+=======
+    while allowed < depth:
+        next_size = size * 4 + 6  # 4 copies + 4 connectors + 2 neighbor bridges
+        if next_size > MAX_INTERVALS:
+            break
+        size = next_size
+        allowed += 1
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+
+        # Deterministic four-connectors (caps) derived from the first four starts
+        s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+
+        T = S
+=======
+        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+
+        # Add two neighbor bridges to couple adjacent blocks (0-1 and 2-3) with modest span
+        s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+        neighbor_bridges = [
+            ((s0 + 1) * delta, (s1) * delta),
+            ((s2 + 1) * delta, (s3) * delta),
+        ]
+        S.extend(neighbor_bridges)
+
+        # Deterministic four-connectors (caps) derived from the first four starts
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s3 + 2) * delta - (s3 - s2 - 1) * 0 + 0, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+
+        T = S
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,158 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(enable_alt_microphase=True):
+    """
+    Six-template KT spine + density boosts + two-pass micro-phases + final long connectors.
+    Returns list of (l, r) open intervals for FirstFit presentation.
+    """
+    CAP = 9800
+
+    # Six strong start-pattern templates
+    template_bank = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+        (2, 4, 8, 12),
+        (3, 5, 9, 13),
+    ]
+
+    # Helpers
+    def _span(T):
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        d = hi - lo
+        return lo, hi, d if d > 0 else 1
+
+    def _apply_round(T_prev, starts, do_interleave):
+        lo, hi, d = _span(T_prev)
+        # Build four translated blocks
+        blocks = []
+        for s in starts:
+            base = s * d - lo
+            blocks.append([(l + base, r + base) for (l, r) in T_prev])
+        # Interleave if requested
+        S = []
+        if do_interleave:
+            order = list(range(4))
+            maxlen = max(len(b) for b in blocks)
+            for i in range(maxlen):
+                for idx in order:
+                    blk = blocks[idx]
+                    if i < len(blk):
+                        S.append(blk[i])
+        else:
+            for blk in blocks:
+                S.extend(blk)
+        # Classic connectors
+        s0, s1, s2, s3 = starts
+        S.append(((s0 - 1) * d, (s1 - 1) * d))
+        S.append(((s2 + 2) * d, (s3 + 2) * d))
+        S.append(((s0 + 2) * d, (s2 - 1) * d))
+        S.append(((s1 + 2) * d, (s3 - 1) * d))
+        return S
+
+    def density_boost(T_prev, factor=0.05, max_boost=200):
+        lo, hi, d = _span(T_prev)
+        # central window
+        mid_lo = lo + int(d * (0.5 - factor/2))
+        mid_hi = lo + int(d * (0.5 + factor/2))
+        # sample a few in the center
+        U = [iv for iv in T_prev if iv[0] >= mid_lo and iv[1] <= mid_hi][:max_boost]
+        eps = max(1, int(d * 0.005))
+        new = []
+        for (l, r) in U:
+            if r - l > 2 * eps:
+                new.append((l + eps, r - eps))
+        return new
+
+    def build_micro(T_prev, window_fracs, add_long=False):
+        lo, hi, D = _span(T_prev)
+        # thin seed
+        seed_sz = max(8, min(32, len(T_prev)//250))
+        step = max(1, len(T_prev)//seed_sz)
+        U = [T_prev[i] for i in range(0, len(T_prev), step)][:seed_sz]
+        if not U:
+            return []
+        ulo = min(l for l, _ in U)
+        # build blocks over windows
+        blocks = []
+        for (fa, fb) in window_fracs:
+            win = lo + int(fa*D)
+            base = win - ulo
+            blk = [(l+base, r+base) for (l, r) in U]
+            blocks.append(blk)
+        # full interleave
+        micro = []
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for blk in blocks:
+                if i < len(blk):
+                    micro.append(blk[i])
+        # small connectors
+        for (fa, fb) in [(0.08,0.30),(0.60,0.92),(0.26,0.56),(0.44,0.78)]:
+            A = lo + int(fa*D)
+            B = lo + int(fb*D)
+            if B > A:
+                micro.append((A,B))
+        # optional long cross
+        if add_long:
+            A = lo + int(0.18*D)
+            B = lo + int(0.84*D)
+            if B > A:
+                micro.append((A,B))
+        return micro
+
+    # --- Stage 1: six-template spine + density boosts ---
+    T = [(0,1)]
+    for ridx in range(6):
+        if 4*len(T)+4 > CAP:
+            break
+        starts = template_bank[ridx % len(template_bank)]
+        do_int = (ridx % 2 == 0)
+        T = _apply_round(T, starts, do_int)
+        # per-round density boost
+        if len(T) < CAP*0.8:
+            boost = density_boost(T)
+            room = CAP - len(T)
+            if room <= 0: break
+            T.extend(boost[:room])
+
+    # early exit if near CAP
+    if len(T) >= CAP - 16:
+        return T[:CAP]
+
+    # --- Stage 2A: micro-phase pass 1 ---
+    windows1 = [(0.12,0.22),(0.35,0.45),(0.58,0.68),(0.80,0.90)]
+    room = CAP - len(T)
+    if room > 8:
+        mic1 = build_micro(T, windows1, add_long=False)
+        T.extend(mic1[:room])
+
+    # --- Stage 2B: micro-phase pass 2 (alternate windows) ---
+    if enable_alt_microphase and len(T) < CAP - 8:
+        windows2 = [(0.05,0.15),(0.28,0.38),(0.60,0.70),(0.82,0.92)]
+        room = CAP - len(T)
+        mic2 = build_micro(T, windows2, add_long=True)
+        T.extend(mic2[:room])
+
+    # --- Stage 3: final long-range connectors ---
+    if len(T) < CAP:
+        lo, hi, D = _span(T)
+        finals = [(0.05,0.95),(0.10,0.85),(0.20,0.80),(0.30,0.70),(0.40,0.60)]
+        for (fa, fb) in finals:
+            A = lo + int(fa*D)
+            B = lo + int(fb*D)
+            if B > A:
+                T.append((A,B))
+            if len(T) >= CAP:
+                break
+
+    # trim to CAP
+    return T[:CAP]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

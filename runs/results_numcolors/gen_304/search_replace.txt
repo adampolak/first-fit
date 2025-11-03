@@ -1,0 +1,43 @@
+<NAME>
+micro_phase_C
+</NAME>
+
+<DESCRIPTION>
+Introduce a third micro-phase “C” by reusing the existing `_build_micro_delta_round` with `iter_id=2, alt=False`. This yields a fresh window shift (≈0.16–0.26, 0.39–0.49, 0.62–0.72, 0.84–0.94) to capture interactions missed by the primary and alternate micro-rounds. We then append and rebase as before, strictly obeying the capacity guard. This extra coupling layer should boost FirstFit pressure further without raising ω.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_delta_round(T, room, iter_id=1, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+
+  # Final capacity trim
+=======
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_delta_round(T, room, iter_id=1, alt=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+      T = _rebase_to_zero(T)
+
+  # Micro-phase C: secondary fractional-window pass for finer coupling
+  room = CAP - len(T)
+  if room > 8:
+    microC = _build_micro_delta_round(T, room, iter_id=2, alt=False)
+    if microC:
+      if len(microC) > room:
+        microC = microC[:room]
+      T.extend(microC)
+      T = _rebase_to_zero(T)
+
+  # Final capacity trim
+>>>>>>> REPLACE
+</DIFF>

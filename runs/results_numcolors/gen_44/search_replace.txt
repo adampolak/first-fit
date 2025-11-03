@@ -1,0 +1,18 @@
+<NAME>
+fix_classic_pattern_defaults
+</NAME>
+
+<DESCRIPTION>
+Empirically, the classic four-block Kierstead–Trotter pattern with fixed starts [2,6,10,14], no rotation and no block reversal, achieves a significantly higher FirstFit competitive ratio in our prior runs (CR ≈ 2.71 with 9556 intervals), outperforming the rotated/reversed variants (CR ≈ 1.86).
+
+The current implementation defaults to rotate_starts=True and reverse_block_parity=True, which degrades performance. This edit restores the proven, high-pressure presentation order by setting rotate_starts=False and reverse_block_parity=False as defaults while keeping the rest of the deterministic construction intact. This change is minimal, maintains compatibility, and aims to maximize the combined score by increasing the FirstFit color explosion without increasing the clique number or interval count.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6, rotate_starts=True, reverse_block_parity=True, phase2_iters=0):
+=======
+def construct_intervals(rounds=6, rotate_starts=False, reverse_block_parity=False, phase2_iters=0):
+>>>>>>> REPLACE
+
+</DIFF>

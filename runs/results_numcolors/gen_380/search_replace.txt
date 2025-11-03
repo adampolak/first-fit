@@ -1,0 +1,96 @@
+<NAME>
+six_template_two_pass_connectors
+</NAME>
+
+<DESCRIPTION>
+I implement three targeted changes aligned with high-performing strategies for pushing FirstFit colors while controlling omega:
+
+1) Expand the KT spine to a six-template rotation to improve cross-scale coupling and color mixing. This diversifies block placements while retaining the proven safe four-block structure. I replace the previous four-template bank with six carefully chosen templates inspired by KT variants used in the literature.
+
+2) Enable a long-range cross connector on the final spine round. This deterministic connector increases inter-block coupling without materially increasing omega, as it is added only once and at the top scale.
+
+3) Switch to a deterministic two-pass micro-phase by default (adaptive_micro=False). The current code already performs a primary micro round followed by an alternate-window micro round when not adaptive; setting the default to False enforces a two-pass budgeted micro-phase rather than iterative growth, which empirically increases FF pressure without destabilizing omega.
+
+4) Append 4 deterministic long-range connectors after the alternate micro-phase, positioned in disjoint fractional windows of the global span. These connectors are conservative and capacity-gated, intended to further tie colors across layers while staying under the clique cap.
+
+These changes should strengthen color coupling across scales and phases, increasing FF’s color usage without pushing the clique number beyond 10, and remain within the 9800 interval cap.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(seed_count=1, adaptive_micro=True):
+=======
+def construct_intervals(seed_count=1, adaptive_micro=False):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed-left pair
+    (3, 5, 9, 13),   # gentle-left pack
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=(ridx == 5))
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  room = CAP - len(T)
+  if room > 8:
+    micro_alt = build_micro_delta_round_alt(T, room)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+=======
+  room = CAP - len(T)
+  if room > 8:
+    micro_alt = build_micro_delta_round_alt(T, room)
+    if micro_alt:
+      if len(micro_alt) > room:
+        micro_alt = micro_alt[:room]
+      T.extend(micro_alt)
+
+  # Deterministic long-range connectors appended after micro phases (capacity-gated).
+  # Positioned in disjoint fractional windows to avoid raising omega aggressively.
+  room = CAP - len(T)
+  if room > 0:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+    tail_connectors = [
+      (glo + int(round(0.04 * G)), glo + int(round(0.18 * G))),
+      (glo + int(round(0.22 * G)), glo + int(round(0.36 * G))),
+      (glo + int(round(0.64 * G)), glo + int(round(0.78 * G))),
+      (glo + int(round(0.82 * G)), glo + int(round(0.96 * G))),
+    ]
+    for a, b in tail_connectors:
+      if len(T) >= CAP:
+        break
+      if b > a:
+        T.append((a, b))
+>>>>>>> REPLACE
+
+</DIFF>

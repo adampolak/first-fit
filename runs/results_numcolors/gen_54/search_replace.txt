@@ -1,0 +1,80 @@
+<NAME>
+two_phase_micro_expansion</NAME>
+
+<DESCRIPTION>
+Introduce a small second-phase expansion when `micro_phase` is enabled. After sprinkling sparse long-range caps, perform two additional mini-rounds using a sub-scale delta2 = delta2//2 to add further translated copies and connectors at a finer scale. This should increase FirstFit pressure without raising the clique size substantially, improving the competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Optional micro-phase: sprinkle a few sparse long-range caps near the end
+  if micro_phase and len(T) + 8 <= max_intervals:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 4)
+    micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+    ]
+    for i, it in enumerate(micro):
+      insert_pos = len(T) - (i * 2 + 1)
+      if insert_pos < 0:
+        T.append(it)
+      else:
+        T.insert(insert_pos, it)
+=======
+  # Optional micro-phase: sprinkle a few sparse long-range caps near the end
+  if micro_phase and len(T) + 8 <= max_intervals:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 4)
+    micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+    ]
+    for i, it in enumerate(micro):
+      insert_pos = len(T) - (i * 2 + 1)
+      if insert_pos < 0:
+        T.append(it)
+      else:
+        T.insert(insert_pos, it)
+
+    # Two-phase micro expansion: two mini-rounds at finer scale to boost FF pressure
+    for mini in range(2):
+      # recompute bounds and sub-delta
+      lo2 = min(l for l, r in T)
+      hi2 = max(r for l, r in T)
+      delta2 = max(1, (hi2 - lo2) // 2)
+      # translate two mini-block copies and add two mini-connectors
+      mini_blocks = []
+      for s in (1, 3):
+        base2 = s * delta2 - lo2
+        mini_blocks += [(l + base2, r + base2) for (l, r) in T[:min(len(T), d2)]]
+      # mini-connectors
+      mini_conn = [
+        (lo2 + delta2, lo2 + 2 * delta2),
+        (hi2 - 3 * delta2, hi2 - delta2),
+      ]
+      T = mini_blocks + T + mini_conn
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(max_intervals=9800,
+                        depth=4,
+=======
+def construct_intervals(max_intervals=9800,
+                        depth=5,
+>>>>>>> REPLACE
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        micro_phase=True):
+</DIFF>

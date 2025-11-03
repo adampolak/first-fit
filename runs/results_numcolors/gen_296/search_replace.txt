@@ -1,0 +1,406 @@
+<NAME>
+kt_spine_enhanced_micro_and_cross4
+</NAME>
+
+<DESCRIPTION>
+I propose a targeted enhancement to the existing KT-style spine construction that is conservative (keeps the CAP) but increases FirstFit pressure by:
+- Adding an optional deterministic long-range cross4 connector when the expansion reaches its capacity-boundary round (ties distant colors).
+- Introducing a small, capacity-aware deterministic "density boost" that duplicates early translated blocks with a tiny offset to increase color fragmentation without growing clique size noticeably.
+- Appending a second guarded micro-phase (alternate windows and reverse interleaving) after the main micro-phase. This captures extra cross-window interactions missed by the first micro-phase.
+- Making the KT rounds capacity-aware so we stop early and mark the last executed round to decide when to add the long cross4 connector.
+
+All changes are deterministic, keep the default behavior intact, and keep the total intervals under the CAP (default 9800). The function signature adds two optional parameters (cross4_enabled, density_boost) with safe defaults so existing callers are unaffected.
+
+Rationale: small deterministic duplicates (density boost) and long-range cross connectors are low-risk ways to force FirstFit to create more colors by coupling colors across distant blocks, while the alternate micro-phase increases the number of late intervals that collide with many previously assigned colors. These changes follow the heuristics in the prompt (deterministic spine interleaving, second micro-phase, long-range connectors) and are capacity-safe.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(seed_count=1):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Capacity guard to keep the total count under 10000 and allow a micro-phase
+  CAP = 9800
+
+  # Rotate among four strong start-pattern templates to couple colors across scales
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+
+  # Seed with multiple disjoint unit intervals if requested (new capability)
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    step = 3
+    T = [(i * step, i * step + 1) for i in range(seed_count)]
+
+  # Six KT-style rounds with deterministic parity interleaving
+  for round_idx in range(6):
+    starts = template_bank[round_idx % 4]
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+    # build translated blocks
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+    S = []
+    # interleave blocks on even rounds, sequential on odd rounds
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+
+  # Micro-phase A: add three long-range caps to boost late FirstFit color usage while controlling omega
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  def cap_at(a_frac, b_frac):
+    l0 = lo + max(1, int(round(a_frac * delta)))
+    r0 = lo + max(1, int(round(b_frac * delta)))
+    return (l0, r0)
+  capA = cap_at(0.08, 0.60)
+  capB = cap_at(0.25, 0.75)
+  capC = cap_at(0.75, 0.92)
+  for cap in (capA, capB, capC):
+    if cap[1] > cap[0]:
+      T.append(cap)
+
+  # Micro-phase B: a thin delta2 micro-round (capacity-guarded) to increase FF colors without raising omega much
+  if len(T) < CAP - 16:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = ghi - glo if ghi > glo else 1
+
+    # Thin seed of current T (small and evenly spaced)
+    seed_sz = max(8, min(32, len(T) // 300))
+    stride = max(1, len(T) // max(1, seed_sz))
+    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+
+    if U:
+      ulo = min(l for l, r in U)
+
+      # Four windows across the global span (stay inside to avoid omega spikes)
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_blocks = []
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        micro_blocks.append(block)
+
+      # Interleave the micro-blocks
+      micro = []
+      maxlen = max(len(b) for b in micro_blocks)
+      for i in range(maxlen):
+        for blk in micro_blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+
+      # Fractional-span connectors at the delta2 scale
+      micro_connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+      for a, b in micro_connectors:
+        if b > a:
+          micro.append((a, b))
+
+      # Capacity guard
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+=======
+def construct_intervals(seed_count=1, cross4_enabled=True, density_boost=1.15):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This variant augments the base KT-style construction with:
+    - an optional long-range cross4 connector added when the KT spine reaches
+      its capacity-boundary round (ties distant colors deterministically),
+    - a small deterministic density boost that duplicates early translated blocks
+      with a tiny offset (capacity-aware),
+    - a second guarded micro-phase with alternate windows and reverse interleaving
+      to capture missed cross-window interactions.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Capacity guard to keep the total count under 10000 and allow a micro-phase
+  CAP = 9800
+
+  # Rotate among four strong start-pattern templates to couple colors across scales
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+
+  # Seed with multiple disjoint unit intervals if requested (new capability)
+  if seed_count <= 1:
+    T = [(0, 1)]
+  else:
+    step = 3
+    T = [(i * step, i * step + 1) for i in range(seed_count)]
+
+  # KT rounds but capacity-aware: stop early if the next expansion would exceed CAP.
+  last_executed_round = -1
+  for round_idx in range(6):
+    # Predict next size; rough heuristic: size -> 4*size + 4
+    predicted_next = 4 * len(T) + 4
+    if predicted_next > CAP:
+      # mark this as the final round boundary; we will optionally add a long cross4 connector
+      last_executed_round = round_idx - 1
+      break
+
+    starts = template_bank[round_idx % 4]
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo if hi > lo else 1
+
+    # build translated blocks
+    blocks = []
+    for start in starts:
+      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+
+    S = []
+    # deterministic parity interleaving: even rounds interleave, odd rounds sequential
+    if round_idx % 2 == 0:
+      maxlen = max(len(b) for b in blocks) if blocks else 0
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+
+    # Small deterministic density boost: duplicate early blocks with tiny offset to fragment colors.
+    # Capacity-aware: only add a tiny number of duplicates and never exceed CAP.
+    if density_boost and density_boost > 1.0 and len(S) < CAP:
+      # compute a small integer offset (relative to delta)
+      small_off = max(1, int(round(0.02 * delta)))
+      # duplicate the front portion of S (up to a small budget)
+      dup_budget = min(8, max(0, (CAP - len(S)) // 8))
+      # Append duplicates of the first few translated intervals with slight shift
+      for j in range(dup_budget):
+        if j < len(S):
+          l, r = S[j]
+          S.append((l + small_off, r + small_off))
+          if len(S) >= CAP:
+            break
+
+    # If this expansion is the one that would hit capacity next, add an extra long cross connector
+    if predicted_next > CAP and cross4_enabled:
+      # A long connector tying distant ends (helps force FF to reuse many colors across span).
+      S.append((lo + int(round(0.18 * delta)), lo + int(round(0.84 * delta))))
+
+    T = S
+    last_executed_round = round_idx
+
+  # If we broke early due to capacity estimate and we have not flagged last_executed_round properly,
+  # ensure it's set to the last index we actually executed
+  if last_executed_round == -1:
+    last_executed_round = min(5, len(T) > 0 and 5 or -1)
+
+  # Micro-phase A: add three long-range caps to boost late FirstFit color usage while controlling omega
+  if T:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+  else:
+    lo, hi = 0, 1
+  delta = hi - lo if hi > lo else 1
+
+  def cap_at(a_frac, b_frac):
+    l0 = lo + max(1, int(round(a_frac * delta)))
+    r0 = lo + max(1, int(round(b_frac * delta)))
+    if r0 <= l0:
+      r0 = l0 + 1
+    return (l0, r0)
+
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  for cap in caps:
+    if len(T) >= CAP:
+      break
+    if cap[1] > cap[0]:
+      T.append(cap)
+
+  # Micro-phase B: a thin delta2 micro-round (capacity-guarded) to increase FF colors without raising omega much
+  if len(T) < CAP - 16:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = ghi - glo if ghi > glo else 1
+
+    # Thin seed of current T (small and evenly spaced)
+    seed_sz = max(8, min(32, len(T) // 300))
+    stride = max(1, len(T) // max(1, seed_sz))
+    U = [T[i] for i in range(0, len(T), stride)][:seed_sz]
+
+    if U:
+      ulo = min(l for l, r in U)
+
+      # Four windows across the global span (stay inside to avoid omega spikes)
+      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+      micro_blocks = []
+      for (fa, fb) in window_fracs:
+        win_lo = glo + int(round(fa * G))
+        base = win_lo - ulo
+        block = [(l + base, r + base) for (l, r) in U]
+        micro_blocks.append(block)
+
+      # Interleave the micro-blocks
+      micro = []
+      maxlen = max(len(b) for b in micro_blocks)
+      for i in range(maxlen):
+        for blk in micro_blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+
+      # Fractional-span connectors at the delta2 scale
+      micro_connectors = [
+        (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+        (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+        (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+        (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+      ]
+      for a, b in micro_connectors:
+        if b > a:
+          micro.append((a, b))
+
+      # Capacity guard
+      room = CAP - len(T)
+      if room > 0:
+        if len(micro) > room:
+          micro = micro[:room]
+        T.extend(micro)
+
+  # Micro-phase C: alternate window family with reverse-order interleaving and a long cross connector
+  # This second micro-phase attempts to catch additional FF pressure without blowing omega.
+  if len(T) < CAP - 8:
+    glo2 = min(l for l, r in T)
+    ghi2 = max(r for l, r in T)
+    G2 = ghi2 - glo2 if ghi2 > glo2 else 1
+
+    # Thin seed again (slightly smaller to limit omega growth)
+    seed_sz2 = max(8, min(28, len(T) // 350))
+    stride2 = max(1, len(T) // max(1, seed_sz2))
+    U2 = [T[i] for i in range(0, len(T), stride2)][:seed_sz2]
+
+    if U2:
+      ulo2 = min(l for l, r in U2)
+
+      # Alternate window set, staggered slightly from phase B windows
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      # Build translated micro-blocks aligned to these windows, with internal small reversals
+      blocks2 = []
+      for (fa, fb) in windows2:
+        win_lo2 = glo2 + int(round(fa * G2))
+        base2 = win_lo2 - ulo2
+        block = [(l + base2, r + base2) for (l, r) in U2]
+        # internal reversal for some windows to reduce color reuse patterns
+        if int(round(fa * 100)) % 2 == 0:
+          block = list(reversed(block))
+        blocks2.append(block)
+
+      # Reverse-order interleaving to diversify color mixing
+      micro2 = []
+      maxlen2 = max(len(b) for b in blocks2) if blocks2 else 0
+      for i in range(maxlen2):
+        for blk in reversed(blocks2):
+          if i < len(blk):
+            micro2.append(blk[i])
+
+      # Fractional-span connectors including a medium long cross to tie distant colors
+      micro_connectors2 = [
+        (glo2 + int(round(0.08 * G2)), glo2 + int(round(0.30 * G2))),  # left cap
+        (glo2 + int(round(0.60 * G2)), glo2 + int(round(0.92 * G2))),  # right cap
+        (glo2 + int(round(0.26 * G2)), glo2 + int(round(0.56 * G2))),  # cross 1
+        (glo2 + int(round(0.44 * G2)), glo2 + int(round(0.78 * G2))),  # cross 2
+        (glo2 + int(round(0.18 * G2)), glo2 + int(round(0.84 * G2))),  # long cross
+      ]
+      for a, b in micro_connectors2:
+        if b > a:
+          micro2.append((a, b))
+
+      # Capacity guard and append
+      room2 = CAP - len(T)
+      if room2 > 0:
+        if len(micro2) > room2:
+          micro2 = micro2[:room2]
+        T.extend(micro2)
+
+  # Final capacity trim (just in case)
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

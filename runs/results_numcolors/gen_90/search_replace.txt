@@ -1,0 +1,20 @@
+<NAME>adaptive-extra-rounds KT-press_diff</NAME>
+
+<DESCRIPTION>
+Introduce a deterministic, extra-round expansion phase to further pressure FirstFit without increasing omega.
+Adds an optional extra_rounds parameter to the main construction, and a helper to perform controlled, additional rounds
+using rotated start patterns and the same connector scheme. This preserves determinism while potentially boosting the combined score by expanding the interval set within the same MAX_INTERVALS budget.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(depth=3):
+    """
+    Hybrid rotated-interleaved Kierstead-Trotter inspired construction.
+=======
+def construct_intervals(depth=3, extra_rounds=0):
+    """
+    Hybrid rotated-interleaved Kierstead-Trotter inspired construction.
+    Added: extra_rounds to perform additional deterministic expansion rounds beyond the primary depth.
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,253 @@
+--- a/original.py
++++ b/original.py
+@@ -1,82 +1,227 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(seed_count=1):
+   """
+   Construct a sequence of intervals of real line,
+   in the order in which they are presented to FirstFit,
+   so that it maximizes the number of colors used by FirstFit
+   divided by the maximum number of intervals that cover a single point
+ 
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
+-
++  This variant:
++    - rotates a small template bank across spine rounds,
++    - occasionally applies a spine multiplier K for controlled cross-layer coupling,
++    - adds two micro rounds at different scales (delta2 and delta3),
++    - includes cross3/cross4 connectors and thin-seed sampling,
++    - keeps total intervals under CAP (9800).
+   Returns:
+     intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+   """
+ 
+-  # Use the classic fixed start-pattern to preserve strong KT coupling
+-  starts = (2, 6, 10, 14)
+-  # Seed with multiple disjoint unit intervals if requested (new capability)
++  # Capacity guard to keep total intervals < 10000
++  CAP = 9800
++
++  # Small bank of four-start templates; round-robin to diversify interactions.
++  template_bank = [
++    (2, 6, 10, 14),  # classic
++    (1, 5, 9, 13),   # left-shift
++    (3, 7, 11, 15),  # right-shift
++    (4, 8, 12, 16),  # alternate
++  ]
++  starts_default = template_bank[0]
++
++  # Seed with one unit interval by default (multi-seed supported but not default)
+   if seed_count <= 1:
+     T = [(0, 1)]
+   else:
+     step = 3
+     T = [(i * step, i * step + 1) for i in range(seed_count)]
++
++  # Spine: 6 expansion rounds (classic KT depth). Rotate templates and occasionally
++  # use a spine multiplier K for controlled long-range coupling.
+   for round_idx in range(6):
++    if len(T) >= CAP:
++      break
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+     delta = hi - lo
+-    # build translated blocks in sequence (no interleaving)
++    if delta <= 0:
++      delta = 1
++
++    # Select template (round-robin)
++    starts = template_bank[round_idx % len(template_bank)]
++
++    # Spine multiplier: mostly 1, occasional 2 to inject cross-scale stress deterministically.
++    # Choosing K=2 on every 3rd round gives extra mixing without exploding omega.
++    K = 2 if (round_idx % 3 == 2) else 1
++
++    # Build four translated blocks (with a tiny internal reversal to break symmetry).
+     blocks = []
+-    for start in starts:
+-      blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
++    for s in starts:
++      base = s * delta * K - lo
++      block = [(l + base, r + base) for (l, r) in T]
++      # deterministic internal reversal to diversify color interactions
++      if ((s // 2) % 2) == (round_idx % 2):
++        block = list(reversed(block))
++      blocks.append(block)
++
++    # Interleave on even rounds to mix colors; otherwise append blocks sequentially.
+     S = []
+-    # interleave blocks on even rounds, sequential on odd rounds
+     if round_idx % 2 == 0:
+       maxlen = max(len(b) for b in blocks)
+       for i in range(maxlen):
+         for blk in blocks:
+           if i < len(blk):
+             S.append(blk[i])
+     else:
+       for blk in blocks:
+         S.extend(blk)
+-    # connectors based on the fixed starts
++
++    # Connectors including cross3 and cross4 to strengthen coupling across blocks.
+     s0, s1, s2, s3 = starts
+     connectors = [
+-      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+-      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+-      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+-      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
++      ((s0 - 1) * delta * K, (s1 - 1) * delta * K),  # left cap
++      ((s2 + 2) * delta * K, (s3 + 2) * delta * K),  # right cap
++      ((s0 + 2) * delta * K, (s2 - 1) * delta * K),  # cross1
++      ((s1 + 2) * delta * K, (s3 - 1) * delta * K),  # cross2
++      ((s0 + 3) * delta * K, (s3 + 3) * delta * K),  # cross3 (longer)
++      ((s1 + 4) * delta * K, (s2 + 4) * delta * K),  # cross4 (extended)
+     ]
+     for a, b in connectors:
+       S.append((a, b))
++
+     T = S
+-  # Phase2 micro-phase: add three small sparse caps across the inner span
++
++  # Micro-phase support: thin sampling and budgeted small-scale rounds.
++  def thin_seed(current_T, max_seed):
++    """Take an evenly spaced thin sample of current_T (deterministic)."""
++    n = len(current_T)
++    if n == 0 or max_seed <= 0:
++      return []
++    step = max(1, n // max_seed)
++    return current_T[::step][:max_seed]
++
++  def micro_round(current_T, round_id, scale_div, budget):
++    """
++    Add a small micro round at scale G//scale_div.
++    - round_id toggles parity-based interleaving.
++    - budget limits the number of intervals produced.
++    """
++    if budget <= 0 or not current_T:
++      return []
++    glo = min(l for l, r in current_T)
++    ghi = max(r for l, r in current_T)
++    G = max(1, ghi - glo)
++    delta_small = max(1, G // scale_div)
++
++    # Thin seed to keep micro blocks sparse
++    per_block_target = max(8, min(128, budget // 6))
++    U = thin_seed(current_T, per_block_target)
++    if not U:
++      return []
++
++    ulo = min(l for l, r in U)
++    starts = starts_default  # anchor micro rounds to the default four-start template
++
++    # Build four small blocks with deterministic tiny reversals
++    blocks = []
++    for s in starts:
++      base = s * delta_small - ulo
++      block = [(l + base, r + base) for (l, r) in U]
++      if ((s // 2) % 2) == (round_id % 2):
++        block = list(reversed(block))
++      blocks.append(block)
++
++    micro = []
++    # Parity-based interleaving to force FF to reuse many early colors before new ones.
++    if round_id % 2 == 0:
++      maxlen = max(len(b) for b in blocks)
++      for i in range(maxlen):
++        for blk in blocks:
++          if i < len(blk):
++            micro.append(blk[i])
++    else:
++      maxlen = max(len(b) for b in blocks)
++      for i in range(maxlen):
++        for blk in reversed(blocks):
++          if i < len(blk):
++            micro.append(blk[i])
++
++    # Localized connectors and two micro caps at this scale (including cross4).
++    s0, s1, s2, s3 = starts
++    connectors = [
++      ((s0 - 1) * delta_small + glo, (s1 - 1) * delta_small + glo),
++      ((s2 + 2) * delta_small + glo, (s3 + 2) * delta_small + glo),
++      ((s0 + 2) * delta_small + glo, (s2 - 1) * delta_small + glo),
++      ((s1 + 2) * delta_small + glo, (s3 - 1) * delta_small + glo),
++      ((s0 + 3) * delta_small + glo, (s3 + 3) * delta_small + glo),
++      ((s1 + 4) * delta_small + glo, (s2 + 4) * delta_small + glo),
++    ]
++    micro.extend(connectors)
++
++    # A few sparse caps at micro scale to nudge FF without inflating omega.
++    cap1 = (glo + (delta_small // 4), glo + max(1, int(1.8 * delta_small)))
++    cap2 = (glo + max(1, int(0.9 * delta_small)), glo + max(1, int(2.6 * delta_small)))
++    mid = glo + G // 2
++    cap3 = (mid - max(1, delta_small // 8), mid + max(1, delta_small // 8))
++    for cap in (cap1, cap2, cap3):
++      if cap[1] > cap[0]:
++        micro.append(cap)
++
++    # Budget guard
++    if len(micro) > budget:
++      micro = micro[:budget]
++    return micro
++
++  # Execute two micro rounds (delta2 then smaller delta3) with conservative budgets.
++  remaining = CAP - len(T)
++  if remaining > 0:
++    budget1 = max(0, remaining // 3)
++    mr1 = micro_round(T, round_id=0, scale_div=2, budget=budget1)
++    if mr1:
++      room = CAP - len(T)
++      if len(mr1) > room:
++        mr1 = mr1[:room]
++      T.extend(mr1)
++
++  remaining = CAP - len(T)
++  if remaining > 0:
++    budget2 = max(0, remaining)
++    mr2 = micro_round(T, round_id=1, scale_div=4, budget=budget2)
++    if mr2:
++      room = CAP - len(T)
++      if len(mr2) > room:
++        mr2 = mr2[:room]
++      T.extend(mr2)
++
++  # Final gentle caps to anchor additional FirstFit colors without raising omega too much.
+   lo = min(l for l, r in T)
+   hi = max(r for l, r in T)
+-  delta = hi - lo if hi > lo else 1
+-  cap1 = (lo + max(1, delta // 4), lo + max(1, delta // 2))
+-  cap2 = (hi - max(1, delta // 2), hi - max(1, delta // 4))
+-  cap3 = (lo + max(1, delta // 3), hi - max(1, delta // 3))
+-  for cap in (cap1, cap2, cap3):
+-    if cap[1] > cap[0]:
+-      T.append(cap)
++  G = max(1, hi - lo)
++  final_caps = [
++    (lo + max(1, G // 6), lo + max(1, G // 2)),
++    (hi - max(1, G // 2), hi - max(1, G // 6)),
++  ]
++  room = CAP - len(T)
++  if room > 0:
++    for cap in final_caps[:room]:
++      if cap[1] > cap[0]:
++        T.append(cap)
++
+   return T
+ 
+   # return [  # Figure 3, OPT=2, FF=4
+   #   (2,3),
+   #   (6,7),
+   #   (10,11),
+   #   (14,15),
+   #   (1,5),
+   #   (12,16),
+   #   (4,9),
+   #   (8,13),
+   # ]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

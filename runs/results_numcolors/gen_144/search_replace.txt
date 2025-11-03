@@ -1,0 +1,141 @@
+<NAME>
+micro_round_adaptive_and_call_fix
+</NAME>
+
+<DESCRIPTION>
+Replace the existing micro_round with an adaptive version that:
+- Accepts a budget hint so sampling density can adapt to remaining capacity.
+- Increases the minimum per-block sample floor to raise FF pressure.
+- Inserts tiny localized blockers at the start of each micro block to consume small colors locally.
+- Rotates block order deterministically to diversify color coupling.
+- Adds an extra long-range connector when the budget allows to tie colors across scales.
+
+Also update the loop that invokes micro_round to pass the budget hint. Changes are confined to the editable EVOLVE block and preserve CAP enforcement and overall structure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def micro_round(curr, rid, scale_div, extras):
+        lo = min(l for l, _ in curr)
+        hi = max(r for _, r in curr)
+        G = max(1, hi - lo)
+        delta = max(1, G // scale_div)
+        # sample
+        per = max(8, min(64, len(curr)//50))
+        U = thin_seed(curr, per)
+        if not U:
+            return []
+        # build blocks with parity‐reversal
+        starts = (2, 6, 10, 14)
+        ulo = min(l for l, _ in U)
+        blocks = []
+        for s in starts:
+            base = s * delta - ulo
+            blk = [(l+base, r+base) for (l, r) in U]
+            if (s//2)%2 == rid%2:
+                blk.reverse()
+            blocks.append(blk)
+        # interleave or reverse order
+        out = []
+        order = blocks if rid%2==0 else list(reversed(blocks))
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for b in order:
+                if i < len(b):
+                    out.append(b[i])
+        # connectors: classic + extras
+        s0, s1, s2, s3 = starts
+        con = [
+            ((s0-1)*delta+lo, (s1-1)*delta+lo),
+            ((s2+2)*delta+lo, (s3+2)*delta+lo),
+            ((s0+2)*delta+lo, (s2-1)*delta+lo),
+            ((s1+2)*delta+lo, (s3-1)*delta+lo),
+        ]
+        # extras: list of (i, da, j, db) => (starts[i]+da, starts[j]+db)
+        for (i, da, j, db) in extras:
+            con.append(((starts[i]+da)*delta+lo, (starts[j]+db)*delta+lo))
+        out.extend(con)
+        return out
+=======
+    def micro_round(curr, rid, scale_div, extras, budget_hint):
+        lo = min(l for l, _ in curr)
+        hi = max(r for _, r in curr)
+        G = max(1, hi - lo)
+        delta = max(1, G // scale_div)
+
+        # adaptive sample size: increase floor so micro gadgets exert stronger FF pressure
+        per_floor = 12
+        per = min(128, max(per_floor, budget_hint // 10, len(curr) // 80))
+        U = thin_seed(curr, per)
+        if not U:
+            return []
+
+        # build blocks with parity‐reversal and deterministic rotation to diversify interactions
+        starts = (2, 6, 10, 14)
+        ulo = min(l for l, _ in U)
+        blocks = []
+        for idx, s in enumerate(starts):
+            base = s * delta - ulo
+            blk = [(l + base, r + base) for (l, r) in U]
+            if (s // 2) % 2 == rid % 2:
+                blk.reverse()
+            # insert a tiny localized blocker at the start of each block to consume small colors
+            if blk:
+                # small offset inside block; keep as float until normalization
+                b_l = blk[0][0] + 0.1 * (delta if delta > 1 else 1)
+                b_r = b_l + 1.0
+                blk.insert(0, (b_l, b_r))
+            blocks.append(blk)
+
+        # Interleave with a rotated order to improve cross-block coupling
+        out = []
+        order_idx = list(range(len(blocks)))
+        krot = rid % len(order_idx)
+        order_idx = order_idx[krot:] + order_idx[:krot]
+        mlen = max(len(b) for b in blocks)
+        for i in range(mlen):
+            for idx in order_idx:
+                b = blocks[idx]
+                if i < len(b):
+                    out.append(b[i])
+
+        # connectors: classic + extras, and optionally a long-range tie when budget allows
+        s0, s1, s2, s3 = starts
+        con = [
+            ((s0 - 1) * delta + lo, (s1 - 1) * delta + lo),
+            ((s2 + 2) * delta + lo, (s3 + 2) * delta + lo),
+            ((s0 + 2) * delta + lo, (s2 - 1) * delta + lo),
+            ((s1 + 2) * delta + lo, (s3 - 1) * delta + lo),
+        ]
+        for (i, da, j, db) in extras:
+            con.append(((starts[i] + da) * delta + lo, (starts[j] + db) * delta + lo))
+
+        if budget_hint > 50:
+            # long-range extra to couple many colors across the micro gadget
+            con.append(((s0 + 4) * delta + lo, (s3 + 4) * delta + lo))
+
+        out.extend(con)
+        return out
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for rid, p in enumerate(subphases):
+        if len(intervals) >= CAP:
+            break
+        bud = CAP - len(intervals)
+        mr = micro_round(intervals, rid, p['scale_div'], p['extras'])
+        if mr:
+            intervals.extend(mr[:bud])
+=======
+    for rid, p in enumerate(subphases):
+        if len(intervals) >= CAP:
+            break
+        bud = CAP - len(intervals)
+        # pass remaining-budget hint so micro_round can adapt sampling density and extras
+        mr = micro_round(intervals, rid, p['scale_div'], p['extras'], budget_hint=bud)
+        if mr:
+            intervals.extend(mr[:bud])
+>>>>>>> REPLACE
+</DIFF>

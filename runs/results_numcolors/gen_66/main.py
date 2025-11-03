@@ -1,0 +1,130 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=3):
+  """
+  Rotating multi-scale wave construction with interleaving, towers, and micro-gadgets.
+  Produces a deterministic sequence of open intervals for FirstFit that couples colors
+  across blocks while keeping the clique number modest.
+
+  Strategy overview:
+  - Seed with four disjoint unit intervals to establish a small omega spine.
+  - Each round uses one of several offset templates to place translated copies (blocks).
+  - Interleave blocks with parity-reversed inner order to disrupt FirstFit reuse.
+  - Add short bridges, cross-bridges, staggered towers, and a tiny micro-gadget inside
+    the median block to increase color pressure without inflating omega.
+  - Normalize to non-negative integers and clamp to a reasonable maximum.
+  Returns:
+    List of (l, r) pairs representing open intervals.
+  """
+  # Initial spine: four disjoint unit intervals
+  T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+
+  # Deterministic bank of offset patterns (cycled per round)
+  offset_patterns = [
+    [2, 6, 10, 14],                    # compact 4-wave
+    [1, 5, 9, 13, 17, 21, 25],         # left-shifted 7-wave
+    [3, 7, 11, 15, 19, 23, 27],        # right-shifted 7-wave
+  ]
+
+  for round_idx in range(rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Select offsets for this round, rotate deterministically
+    current_offsets = offset_patterns[round_idx % len(offset_patterns)]
+
+    # Build translated blocks, alternating inner order for mixing
+    blocks = []
+    for b_idx, off in enumerate(current_offsets):
+      base_list = T if ((round_idx + b_idx) % 2 == 0) else list(reversed(T))
+      base = delta * off - lo
+      block = [(l + base, r + base) for (l, r) in base_list]
+      blocks.append(block)
+
+    # Interleave blocks to maximize color mixing and arrival-order pressure
+    S = []
+    if blocks:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      # reverse every other round and rotate order to diversify
+      if round_idx % 2 == 1:
+        order.reverse()
+      rot = round_idx % max(1, len(order))
+      order = order[rot:] + order[:rot]
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+
+    # Classic 4-interval gadget scaled by delta (keeps omega small, pushes FF)
+    gadget_shape = [(1, 5), (12, 16), (4, 9), (8, 13)]
+    for (a, b) in gadget_shape:
+      S.append((delta * a, delta * b))
+
+    # Short bridges between consecutive blocks to couple colors
+    for i in range(len(current_offsets) - 1):
+      a = delta * (current_offsets[i] + 0.5)
+      b = delta * (current_offsets[i + 1] + 0.5)
+      if b > a:
+        S.append((a, b))
+
+    # Cross-bridges skipping one block to tie non-adjacent color classes
+    for i in range(len(current_offsets) - 2):
+      a = delta * (current_offsets[i] + 0.7)
+      b = delta * (current_offsets[i + 2] - 0.7)
+      if b > a:
+        S.append((a, b))
+
+    # Staggered tower connectors spanning ~1.85 blocks (avoid creating larger cliques)
+    tower_layers = 3
+    layer_shift = 0.5
+    span_blocks = 1.85
+    for i in range(len(current_offsets) - 1):
+      st = current_offsets[i]
+      for layer in range(tower_layers):
+        off = layer * (layer_shift / max(1, tower_layers - 1))
+        t_lo = delta * (st + 0.2 + off)
+        t_hi = delta * (st + 0.2 + off + span_blocks)
+        if t_hi > t_lo:
+          S.append((t_lo, t_hi))
+
+    # Micro-gadget placed inside the median block to add fine-grained pressure
+    micro = 0.05  # ensures gadget remains within one block (16 * 0.05 = 0.8)
+    mid = current_offsets[len(current_offsets) // 2]
+    for (a, b) in gadget_shape:
+      S.append((delta * (mid + micro * a), delta * (mid + micro * b)))
+
+    T = S
+
+  # Normalize to non-negative integers
+  if not T:
+    return []
+
+  min_l = min(l for l, r in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for l, r in T]
+
+  intervals = []
+  for (l, r) in T:
+    li = int(round(l))
+    ri = int(round(r))
+    if ri <= li:
+      ri = li + 1
+    intervals.append((li, ri))
+
+  # Keep within a reasonable bound for the task (less than 10k)
+  MAX_INTERVALS = 10000
+  if len(intervals) > MAX_INTERVALS:
+    intervals = intervals[:MAX_INTERVALS]
+
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

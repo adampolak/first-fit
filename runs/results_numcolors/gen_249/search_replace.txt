@@ -1,0 +1,127 @@
+<NAME>
+cap_margin_dual_micro_and_tower
+</NAME>
+
+<DESCRIPTION>
+I introduce a small but targeted enhancement inspired by recursive KT spines and multi-window micro-phases from the interval-coloring literature. The key idea is to reserve a deterministic capacity margin (CAP_MARGIN) and spend it on two carefully structured additions that tend to raise FirstFit without increasing omega:
+
+1) CAP_MARGIN-gated dual micro-phase execution
+- Add a CAP_MARGIN constant and gate the existing micro rounds (B and C) to run only when there is sufficient space (room > CAP_MARGIN). This prevents overfilling and ensures the micro-phases are applied with enough budget to be effective. Each of these micro-phases is limited to at most CAP_MARGIN intervals to preserve headroom and stabilize the FF pressure.
+
+2) Cross-scale tower connectors
+- Add a new micro-phase that appends a small "tower" of staggered, fractional-span caps across the global span. These intervals overlap many active colors but are arranged to avoid forming larger cliques by spreading their centers and lengths; they are appended near the tail to maximize FF coupling. This is a classical trick for pushing FF upward while keeping omega controlled.
+
+These changes are minimal and consistent with the current architecture: no changes to the spine or core predictive size check, and micro phases are bounded and deterministic. The overall design aims to push algorithmic colors beyond 23 for ω ≤ 10 while keeping total intervals under the cap, following the recursive, structured approach suggested by the KT-style constructions and fractional window micro-rounds.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+=======
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+  # Reserve a small deterministic margin to run micro-phases with enough budget
+  CAP_MARGIN = 48
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # One safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+=======
+  # One safeguarded micro-round (now CAP_MARGIN-gated with fixed budget)
+  room = CAP - len(T)
+  if room > CAP_MARGIN:
+    micro = build_micro_delta_round(T, CAP_MARGIN)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  room = CAP - len(T)
+  if room > 8:
+    alt = build_micro_delta_round_alt(T, room)
+    if alt:
+      if len(alt) > room:
+        alt = alt[:room]
+      T.extend(alt)
+=======
+  room = CAP - len(T)
+  if room > CAP_MARGIN:
+    alt = build_micro_delta_round_alt(T, CAP_MARGIN)
+    if alt:
+      if len(alt) > room:
+        alt = alt[:room]
+      T.extend(alt)
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+=======
+  # Micro-phase D: cross-scale tower connectors (staggered caps), appended near the tail
+  def build_cross_scale_connectors(current_T, budget):
+    if not current_T or budget <= 0:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Six staggered windows with modest widths; arranged to avoid a single large clique
+    towers = []
+    specs = [
+      (0.14, 0.26),
+      (0.29, 0.41),
+      (0.43, 0.55),
+      (0.57, 0.69),
+      (0.71, 0.83),
+      (0.86, 0.94),
+    ]
+    for a, b in specs:
+      L = glo + int(round(a * G))
+      R = glo + int(round(b * G))
+      if R <= L:
+        R = L + 1
+      towers.append((L, R))
+    if len(towers) > budget:
+      towers = towers[:budget]
+    return towers
+
+  # Append the tower connectors if capacity allows (use leftover room)
+  room = CAP - len(T)
+  if room > 0:
+    add = build_cross_scale_connectors(T, min(room, CAP_MARGIN))
+    if add:
+      # Insert near the end to touch many active colors
+      for i, iv in enumerate(add):
+        pos = len(T) - (i * 2 + 1)
+        if pos < 0:
+          T.append(iv)
+        else:
+          T.insert(pos, iv)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

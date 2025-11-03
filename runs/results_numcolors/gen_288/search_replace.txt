@@ -1,0 +1,56 @@
+<NAME>
+classic_spine_disable_windows
+</NAME>
+
+<DESCRIPTION>
+Two targeted changes to steer the construction back toward a classic Kierstead–Trotter (KT) spine with omega ≈ 10 and to suppress late-stage windowed micro-pulses that were empirically correlated with drifting the optimum to 9 and lowering the combined score.
+
+1) Fix the KT backbone to the classic start pattern (2,6,10,14) for all six rounds. Rotating templates can desynchronize the clique-building geometry; the classic pattern is the most stable at producing omega=10 while allowing FirstFit to reach 23 colors in our earlier best runs.
+
+2) Disable the secondary windowed micro-phase pulses by default and reduce their budgets when toggled back on. These late pulses were pushing the sequence to CAP without improving FF colors and sometimes suppressing the maximum overlap to 9. Gating them off returns the construction to a backbone-plus-thin-micro-rounds regime that historically gave the 23/10 ≈ 2.30 tier.
+
+These edits are limited and consistent: they only adjust the template choice in Stage 1 and gate/retune the window pulses block. The rest of the pipeline (thin KT-style micro-rounds and the sparse long caps) remains unchanged.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    starts = template_bank[ridx % len(template_bank)]  # rotate among four templates
+=======
+    starts = spine_starts  # fix to classic KT template for stronger omega=10 spine
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Secondary windowed micro-phase pulses (capacity-guarded)
+  remaining = CAP - len(T)
+  if remaining > 12 and len(T) <= CAP - CAP_MARGIN:
+    microA = build_micro_windows_round(T, budget=min(128, max(12, remaining // 2)), iter_id=0, alt=False)
+    if microA:
+      take = min(len(microA), CAP - len(T))
+      T.extend(microA[:take])
+
+  remaining = CAP - len(T)
+  if remaining > 8 and len(T) <= CAP - (CAP_MARGIN // 2):
+    microB = build_micro_windows_round(T, budget=min(96, remaining), iter_id=1, alt=True)
+    if microB:
+      take = min(len(microB), CAP - len(T))
+      T.extend(microB[:take])
+=======
+  # Secondary windowed micro-phase pulses (capacity-guarded)
+  remaining = CAP - len(T)
+  # Disable windowed pulses by default; keep a small-budget hook for future toggling
+  WINDOW_PULSES = False
+  if WINDOW_PULSES and remaining > 12 and len(T) <= CAP - CAP_MARGIN:
+    microA = build_micro_windows_round(T, budget=min(64, max(8, remaining // 4)), iter_id=0, alt=False)
+    if microA:
+      take = min(len(microA), CAP - len(T))
+      T.extend(microA[:take])
+
+  remaining = CAP - len(T)
+  if WINDOW_PULSES and remaining > 8 and len(T) <= CAP - (CAP_MARGIN // 2):
+    microB = build_micro_windows_round(T, budget=min(48, remaining // 2), iter_id=1, alt=True)
+    if microB:
+      take = min(len(microB), CAP - len(T))
+      T.extend(microB[:take])
+>>>>>>> REPLACE
+
+</DIFF>

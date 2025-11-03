@@ -1,0 +1,134 @@
+<NAME>
+spine_rotation_parity_and_third_micro
+</NAME>
+
+<DESCRIPTION>
+Apply a set of small, local edits to increase FirstFit pressure without increasing clique size:
+
+1) In apply_round, honor reverse_block_parity by reversing every other block source (breaking symmetry).
+2) In the main spine loop, rotate start templates when rotate_starts=True and alternate interleaving on even rounds when interleave_blocks=True.
+3) In micro_round, increase per_block_target sampling density slightly to improve coupling.
+4) In micro_round connectors, add a cross4 long-range connector to strengthen cross-scale coupling.
+5) Execute up to three micro rounds (round_id 0,1,2) with conservative budget splits.
+
+These changes are confined to the editable EVOLVE block and are designed to nudge FirstFit to use more colors while keeping omega small.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Build four translated blocks; optionally interleave to enhance color mixing
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+=======
+    # Build four translated blocks; optionally interleave to enhance color mixing
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base = s * delta - lo
+      # Optionally reverse every other block source to break symmetry and spread FF colors
+      block_src = current_T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else current_T
+      block = [(l + base, r + base) for (l, r) in block_src]
+      blocks.append(block)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Keep sequential order every round (disabling interleaving lowers omega)
+    T = apply_round(T, spine_starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Rotate start templates when requested and alternate interleaving on even rounds
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    do_inter = interleave_blocks and ((ridx % 2) == 0)
+    T = apply_round(T, starts, do_interleave=do_inter)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Thin seed: bounded and deterministic size to respect budget
+    # Keep micro blocks small: target at most ~ (budget//6) per block (four blocks + ~8 extras).
+    per_block_target = max(8, min(64, budget // 12))
+    U = thin_seed(current_T, per_block_target)
+=======
+    # Thin seed: bounded and deterministic size to respect budget
+    # Slightly denser sampling to improve micro-block coupling without blowing CAP.
+    per_block_target = max(12, min(80, budget // 10))
+    U = thin_seed(current_T, per_block_target)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    micro.extend(connectors)
+=======
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+      ((s0 + 4) * delta2 + glo, (s3 + 4) * delta2 + glo),  # cross4 (additional long-range coupler)
+    ]
+    micro.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+=======
+  # Execute up to three micro rounds with strong guards (0,1,2)
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 3))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining // 2))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  remaining = CAP - len(T)
+  mr3 = micro_round(T, round_id=2, budget=max(0, remaining))
+  if mr3:
+    room = CAP - len(T)
+    if len(mr3) > room:
+      mr3 = mr3[:room]
+    T.extend(mr3)
+>>>>>>> REPLACE
+</DIFF>

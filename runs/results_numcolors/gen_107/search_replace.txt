@@ -1,0 +1,39 @@
+<NAME>
+phase2_micro_caps
+</NAME>
+
+<DESCRIPTION>
+Adds a small, safe phase-2 micro-phase that injects three sparse long-range caps after the main KT rounds. These caps are designed to boost late FirstFit color usage without increasing the omega (clique number) and without risking excessive interval growth. The change preserves determinism and stays within typical 10000-interval budgets by keeping the additions minimal and well-scoped.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase: add three long-range caps to boost late FirstFit color usage while controlling omega
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  def cap_at(a_frac, b_frac):
+    l0 = lo + max(1, int(round(a_frac * delta)))
+    r0 = lo + max(1, int(round(b_frac * delta)))
+    return (l0, r0)
+  capA = cap_at(0.08, 0.60)
+  capB = cap_at(0.25, 0.75)
+  capC = cap_at(0.75, 0.92)
+  for cap in (capA, capB, capC):
+    if cap[1] > cap[0]:
+      T.append(cap)
+  return T
+=======
+  # Phase2 micro-phase: add three small sparse caps across the inner span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  cap1 = (lo + max(1, delta // 4), lo + max(1, delta // 2))
+  cap2 = (hi - max(1, delta // 2), hi - max(1, delta // 4))
+  cap3 = (lo + max(1, delta // 3), hi - max(1, delta // 3))
+  for cap in (cap1, cap2, cap3):
+    if cap[1] > cap[0]:
+      T.append(cap)
+  return T
+>>>>>>> REPLACE
+</DIFF>

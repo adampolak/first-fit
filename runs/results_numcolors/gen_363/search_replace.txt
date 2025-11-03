@@ -1,0 +1,42 @@
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase A: tail caps to mix colors without exploding omega
+  lo, hi, delta = _span_delta(T)
+  tail_caps = [
+      (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+      (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+      (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+  ]
+  T = _insert_tail_caps(T, tail_caps, CAP)
+=======
+  # Micro-phase A: tail caps to mix colors without exploding omega
+  lo, hi, delta = _span_delta(T)
+  tail_caps = [
+      (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+      (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+      (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+  ]
+  T = _insert_tail_caps(T, tail_caps, CAP)
+
+  # Optional parabolic micro-phase: extra diversity with light omega increase
+  if enable_parabolic:
+    # Simple parabolic caps distributed across the span to gently bias color growth
+    delta_p = delta if delta > 0 else 1
+    lo_p = lo
+    cap1 = (lo_p + max(1, int(round(0.15 * delta_p))), lo_p + max(1, int(round(0.60 * delta_p))))
+    cap2 = (lo_p + max(1, int(round(0.25 * delta_p))), lo_p + max(1, int(round(0.90 * delta_p))))
+    cap3 = (lo_p + max(1, int(round(0.50 * delta_p))), lo_p + max(1, int(round(0.98 * delta_p))))
+    parabolic_caps = [cap for cap in (cap1, cap2, cap3) if cap[1] > cap[0]]
+    roomp = CAP - len(T)
+    if roomp > 0 and parabolic_caps:
+      if len(parabolic_caps) > roomp:
+        parabolic_caps = parabolic_caps[:roomp]
+      for cap in parabolic_caps:
+        # place near tail to influence late color usage
+        pos = len(T) - (parabolic_caps.index(cap) * 2 + 1)
+        if pos < 0:
+          T.append(cap)
+        else:
+          T.insert(pos, cap)
+>>>>>>> REPLACE
+</DIFF>

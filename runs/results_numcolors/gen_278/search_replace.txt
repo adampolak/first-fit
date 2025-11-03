@@ -1,0 +1,88 @@
+<NAME>
+lr_connectors_and_phase2_boost
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted enhancements to increase FirstFit pressure without materially inflating the clique number:
+
+1) Long-range cross-scale connectors (4–6 delta-span) after completing the KT spine: During the backbone expansion, I track the incoming delta of the final round and the start template used. Using these, I append a small, deterministic set of long-range connectors anchored to the spine's starts, each spanning 4–6 times the last-round delta but clamped to lie within the interior of the global span. These connectors tie distant color classes across blocks, improving FF coupling while keeping the added overlap light and spread out, thus avoiding significant omega increases.
+
+2) Stronger micro-phase by default: I set phase2_iters=2 to run up to two guarded micro-rounds. The previous best designs benefited from two micro-passes; enabling it by default should better leverage the budget left under CAP and strengthen color transfer.
+
+Both changes are CAP-aware and deterministic. The connectors are inserted before the micro-phases so they can also enhance the subsequent micro mixing. This aligns with the "long-range, deterministic cross-scale connectors" recommendation and aims to push FF above the prior 2.30 plateau without raising omega beyond the 10-color bound.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        enable_lr_connectors=True):
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Stage 1: KT spine with rotating templates and parity-based interleaving.
+  depth, _ = max_rounds_within_cap(len(T), rounds)
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  # Stage 1: KT spine with rotating templates and parity-based interleaving.
+  depth, _ = max_rounds_within_cap(len(T), rounds)
+  last_delta = None
+  last_starts = spine_starts
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    # Track the incoming delta of this round to anchor long-range connectors later
+    _, _, delta_in = _span_delta(T)
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+    last_delta = delta_in
+    last_starts = starts
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+=======
+  # Long-range, deterministic cross-scale connectors (4–6 delta-span), CAP-guarded
+  if enable_lr_connectors and len(T) < CAP - 8:
+    loF, hiF, _ = _span_delta(T)
+    D = last_delta if 'last_delta' in locals() and last_delta else max(1, (hiF - loF) // 16)
+    s_used = last_starts if 'last_starts' in locals() and last_starts else spine_starts
+    window_left = loF + D
+    window_right = hiF - D
+    LR = []
+    if window_right > window_left:
+      anchors = [s_used[0] - 1, s_used[1], s_used[2] - 1, s_used[1] + 2, s_used[0] + 3]
+      lengths = [4, 5, 6, 5, 4]
+      for i, m in enumerate(anchors):
+        a = max(window_left, m * D)
+        b = a + lengths[i % len(lengths)] * D
+        if b > window_right:
+          b = window_right
+        if b > a:
+          LR.append((a, b))
+    if LR:
+      room_lr = CAP - len(T)
+      if len(LR) > room_lr:
+        LR = LR[:room_lr]
+      T.extend(LR)
+
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+>>>>>>> REPLACE
+
+</DIFF>

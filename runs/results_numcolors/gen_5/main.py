@@ -1,0 +1,73 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=2):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it tends to maximize the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+  through a recursive wave construction.
+
+  Strategy:
+  - Use many horizontal "blocks" per round to create waves.
+  - Alternate reversal of the inner order to disrupt reuse by FirstFit.
+  - Insert short bridges between neighboring blocks to couple colors across them.
+  - Add sparse long caps with controlled spacing to force late color increases
+    without significantly increasing the maximum clique.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+  T = [(0, 1)]
+  for round_idx in range(rounds):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Dense set of starts to inject many waves while keeping total rounds small.
+    # Step 3 spacing provides gaps between blocks to control omega.
+    starts = list(range(2, 32, 3))  # [2,5,8,11,14,17,20,23,26,29]
+    max_start = max(starts)
+    # Clone T into each block; reverse on alternating blocks to vary inner arrival order.
+    for idx, start in enumerate(starts):
+      base = T if (idx % 2 == 0) else list(reversed(T))
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
+      # Insert a short bridge to the next block (if any) to couple colors early.
+      if idx + 1 < len(starts):
+        nxt = starts[idx + 1]
+        # bridge spans from inside current block to inside next block
+        S.append((delta * (start + 1), delta * (nxt + 1)))
+    # Local four-interval gadget to force small cliques but increase FF usage.
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    # Sparse "cap" intervals: moderate span with spacing so that at most a small
+    # constant number overlap at any point, keeping omega small.
+    caps = []
+    for j in range(4, max_start, 4):
+      caps.append((delta * (j - 2), delta * (j + 2)))
+    for j in range(6, max_start, 8):
+      caps.append((delta * (j - 1), delta * (j + 3)))
+    S += caps
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

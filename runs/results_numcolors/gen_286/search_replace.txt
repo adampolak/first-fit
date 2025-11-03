@@ -1,0 +1,124 @@
+<NAME>
+cap_first_and_belt_connectors
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes inspired by KT-style adversarial constructions and cross-scale connector strategies:
+
+1) CAP-first gating inside main rounds:
+- I modify _apply_round to optionally place the two “cap” connectors (left and right) before the four translated blocks, while keeping the two cross connectors after the blocks. This preserves the set of intervals per round but changes their arrival order, which is known to increase FirstFit pressure without increasing the clique number. I enable this pre-cap mode on even rounds. I also add a light zigzag inside-block ordering on odd rounds to further disturb FF’s color reuse across blocks.
+
+2) Add a small deterministic belt of long-range, fractional-span connectors right after the spine rounds:
+- I add a helper _add_belt_connectors that inserts 3–4 long connectors across well-separated fractional windows of the current global span. These cross-scale connectors couple colors across distant parts of the spine without creating a dense single-point core, thereby pushing FirstFit to use additional colors while keeping omega moderate. The belt is inserted near the tail to intersect many active colors but is strictly capacity-guarded.
+
+Both changes are deterministic, preserve CAP safety, and avoid raising omega aggressively. They implement the CAP-first gating and cross-scale connector belt heuristics suggested, aiming to push the competitive ratio beyond the current 2.30 plateau.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    """One KT-round: translate 4 blocks, assemble, then append connectors."""
+    lo, hi, delta = _span_delta(current_T)
+    # translate 4 blocks
+    blocks = _translate_blocks(current_T, starts, delta, lo)
+    S = _assemble_from_blocks(blocks, interleave=do_interleave, reverse_order=reverse_order)
+    # append canonical connectors
+    S += _svc_connectors(starts, delta)
+    return S
+=======
+def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, pre_caps=False, zigzag_inside=False):
+    """One KT-round: translate 4 blocks, optionally pre-cap, assemble, then append remaining connectors."""
+    lo, hi, delta = _span_delta(current_T)
+    # translate 4 blocks
+    blocks = _translate_blocks(current_T, starts, delta, lo)
+
+    # optional zigzag inside-block ordering to disturb FF reuse
+    if zigzag_inside and blocks:
+      blocks = [blk if (i % 2 == 0) else list(reversed(blk)) for i, blk in enumerate(blocks)]
+
+    # assemble blocks
+    S = _assemble_from_blocks(blocks, interleave=do_interleave, reverse_order=reverse_order)
+
+    # connectors with optional CAP-first gating: place caps before blocks, crosses after
+    conns = _svc_connectors(starts, delta)
+    if pre_caps:
+        # left and right caps first; cross connectors after blocks
+        left_cap, right_cap, cross1, cross2 = conns
+        S = [left_cap, right_cap] + S + [cross1, cross2]
+    else:
+        # classic post-append of all four connectors
+        S += conns
+    return S
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(seed_count=1):
+=======
+def _add_belt_connectors(T, cap_cap):
+    """
+    Insert a small belt of long-range cross-scale connectors near the tail.
+    Fractions chosen to avoid a dense single-point core while coupling distant regions.
+    """
+    if not T:
+        return T
+    room = cap_cap - len(T)
+    if room <= 0:
+        return T
+    glo, ghi, G = _span_delta(T)
+    # Deterministic fractional-span connectors (belt)
+    fracs = [(0.06, 0.34), (0.28, 0.64), (0.14, 0.54), (0.54, 0.88)]
+    belt = []
+    for a, b in fracs:
+        L = glo + int(round(max(0.0, min(0.95, a)) * G))
+        R = glo + int(round(max(0.05, min(0.98, b)) * G))
+        if R > L:
+            belt.append((L, R))
+    # Insert near the tail to intersect many active colors
+    return _insert_tail_caps(T, belt, cap_cap)
+
+def construct_intervals(seed_count=1):
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    # Stage 1: six KT-style rounds with alternating interleave/reverse order
+    for ridx in range(6):
+        starts = template_bank[ridx % len(template_bank)]
+        nxt_size = 4 * len(T) + 4
+        if nxt_size > CAP:
+            break
+        do_interleave = (ridx % 2 == 0)      # even rounds interleave
+        reverse_order = (ridx % 2 == 1)      # odd rounds reverse order
+        T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order)
+        if len(T) >= CAP:
+            return T[:CAP]
+
+    # Stage 1b (optional): early return guard
+    if len(T) >= CAP - 16:
+        return T[:CAP]
+=======
+    # Stage 1: six KT-style rounds with alternating interleave/reverse order
+    for ridx in range(6):
+        starts = template_bank[ridx % len(template_bank)]
+        nxt_size = 4 * len(T) + 4
+        if nxt_size > CAP:
+            break
+        do_interleave = (ridx % 2 == 0)      # even rounds interleave
+        reverse_order = (ridx % 2 == 1)      # odd rounds reverse order
+        pre_caps = (ridx % 2 == 0)           # CAP-first gating on even rounds
+        zigzag_inside = (ridx % 2 == 1)      # zigzag inside blocks on odd rounds
+        T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order,
+                         pre_caps=pre_caps, zigzag_inside=zigzag_inside)
+        if len(T) >= CAP:
+            return T[:CAP]
+
+    # Insert a small belt of cross-scale connectors before micro-phases
+    T = _add_belt_connectors(T, CAP)
+
+    # Stage 1b (optional): early return guard
+    if len(T) >= CAP - 16:
+        return T[:CAP]
+>>>>>>> REPLACE
+</DIFF>

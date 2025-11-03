@@ -1,0 +1,37 @@
+<NAME>
+long_range_connector_pass
+</NAME>
+
+<DESCRIPTION>
+Stage 1.5: insert a dedicated long-range connector augmentation pass after the micro-phase to boost FirstFit pressure by coupling distant segments with wide intervals. We compute four fractional connectors spanning large portions of the current span and interleave them into the middle of the sequence to maximize mixing, all while respecting the capacity guard.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if len(T) >= CAP - 8:
+    return T[:CAP]
+
+  # Stage 3: light-bridge round inspired by diversified design:
+=======
+  if len(T) >= CAP - 8:
+    return T[:CAP]
+
+  # Stage 1.5: long-range connector augmentation
+  lo, hi, delta = _span_delta(T)
+  long_range_caps = []
+  for a_frac, b_frac in [(0.05, 0.95), (0.15, 0.85), (0.25, 0.75), (0.35, 0.65)]:
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R > L:
+      long_range_caps.append((L, R))
+  # Interleave these into the middle of the sequence to maximize mixing
+  pos = len(T) // 2
+  for cap in long_range_caps:
+    if len(T) >= CAP:
+      break
+    T.insert(pos, cap)
+    pos += 2
+
+  # Stage 3: light-bridge round inspired by diversified design:
+>>>>>>> REPLACE
+</DIFF>

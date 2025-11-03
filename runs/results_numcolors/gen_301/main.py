@@ -1,0 +1,331 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+  """
+  Deterministic KT-style spine with per-round seeded policies, always-on interleaving,
+  CAP-aware spine densification, and two micro-phases with distinct window families.
+
+  Inputs and outputs are unchanged:
+    - Returns: list of (l, r) integer tuples representing open intervals in FF order.
+  """
+
+  # Hard capacity guard to keep the total count < 10000
+  CAP = 9800
+
+  # Deterministic base seed; all per-round choices derive from this.
+  BASE_SEED = 0x9E3779B185EBCA87  # golden ratio 64-bit
+
+  # Core template bank enlarged to 8 start patterns to diversify coupling
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed
+    (5, 9, 13, 17),  # shifted + stretched
+    (0, 4, 8, 12),   # zero-anchored variant
+    (3, 5, 11, 13),  # asymmetric
+  ]
+
+  # Secondary window bank for the second micro-phase (distinct from primary)
+  MICRO_WINDOWS_B = [(0.16, 0.26), (0.40, 0.50), (0.62, 0.72), (0.84, 0.94)]
+  MICRO_WINDOWS_A = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+  # Seed with a single unit interval to allow deep spine growth within CAP
+  T = [(0, 1)]
+
+  # -----------------------
+  # Utilities and building blocks
+  # -----------------------
+
+  def _mix64(x):
+    """Cheap 64-bit mix for deterministic per-round decisions."""
+    x ^= (x >> 33) & 0xFFFFFFFFFFFFFFFF
+    x = (x * 0xff51afd7ed558ccd) & 0xFFFFFFFFFFFFFFFF
+    x ^= (x >> 33) & 0xFFFFFFFFFFFFFFFF
+    x = (x * 0xc4ceb9fe1a85ec53) & 0xFFFFFFFFFFFFFFFF
+    x ^= (x >> 33) & 0xFFFFFFFFFFFFFFFF
+    return x
+
+  def _per_round_seed(ridx):
+    return _mix64(BASE_SEED ^ (ridx * 0xBF58476D1CE4E5B9 & 0xFFFFFFFFFFFFFFFF))
+
+  def _span_delta(current_T):
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    return lo, hi, delta
+
+  def _predict_next_sz(sz):
+    # 4 copies + 4 connectors
+    return 4 * sz + 4
+
+  def _max_rounds_within_cap(initial_size, max_rounds):
+    sz = initial_size
+    done = 0
+    for _ in range(max(0, int(max_rounds))):
+      nxt = _predict_next_sz(sz)
+      if nxt > CAP:
+        break
+      sz = nxt
+      done += 1
+    return done
+
+  def _choose_template(seed):
+    if rotate_starts:
+      idx = seed % len(TEMPLATE_BANK)
+      return TEMPLATE_BANK[idx]
+    else:
+      return TEMPLATE_BANK[0]
+
+  def _build_translated_blocks(current_T, starts, delta, lo):
+    """Build four translated blocks; endpoints remain integers."""
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in current_T])
+    return blocks
+
+  def _interleave_blocks(blocks, reverse=False, perm=None):
+    """Round-robin interleaving across blocks to maximize FF mixing."""
+    if perm is None:
+      order = list(range(len(blocks)))
+    else:
+      order = list(perm)
+    if reverse:
+      order = list(reversed(order))
+    S = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+    return S
+
+  def _append_connectors(S, starts, delta):
+    """Classic four connectors; preserves strong FF pressure while keeping omega modest."""
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+
+  def _append_long_connectors(S, starts, delta, budget=2):
+    """Deterministic long-range connectors (tight budget) to couple distant blocks."""
+    if budget <= 0:
+      return
+    s0, s1, s2, s3 = starts
+    candidates = [
+      ((s0 + 3) * delta, (s3 + 3) * delta),
+      ((s0 + 4) * delta, (s2 + 1) * delta),
+      ((s1 - 2) * delta, (s3 + 1) * delta),
+    ]
+    for a, b in candidates[:max(0, budget)]:
+      if b > a:
+        S.append((a, b))
+
+  def _thin_seed(current_T, max_seed, offset=0):
+    """Evenly spaced thin sample for micro-blocks and densification."""
+    n = len(current_T)
+    if n == 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    start = offset % step
+    return current_T[start::step][:max_seed]
+
+  def _build_micro_blocks(current_T, windows, budget, iter_id=0, shrink_pins=False):
+    """Build translated micro-blocks anchored to fractional windows of the global span."""
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed
+    base_seed = max(8, min(48, len(current_T) // 240))
+    U = _thin_seed(current_T, base_seed, offset=iter_id)
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    blocks = []
+    eps = max(1, G // 512)
+    for (fa, fb) in windows:
+      fa = max(0.04, min(0.94, fa))
+      fb = max(fa + 0.02, min(0.96, fb))
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      if not shrink_pins:
+        block = [(l + base, r + base) for (l, r) in U]
+      else:
+        # Convert to very short pins to avoid inflating omega
+        block = []
+        for k, (l, r) in enumerate(U):
+          mid = (l + r) // 2
+          L = mid + base - (eps // 2) + (k % 3)
+          R = L + eps
+          if R > L:
+            block.append((L, R))
+      # Deterministic internal reversal to break symmetry
+      if ((int(round(fa * 100)) // 5) + iter_id) % 2 == 1:
+        block.reverse()
+      blocks.append(block)
+
+    # Interleave blocks (forward on even, reverse on odd)
+    reverse = (iter_id % 2 == 1)
+    micro = _interleave_blocks(blocks, reverse=reverse)
+
+    # Add fractional-span connectors at the micro scale
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),
+    ]
+    for a, b in connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  def _densify_round(current_T, ridx, delta, lo, cap_room):
+    """
+    Small, CAP-aware densification per round:
+    - Take a very thin seed
+    - Translate into one of 4 internal windows
+    - Optionally shrink into pins
+    """
+    if cap_room <= 0 or not current_T:
+      return []
+
+    # Tiny budget: ensure minimal impact on omega
+    target = max(8, min(64, cap_room // 8))
+    seed_sz = min(target, max(8, len(current_T) // 500))
+    U = _thin_seed(current_T, seed_sz, offset=ridx)
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+    windows = [(0.16, 0.26), (0.40, 0.50), (0.62, 0.72), (0.84, 0.94)]
+    frac = windows[ridx % len(windows)][0]
+    win_lo = lo + int(round(frac * delta))
+    base = win_lo - ulo
+
+    # Alternate between full copies and pins every other round
+    shrink = (ridx % 2 == 1)
+    dens = []
+    if not shrink:
+      dens.extend((l + base, r + base) for (l, r) in U)
+    else:
+      # Pins: small width to keep clique under control
+      eps = max(1, delta // 512)
+      for k, (l, r) in enumerate(U):
+        mid = (l + r) // 2
+        L = mid + base - (eps // 2) + (k % 3)
+        R = L + eps
+        if R > L:
+          dens.append((L, R))
+
+    # Tight trim to cap_room
+    if len(dens) > cap_room:
+      dens = dens[:cap_room]
+    return dens
+
+  # -----------------------
+  # Stage 1: Always-interleaved KT spine with seeded policy and light densification
+  # -----------------------
+  depth = _max_rounds_within_cap(len(T), rounds)
+  for ridx in range(depth):
+    seed = _per_round_seed(ridx)
+
+    # Compute span and blocks
+    lo, hi, delta = _span_delta(T)
+    starts = _choose_template(seed)
+    blocks = _build_translated_blocks(T, starts, delta, lo)
+
+    # Deterministic permutation and interleaving (always on)
+    perm = [((seed >> (2 * i)) & 3) % 4 for i in range(4)]
+    # Ensure it's a permutation of 0..3
+    seen = set()
+    perm_fixed = []
+    for v in perm:
+      if v not in seen:
+        seen.add(v)
+        perm_fixed.append(v)
+    for v in range(4):
+      if v not in seen:
+        perm_fixed.append(v)
+    reverse = bool((seed >> 7) & 1)
+    S = _interleave_blocks(blocks, reverse=reverse, perm=perm_fixed)
+
+    # Connectors (classic + small number of long-range)
+    _append_connectors(S, starts, delta)
+    long_budget = 1 + ((seed >> 3) & 1)  # 1 or 2
+    _append_long_connectors(S, starts, delta, budget=long_budget)
+
+    # CAP-aware light densification (very small; alternates pins vs copies)
+    room = CAP - len(S)
+    if room > 0:
+      dens = _densify_round(T, ridx, delta, lo, room // 16)
+      if dens:
+        # Insert densification intervals near end to touch many active colors
+        # but avoid centralization at one point.
+        tail = S + dens
+        T = tail
+      else:
+        T = S
+    else:
+      T = S
+
+  if len(T) >= CAP - 8:
+    return T
+
+  # -----------------------
+  # Stage 2: Two deterministic micro phases with distinct window sets
+  # -----------------------
+
+  # Micro-phase A: primary windows (A), optionally iterated per phase2_iters
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    microA = _build_micro_blocks(T, MICRO_WINDOWS_A, budget=room, iter_id=iter_id, shrink_pins=False)
+    if not microA:
+      break
+    if len(microA) > room:
+      microA = microA[:room]
+    T.extend(microA)
+
+  # Micro-phase B: distinct windows (B) with pins to avoid omega inflation
+  room = CAP - len(T)
+  if room > 8:
+    microB = _build_micro_blocks(T, MICRO_WINDOWS_B, budget=room, iter_id=steps, shrink_pins=True)
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+
+  # Final trim (safety)
+  if len(T) > CAP:
+    T = T[:CAP]
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

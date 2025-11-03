@@ -1,0 +1,62 @@
+<NAME>
+enable_interleaving_and_extended_connectors
+</NAME>
+
+<DESCRIPTION>
+Enable block interleaving and inner reversal parity to increase FirstFit pressure.
+Additionally, add a fifth "cross3" connector in both the main construction and the EXTRA_ROUNDS to couple more blocks without increasing ω. This should diversify overlaps and push the achieved competitive ratio higher.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    rotate_starts   = True
+    reverse_block_parity = False   # keep inner order stable within blocks
+    interleave_blocks = False      # sequential blocks boost FF vs omega
+=======
+    rotate_starts   = True
+    reverse_block_parity = True    # enable inner reversal to diversify blocks
+    interleave_blocks = True       # enable interleaving to boost FF pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+=======
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ((s0 + 3) * delta, (s3 + 3) * delta),  # cross 3 extension
+        ]
+        S.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+            ]
+            S.extend(connectors)
+=======
+            connectors = [
+                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+                ((s0 + 3) * delta, (s3 + 3) * delta),  # cross 3 extension
+            ]
+            S.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>

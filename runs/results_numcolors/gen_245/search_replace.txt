@@ -1,0 +1,86 @@
+<NAME>
+add_alternate_micro_phase
+</NAME>
+
+<DESCRIPTION>
+Introduce a second micro-phase (Micro-phase C) after the initial delta2 micro-round. This phase uses a distinct set of window fractions to further mix colors without increasing the clique number, enhancing FirstFit pressure. It is capacity-guarded similarly to Micro-phase B.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # One safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+=======
+  # One safeguarded micro-round (empirically strong for 2.30-tier results)
+  room = CAP - len(T)
+  if room > 8:
+    micro = build_micro_delta_round(T, room)
+    if micro:
+      if len(micro) > room:
+        micro = micro[:room]
+      T.extend(micro)
+
+  # Micro-phase C: alternate fractional-window round to diversify gap placements
+  def build_micro_delta_round_alt(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+    # Thin evenly spaced seed
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+    ulo = min(l for l, r in U)
+    # Alternate window fractions inside the span
+    window_fracs_alt = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+    # Build blocks
+    blocks_alt = []
+    for (fa, fb) in window_fracs_alt:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks_alt.append(block)
+    # Interleave to maximize mixing (reverse order for variety)
+    micro_alt = []
+    maxlen_alt = max(len(b) for b in blocks_alt)
+    for i in range(maxlen_alt):
+      for blk in reversed(blocks_alt):
+        if i < len(blk):
+          micro_alt.append(blk[i])
+    # Fractional-span connectors
+    connectors_alt = [
+      (glo + int(round(0.10 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.50 * G)), glo + int(round(0.75 * G))),
+    ]
+    for a, b in connectors_alt:
+      if b > a:
+        micro_alt.append((a, b))
+    # Trim to budget
+    return micro_alt[:budget]
+
+  room = CAP - len(T)
+  if room > 8:
+    alt = build_micro_delta_round_alt(T, room)
+    if alt:
+      if len(alt) > room:
+        alt = alt[:room]
+      T.extend(alt)
+
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+>>>>>>> REPLACE
+</DIFF>

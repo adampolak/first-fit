@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "Validation failed: Not an interval, the first element is not to the left of the right one"
+}

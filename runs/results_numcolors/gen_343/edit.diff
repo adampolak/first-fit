@@ -1,0 +1,575 @@
+--- a/original.py
++++ b/original.py
+@@ -1,258 +1,335 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(enable_alt_microphase=True):
+   """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point.
+-
+-  Deterministic KT-style backbone with two CAP-aware micro-phases and
+-  carefully chosen connectors, keeping omega small (target <= 10).
++  Greedy, simulator-driven interval construction designed to maximize
++  FirstFit colors while keeping the offline clique (omega) <= 10.
+ 
+   Args:
+-    enable_alt_microphase (bool): enable a second, alternate micro-phase.
++    enable_alt_microphase (bool): preserved parameter for compatibility.
+ 
+   Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r.
++    List of integer open intervals [(l,r), ...] in the online arrival order.
+   """
+ 
+-  # Capacity guard to keep total intervals < 10000
++  # Hard capacity guard
+   CAP = 9800
+ 
+-  # Rotating six-start templates for the KT spine (expanded bank for more mixing)
+-  template_bank = [
+-    (2, 6, 10, 14),  # classic KT
+-    (1, 5, 9, 13),   # left-shifted
+-    (3, 7, 11, 15),  # right-shifted
+-    (4, 8, 12, 16),  # stretched-right
+-    (5, 9, 13, 17),  # extra right-shift
+-    (6, 10, 14, 18), # extra classic-shift
+-  ]
+-
+-  # Seed with a single unit interval
+-  T = [(0, 1)]
+-
+-  # Helpers
+-  def _span(current_T):
+-    lo = min(l for l, r in current_T)
+-    hi = max(r for l, r in current_T)
+-    delta = hi - lo
+-    if delta <= 0:
+-      delta = 1
+-    return lo, hi, delta
+-
+-  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+-    lo, hi, delta = _span(current_T)
+-
+-    # Build four translated blocks
+-    blocks = []
+-    for s in starts:
+-      base = s * delta - lo
+-      block = [(l + base, r + base) for (l, r) in current_T]
+-      blocks.append(block)
+-
+-    # Interleaving policy: order derived from 'starts' to diversify per-round mixing
+-    S = []
+-    if do_interleave:
+-      # define order by sorting block indices by start values (or reverse)
+-      order = sorted(range(4), key=lambda i: starts[i], reverse=reverse_order)
+-      maxlen = max(len(b) for b in blocks)
+-      for i in range(maxlen):
+-        for idx in order:
+-          blk = blocks[idx]
+-          if i < len(blk):
+-            S.append(blk[i])
++  # Hard offline optimum bound we enforce
++  OMEGA_LIMIT = 10
++
++  # Deterministic "random" helper using a simple LCG so results are reproducible
++  class DeterministicRNG:
++    def __init__(self, seed=1234567):
++      self.x = seed
++    def rand(self):
++      # 32-bit LCG
++      self.x = (1103515245 * self.x + 12345) & 0x7fffffff
++      return self.x
++    def randint(self, a, b):
++      return a + (self.rand() % (b - a + 1))
++
++  rng = DeterministicRNG(seed=314159265)
++
++  # A compact integer grid representing the real line positions we'll use.
++  # We will keep endpoints integer, and test coverage only at integer sample points.
++  # We make the span moderate so we can place many intervals without huge coordinates.
++  GRID_SPAN = 20000  # total coordinate span allowed (will shift/scatter inside it)
++  # We'll partition the grid into "columns" and "mixers" to get structure.
++  # Keep a global offset to avoid negative endpoints.
++  OFFSET = 1000
++
++  # Internal representation: list of (l, r) integer tuples
++  intervals = []
++
++  # Fast coverage structure for integer points using dictionary: count per integer point
++  coverage = {}
++
++  def inc_coverage_for_interval(iv):
++    l, r = iv
++    # we treat open intervals (l, r) but for integer grid we increment for p in [l, r-1]
++    for p in range(l, r):
++      coverage[p] = coverage.get(p, 0) + 1
++
++  def dec_coverage_for_interval(iv):
++    l, r = iv
++    for p in range(l, r):
++      c = coverage.get(p, 0)
++      if c <= 1:
++        # remove key if becomes 0
++        if p in coverage:
++          del coverage[p]
++      else:
++        coverage[p] = c - 1
++
++  # Simulate FirstFit coloring for a sequence of intervals (online).
++  # Returns list colors[0..n-1] where colors[i] is color assigned (1-based).
++  def simulate_firstfit(seq):
++    # For speed, we construct an interval list and perform naive online FF.
++    # We'll maintain for each active color the rightmost endpoint (so we know if color available).
++    # But intervals may overlap non-nestedly; simplest safe implementation:
++    colors = []
++    # maintain current intervals' endpoints by color to test conflicts
++    color_intervals = {}  # color -> list of active intervals (l,r) that may conflict with future intervals
++    # For correctness we simply check overlaps with already assigned intervals of each color
++    for (l, r) in seq:
++      c = 1
++      while True:
++        # check whether color c is usable (i.e., it has no assigned interval that intersects (l,r))
++        conflict = False
++        if c in color_intervals:
++          for (al, ar) in color_intervals[c]:
++            # intervals open: overlap iff not (ar <= l or r <= al)
++            if not (ar <= l or r <= al):
++              conflict = True
++              break
++        if not conflict:
++          # assign c
++          colors.append(c)
++          color_intervals.setdefault(c, []).append((l, r))
++          break
++        c += 1
++    return colors
++
++  # Helper: max coverage count across integer sample points (current omega observed)
++  def current_omega():
++    if not coverage:
++      return 0
++    return max(coverage.values())
++
++  # Helper: feasibility check: would adding iv violate OMEGA_LIMIT at any integer point?
++  def feasible_add(iv):
++    l, r = iv
++    for p in range(l, r):
++      if coverage.get(p, 0) + 1 > OMEGA_LIMIT:
++        return False
++    return True
++
++  # Helper: normalize interval endpoints (ensure r > l and inside allowed GRID_SPAN)
++  def make_interval(l, r):
++    if r <= l:
++      r = l + 1
++    # clamp into span [OFFSET, OFFSET+GRID_SPAN)
++    L = max(OFFSET, min(OFFSET + GRID_SPAN - 1, l))
++    R = max(L + 1, min(OFFSET + GRID_SPAN, r))
++    return (L, R)
++
++  # Seed construction: build a small scaffold of "columns" (stacked intervals) to set omega baseline.
++  # We place C columns, each with H stacked intervals (so clique at column points = H).
++  H = 8  # base stack height (leave a little headroom up to 10 for micro phases)
++  C = 40  # number of columns to create initially; tradeoff space vs capacity
++  SPACING = 40  # spacing between columns
++  col_positions = []
++  base_x = OFFSET + 50
++  for j in range(C):
++    pos = base_x + j * SPACING
++    col_positions.append(pos)
++
++  # Create stacks: in each column, place H overlapping intervals that all include [pos, pos+1)
++  for pos in col_positions:
++    # stack intervals with slightly varying endpoints to ensure they pairwise overlap at pos
++    for level in range(H):
++      l = pos - (2 + level % 2)  # slight jitter by level
++      r = pos + 5 + (level % 3)
++      iv = make_interval(l, r)
++      if feasible_add(iv):
++        intervals.append(iv)
++        inc_coverage_for_interval(iv)
++      else:
++        # Shouldn't typically happen at seed time given small counts
++        pass
++      if len(intervals) >= CAP:
++        # enforce cap early
++        return intervals
++
++  # At this point offline omega is at most H (≈8). We'll try to force FirstFit to use many colors.
++  # We'll maintain representatives: for each color value currently present in FF coloring of intervals,
++  # we will keep at least one interval (a representative) located in a distinct column, so later
++  # candidate intervals can touch all representatives without creating large cliques.
++  # We'll keep representatives updated after each insertion by simulating FF on current sequence.
++  def build_representative_map(seq, colors):
++    # Map color -> index of representative interval in seq
++    rep = {}
++    for idx, c in enumerate(colors):
++      if c not in rep:
++        rep[c] = idx
++    return rep
++
++  # compute current FirstFit coloring
++  ff_colors = simulate_firstfit(intervals)
++  rep_map = build_representative_map(intervals, ff_colors)
++  current_ff_max = max(ff_colors) if ff_colors else 0
++
++  # Greedy simulator-driven phase:
++  # We repeatedly attempt to find small candidate intervals that, when added, increase the FF max color.
++  # Candidate generation is deterministic, explores many short intervals centered at column positions and
++  # at inter-column midpoints. We limit search breadth per iteration to keep runtime bounded.
++  ITER_LIMIT = CAP - len(intervals)
++  # Parameters controlling search efforts
++  CANDIDATES_PER_ITER = 350  # number of candidates to evaluate per greedy iteration
++  MAX_TRIES_NO_IMPROVE = 220  # if we cannot find improvement for this many iterations, we fall back
++
++  no_improve_count = 0
++  iter_count = 0
++  while len(intervals) < CAP and no_improve_count < MAX_TRIES_NO_IMPROVE and iter_count < ITER_LIMIT:
++    iter_count += 1
++    improved = False
++    best_candidate = None
++    best_new_max = current_ff_max
++    # Deterministic sampling pattern: sample centers among column positions and inter-column midpoints,
++    # plus a few random-looking offsets from rng to diversify.
++    candidates = []
++    # sample near columns
++    for j in range(min(C, max(1, CANDIDATES_PER_ITER // 5))):
++      idx = (iter_count + j) % len(col_positions)
++      cen = col_positions[idx]
++      # produce a few short lengths
++      for length in (1, 2, 3, 4):
++        l = cen - length
++        r = cen + 1
++        candidates.append(make_interval(l, r))
++    # sample between columns
++    for j in range(min(C - 1, max(1, CANDIDATES_PER_ITER // 5))):
++      idx = (iter_count + 2 * j) % (len(col_positions) - 1)
++      cen = (col_positions[idx] + col_positions[idx + 1]) // 2
++      for length in (1, 2, 3):
++        l = cen - 1
++        r = cen + length
++        candidates.append(make_interval(l, r))
++    # sample some increasingly wide intervals that bridge many columns (but short enough to keep clique)
++    for wid in (6, 10, 14, 18):
++      # pick deterministic start shifting
++      start = OFFSET + (iter_count * 17) % (GRID_SPAN - wid - 10)
++      candidates.append(make_interval(start, start + wid))
++    # deterministic pseudo-random candidates (small number)
++    for t in range(max(1, CANDIDATES_PER_ITER - len(candidates))):
++      a = rng.randint(OFFSET + 2, OFFSET + GRID_SPAN - 10)
++      b = a + rng.randint(1, 6)
++      candidates.append(make_interval(a, b))
++
++    # Evaluate candidates deterministically; keep the one that maximizes FF max color upon insertion
++    # but respect OMEGA_LIMIT.
++    base_seq = intervals  # current sequence
++    base_colors = ff_colors
++    # We will early prune: if candidate overlaps any integer point exceeding OMEGA_LIMIT, skip.
++    for iv in candidates:
++      if not feasible_add(iv):
++        continue
++      # Quick simulate: append iv to sequence and run FF simulation by incremental method:
++      # We simulate full FirstFit on base_seq + [iv].
++      # For speed we call simulate_firstfit on a short copy.
++      test_seq = base_seq + [iv]
++      test_colors = simulate_firstfit(test_seq)
++      test_max = max(test_colors) if test_colors else 0
++      if test_max > best_new_max:
++        best_new_max = test_max
++        best_candidate = iv
++        # We can break early if we make substantial progress (greedy)
++        # But keep scanning some more to find possibly better immediate jump.
++    if best_candidate is not None:
++      # Accept best candidate
++      intervals.append(best_candidate)
++      inc_coverage_for_interval(best_candidate)
++      ff_colors = simulate_firstfit(intervals)
++      rep_map = build_representative_map(intervals, ff_colors)
++      current_ff_max = max(ff_colors) if ff_colors else 0
++      improved = True
++      no_improve_count = 0
+     else:
+-      if reverse_order:
+-        blocks = list(reversed(blocks))
+-      for blk in blocks:
+-        S.extend(blk)
+-
+-    # Classic four connectors (Figure-4 style)
+-    s0, s1, s2, s3 = starts
+-    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+-    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+-    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+-    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+-    return S
+-
+-  # Stage 1: KT spine with rotation and parity policies, capacity-guarded
+-  for ridx in range(8):
+-    # Predict next size: sz -> 4*sz + 4
+-    if 4 * len(T) + 4 > CAP:
++      no_improve_count += 1
++      # If no candidate improved FF, we add a controlled long connector to mix colors deterministically.
++      # The connector spans a moderate span capturing many representatives but arranged so its insertion
++      # does not break OMEGA_LIMIT. We build connectors between selected columns spaced apart.
++      # Connector length grows slowly with iter_count to diversify interactions.
++      # Choose leftmost column index depending on iter_count
++      left_idx = (iter_count * 3) % max(1, len(col_positions) - 6)
++      right_idx = min(len(col_positions) - 1, left_idx + 6 + (iter_count % 4))
++      l = col_positions[left_idx] - 3
++      r = col_positions[right_idx] + 6 + (iter_count % 5)
++      conn = make_interval(l, r)
++      if feasible_add(conn):
++        intervals.append(conn)
++        inc_coverage_for_interval(conn)
++        ff_colors = simulate_firstfit(intervals)
++        rep_map = build_representative_map(intervals, ff_colors)
++        current_ff_max = max(ff_colors) if ff_colors else 0
++        improved = True
++        no_improve_count = 0
++      else:
++        # as last resort, add a very short pin in the least covered area to expand search base
++        # find a point p with smallest coverage
++        # deterministic scan across sample points to find p with minimal coverage
++        min_cov = OMEGA_LIMIT
++        min_p = OFFSET + 2
++        # sample across a fraction of grid for speed
++        stride = max(1, GRID_SPAN // 400)
++        for p in range(OFFSET + 1, OFFSET + GRID_SPAN - 1, stride):
++          c = coverage.get(p, 0)
++          if c < min_cov:
++            min_cov = c
++            min_p = p
++            if min_cov == 0:
++              break
++        pin = make_interval(min_p, min_p + 1)
++        if feasible_add(pin):
++          intervals.append(pin)
++          inc_coverage_for_interval(pin)
++          ff_colors = simulate_firstfit(intervals)
++          rep_map = build_representative_map(intervals, ff_colors)
++          current_ff_max = max(ff_colors) if ff_colors else 0
++          improved = True
++          no_improve_count = 0
++        else:
++          # cannot add anything reasonable: break out
++          break
++
++    # continue loop while we still have capacity
++    if not improved:
++      # safety guard: avoid infinite loop
+       break
+-    starts = template_bank[ridx % len(template_bank)]
+-    # Interleave on even rounds, reverse block order on odd rounds
+-    do_inter = (ridx % 2 == 0)
+-    rev = (ridx % 2 == 1)
+-    T = _apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+-
+-  # Early exit if nearly at capacity (before micro-phases)
+-  if len(T) >= CAP - 8:
+-    return T
+-
+-  # Spine densification: duplicate a thin seed of intervals with slight shrink to boost FF pressure
+-  room = CAP - len(T)
+-  if room > 16:
+-    # Sample a small seed of intervals uniformly from the KT spine
+-    stride = max(1, len(T) // 100)
+-    seed = [T[i] for i in range(0, len(T), stride)][:10]
+-    lo_d, hi_d, span_d = _span(T)
+-    eps = max(1, span_d // 1000)
+-    densify = []
+-    for (l, r) in seed:
+-      if r - l > 2 * eps:
+-        densify.append((l + eps, r - eps))
+-    # Insert densified intervals if capacity allows
+-    for iv in densify:
+-      if len(T) >= CAP:
++
++  # After greedy phase, if still room, add several deterministic "mixers" and final pins to increase pressure further.
++  while len(intervals) < CAP:
++    # Add deterministic connectors spanning different windows but respecting omega
++    base_lo = OFFSET + 20
++    shift = (len(intervals) * 37) % (GRID_SPAN // 3)
++    L = base_lo + shift
++    R = L + 50 + (len(intervals) % 37)
++    iv = make_interval(L, R)
++    if feasible_add(iv):
++      intervals.append(iv)
++      inc_coverage_for_interval(iv)
++    else:
++      # add a tiny pin somewhere low-covered
++      # deterministic scan for a low covered point in a small sample region
++      got = False
++      for p in range(OFFSET + 1, OFFSET + GRID_SPAN - 1, max(1, GRID_SPAN // 600)):
++        if coverage.get(p, 0) < OMEGA_LIMIT:
++          pin = make_interval(p, p + 1)
++          if feasible_add(pin):
++            intervals.append(pin)
++            inc_coverage_for_interval(pin)
++            got = True
++            break
++      if not got:
+         break
+-      T.append(iv)
+-
+-  # Micro-phase A: add three long-range caps to boost FF pressure (capacity-safe)
+-  lo, hi, _ = _span(T)
+-  span = max(1, hi - lo)
+-  def cap_at(a_frac, b_frac):
+-    L = lo + max(1, int(round(a_frac * span)))
+-    R = lo + max(1, int(round(b_frac * span)))
+-    if R <= L:
+-      R = L + 1
+-    return (L, R)
+-  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+-  for c in caps:
+-    if len(T) >= CAP:
+-      break
+-    T.append(c)
+-
+-  # Micro-phase builder: thin-window replication with connectors
+-  def build_micro_delta_round(current_T, budget, alt=False):
+-    if not current_T or budget <= 8:
+-      return []
+-
+-    glo = min(l for l, r in current_T)
+-    ghi = max(r for l, r in current_T)
+-    G = max(1, ghi - glo)
+-
+-    # Thin, evenly spaced seed
+-    seed_sz = max(8, min(32, len(current_T) // 300))
+-    if alt:
+-      seed_sz = max(8, min(40, len(current_T) // 250))
+-    stride = max(1, len(current_T) // max(1, seed_sz))
+-    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+-    if not U:
+-      return []
+-
+-    ulo = min(l for l, r in U)
+-
+-    # Four windows across the span (stay inside to control omega)
+-    if not alt:
+-      window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+-    else:
+-      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+-
+-    # Build translated micro-blocks aligned to these windows
+-    blocks = []
+-    for (fa, fb) in window_fracs:
+-      win_lo = glo + int(round(fa * G))
+-      base = win_lo - ulo
+-      block = [(l + base, r + base) for (l, r) in U]
+-      # Internal reversal on alternating pattern for alt-phase to diversify
+-      if alt and int(round(fa * 100)) // 5 % 2 == 1:
+-        block = list(reversed(block))
+-      blocks.append(block)
+-
+-    # Interleave micro-blocks to maximize FF mixing
+-    micro = []
+-    maxlen = max(len(b) for b in blocks)
+-    if not alt:
+-      # forward interleave
+-      for i in range(maxlen):
+-        for blk in blocks:
+-          if i < len(blk):
+-            micro.append(blk[i])
+-    else:
+-      # reverse interleave
+-      for i in range(maxlen):
+-        for blk in reversed(blocks):
+-          if i < len(blk):
+-            micro.append(blk[i])
+-
+-    # Fractional-span connectors at the micro scale
+-    micro_connectors = [
+-      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+-      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+-      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+-      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+-    ]
+-    for a, b in micro_connectors:
+-      if b > a:
+-        micro.append((a, b))
+-
+-    # A long cross to tie distant colors (alt-phase only)
+-    if alt:
+-      a = glo + int(round(0.18 * G))
+-      b = glo + int(round(0.84 * G))
+-      if b > a:
+-        micro.append((a, b))
+-
+-    # Trim to available budget
+-    if len(micro) > budget:
+-      micro = micro[:budget]
+-    return micro
+-
+-  # Micro-phase B: one safeguarded micro-round (empirically strong for 2.30-tier results)
+-  room = CAP - len(T)
+-  if room > 8:
+-    micro = build_micro_delta_round(T, room, alt=False)
+-    if micro:
+-      if len(micro) > room:
+-        micro = micro[:room]
+-      T.extend(micro)
+-
+-  # Micro-phase C: alternate window family + long cross (guarded, optional)
+-  room = CAP - len(T)
+-  if enable_alt_microphase and room > 8:
+-    micro_alt = build_micro_delta_round(T, room, alt=True)
+-    if micro_alt:
+-      if len(micro_alt) > room:
+-        micro_alt = micro_alt[:room]
+-      T.extend(micro_alt)
+-
+-  # Micro-phase D: tower pins (short, staggered intervals) to increase FF pressure
+-  # without inflating omega; placed in four interior windows and spaced to be disjoint.
+-  room = CAP - len(T)
+-  if room > 8:
+-    glo = min(l for l, r in T)
+-    ghi = max(r for l, r in T)
+-    G = max(1, ghi - glo)
+-    eps = max(1, G // 4096)  # very short pins
+-    windows = [0.14, 0.31, 0.66, 0.83]
+-    # Limit per-window pins to keep total bounded and spacing clean
+-    max_per_win = max(4, min(64, room // max(1, len(windows))))
+-    stride = max(2 * eps + 3, 3)
+-    pins = []
+-    for wi, w in enumerate(windows):
+-      base = glo + int(round(w * G))
+-      start = base - (max_per_win // 2) * stride + (wi % 3)
+-      for j in range(max_per_win):
+-        L = start + j * stride
+-        R = L + eps
+-        if R > L:
+-          pins.append((L, R))
+-    if pins:
+-      if len(pins) > room:
+-        pins = pins[:room]
+-      T.extend(pins)
+-
+-  # Final capacity trim
+-  if len(T) > CAP:
+-    T = T[:CAP]
+-
+-  return T
++
++  # Final normalization/trimming to CAP and ensure integer endpoints and positive lengths
++  if len(intervals) > CAP:
++    intervals = intervals[:CAP]
++
++  normed = []
++  for (l, r) in intervals:
++    li = int(round(l))
++    ri = int(round(r))
++    if ri <= li:
++      ri = li + 1
++    normed.append((li, ri))
++
++  return normed
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

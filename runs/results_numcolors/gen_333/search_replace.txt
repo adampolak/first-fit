@@ -1,0 +1,30 @@
+<NAME>
+add_global_wide_caps</NAME>
+
+<DESCRIPTION>
+Introduce a small family of layered wide “global caps” just before the final capacity trim. These intervals span almost the entire current span but are slightly nested to avoid increasing the clique number beyond the target, while exerting additional pressure on FirstFit to open new colors late in the sequence. This should boost the FF color count without raising ω.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+=======
+  # Final global wide caps: layered wide intervals to boost FF without raising omega much
+  room = CAP - len(T)
+  if room > 3:
+    lo_f, hi_f, span_f = _span(T)
+    eps_f = max(1, span_f // 200)
+    for k in range(3):
+      if len(T) >= CAP:
+        break
+      L = lo_f + eps_f * (k + 1)
+      R = hi_f - eps_f * (k + 1)
+      if R > L:
+        T.append((L, R))
+  # Final capacity trim
+  if len(T) > CAP:
+    T = T[:CAP]
+>>>>>>> REPLACE
+</DIFF>

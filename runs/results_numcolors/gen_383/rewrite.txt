@@ -1,0 +1,165 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+    """
+    Improved KT‐spine plus two‐pass micro‐phase.
+    """
+    CAP = 9800
+
+    # Six strong start templates
+    template_bank = [
+        (2, 6, 10, 14),  # classic
+        (1, 5, 9, 13),   # left‐shift
+        (3, 7, 11, 15),  # right‐shift
+        (4, 8, 12, 16),  # stretched
+        (2, 4, 8, 12),   # compressed
+        (3, 5, 9, 13),   # gentle
+    ]
+
+    # seed
+    T = [(0, 1)]
+
+    # helper: span and delta
+    def span(T):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        d = hi - lo
+        return lo, hi, d if d > 0 else 1
+
+    # apply a spine round
+    def spine_round(T, starts, do_inter, rev_order, long_conn=False):
+        lo, hi, d = span(T)
+        # build blocks
+        blocks = []
+        for s in starts:
+            shift = s * d - lo
+            blocks.append([(l + shift, r + shift) for (l, r) in T])
+        # assemble
+        S = []
+        if do_inter:
+            order = list(range(4))
+            if rev_order:
+                order.reverse()
+            m = max(len(b) for b in blocks)
+            for i in range(m):
+                for k in order:
+                    if i < len(blocks[k]):
+                        S.append(blocks[k][i])
+        else:
+            bl = blocks[::-1] if rev_order else blocks
+            for b in bl:
+                S.extend(b)
+        # classic connectors
+        s0, s1, s2, s3 = starts
+        S.append(((s0 - 1)*d, (s1 - 1)*d))
+        S.append(((s2 + 2)*d, (s3 + 2)*d))
+        S.append(((s0 + 2)*d, (s2 - 1)*d))
+        S.append(((s1 + 2)*d, (s3 - 1)*d))
+        # optional long‐range connector
+        if long_conn:
+            S.append(((s0 + 4)*d, (s3 + 4)*d))
+        return S
+
+    # compute how many spine rounds fit
+    def max_rounds(sz, rounds):
+        for i in range(int(rounds)):
+            if 4*sz + 4 + 1 > CAP:
+                return i
+            sz = 4*sz + 4
+        return int(rounds)
+
+    R = max_rounds(len(T), rounds)
+    for i in range(R):
+        starts = template_bank[i % len(template_bank)] if rotate_starts else template_bank[0]
+        do_i = bool(interleave_blocks and (i % 2 == 0))
+        rv   = bool(reverse_block_parity and (i % 2 == 1))
+        longc = (i == R - 1)
+        T = spine_round(T, starts, do_i, rv, long_conn=longc)
+        if len(T) > CAP:
+            T = T[:CAP]
+            break
+
+    if len(T) >= CAP - 50:
+        return T
+
+    lo, hi, d = span(T)
+
+    # Phase A: four fractional connectors
+    fracsA = [(0.05,0.95),(0.10,0.90),(0.20,0.80),(0.30,0.70)]
+    for a,b in fracsA:
+        if len(T) >= CAP: break
+        L = lo + int(round(a*d))
+        R = lo + int(round(b*d))
+        if R <= L: R = L+1
+        # insert near tail to hit many active colors
+        pos = len(T) - 3
+        if pos<0 or pos>len(T): T.append((L,R))
+        else: T.insert(pos,(L,R))
+
+    if len(T) >= CAP - 50:
+        return T
+
+    # Phase B: two delta‐round passes
+    def micro_pass(T, window_fracs):
+        lo, hi, G = span(T)
+        # thin seed
+        max_seed = min(50, max(8, len(T)//200))
+        step = max(1, len(T)//max_seed)
+        U = [T[i] for i in range(0,len(T),step)][:max_seed]
+        if not U: return []
+        ulo = min(l for l,r in U)
+        # build blocks
+        blocks = []
+        for (fa, fb) in window_fracs:
+            win = lo + int(round(fa*G))
+            shift = win - ulo
+            blk = [(l+shift, r+shift) for l,r in U]
+            blocks.append(blk)
+        # interleave
+        M = max(len(b) for b in blocks)
+        S = []
+        for i in range(M):
+            for blk in blocks:
+                if i < len(blk):
+                    S.append(blk[i])
+        # connectors for this pass
+        conns = [
+            (lo+int(0.08*G), lo+int(0.30*G)),
+            (lo+int(0.60*G), lo+int(0.92*G)),
+            (lo+int(0.26*G), lo+int(0.56*G)),
+            (lo+int(0.44*G), lo+int(0.78*G)),
+        ]
+        for L,R in conns:
+            if R> L: S.append((L,R))
+        return S
+
+    # first micro pass: shifted windows
+    w1 = [(0.15,0.25),(0.40,0.50),(0.65,0.75),(0.85,0.95)]
+    out1 = micro_pass(T, w1)
+    room = CAP - len(T)
+    if room>8:
+        T.extend(out1[:room])
+
+    if len(T) >= CAP - 20:
+        return T
+
+    # second micro pass: alternate windows
+    w2 = [(0.05,0.15),(0.30,0.40),(0.55,0.65),(0.80,0.90)]
+    out2 = micro_pass(T, w2)
+    room = CAP - len(T)
+    if room>8:
+        T.extend(out2[:room])
+
+    # final trim
+    if len(T) > CAP:
+        T = T[:CAP]
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    return construct_intervals()

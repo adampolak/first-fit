@@ -1,0 +1,38 @@
+<NAME>
+add_final_kt_cross4_connector
+</NAME>
+
+<DESCRIPTION>
+In the final KT-style round (round_idx == 5), we append an extra long-range “cross4” connector (from s0+4 to s3+4 scaled by delta). This additional distant connector increases FirstFit conflict pressure late in the spine without raising omega, helping to push FirstFit to use an extra color.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+=======
+    # connectors based on the active starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    # extra long-range connector in final KT round to boost FF pressure
+    if round_idx == 5:
+      S.append((delta * (s0 + 4), delta * (s3 + 4)))  # cross4 cap
+    T = S
+>>>>>>> REPLACE
+</DIFF>

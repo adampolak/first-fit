@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "construct_intervals.<locals>._final_long_connectors() got an unexpected keyword argument 'room'"
+}

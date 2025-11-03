@@ -1,0 +1,67 @@
+<NAME>
+rotating_spine_templates
+</NAME>
+
+<DESCRIPTION>
+Introduce a small bank of four start‐pattern templates and rotate among them each spine round. By breaking the rigid periodicity of the classic (2,6,10,14) pattern, we hope to diversify the overlap structure and force FirstFit into more new colors while keeping the clique number unchanged.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: Deterministic KT-style spine (no interleaving), 6 rounds, classic connectors.
+  spine_starts = (2, 6, 10, 14)
+=======
+  # Stage 1: Deterministic KT-style spine with rotating start patterns to diversify block interactions
+  templates = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (4, 8, 12, 16),
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(6):
+    # Compute span and delta
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Build four translated blocks
+    blocks = []
+    for s in spine_starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in T]
+      blocks.append(block)
+=======
+  for ridx in range(6):
+    # Compute span and delta
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Rotate start pattern and build four translated blocks
+    starts = templates[ridx % len(templates)]
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in T]
+      blocks.append(block)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = spine_starts
+=======
+    # Classic connectors (Figure 4 style), now using the rotated pattern
+    s0, s1, s2, s3 = starts
+>>>>>>> REPLACE
+</DIFF>

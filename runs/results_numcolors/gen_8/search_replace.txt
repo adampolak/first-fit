@@ -1,0 +1,43 @@
+<NAME>
+adaptive_wave_density_and_caps
+</NAME>
+
+<DESCRIPTION>
+Introduce an adaptive, density-increasing wave construction across rounds to push FirstFit towards using more colors while keeping the clique size (omega) small. In the first round we keep a compact core of translations; in subsequent rounds we add more translation starts to create additional, overlapping waves. Additionally, extend the local block insertions with a couple of small cap intervals to further inflate color usage without substantially increasing omega. This leverages the idea of injecting waves of short intervals that interact with multiple colors, a known tactic to raise FirstFit usage without exploding the clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Use a denser set of shifts each round to amplify FirstFit pressure
+    starts = [2, 4, 6, 8, 10, 12, 14, 16]
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # additional local blocks to create overlapping waves without increasing omega too much
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+=======
+    # Density-increasing starts: first round uses a core set, subsequent rounds add more starts
+    if round_idx == 0:
+      starts = [2, 4, 6, 8, 10, 12, 14, 16]
+    else:
+      starts = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28]
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # additional local blocks to create overlapping waves without increasing omega too much
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13),
+      # extra caps to push color usage further without bloating omega
+      (delta * 0.5, delta * 2.0),
+      (delta * 14.0, delta * 15.0)
+    ]
+    T = S
+>>>>>>> REPLACE
+</DIFF>

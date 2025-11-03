@@ -1,0 +1,168 @@
+<NAME>
+micro_phase_cross4_and_parity_interleave
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes aimed at increasing FirstFit’s color usage without raising the clique number beyond 10:
+
+1) Enable parity-based interleaving in the main KT spine:
+   - Interleave blocks on even rounds of the spine. This increases cross-block color coupling early and tends to raise FirstFit’s active palette while keeping omega controlled by the classic KT connectors.
+
+2) Strengthen the micro-phase connectors with a long-range cross4 and two inter-window bridges, while budget-adjusting the seed size:
+   - Add three additional micro connectors: a long-range cross4 and two bridges between adjacent micro windows. These provide extra coupling across the thin micro blocks.
+   - Adjust the thin seed size to reserve budget for the extra connectors so we do not exceed the CAP and avoid unintended trimming that might drop the new connectors.
+   - Keep connector placements strictly inside the global span and sparse enough to preserve omega ≤ 10.
+
+These modifications follow the heuristic recommendations: parity-based interleaving and stronger cross-scale coupling (cross4), improving FF pressure without inflating the clique, and staying within 9800 intervals.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Round-robin rotate among four strong templates to couple colors across scales
+    starts = template_bank[ridx % 4]
+    T = apply_round(T, starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Round-robin rotate among four strong templates to couple colors across scales
+    starts = template_bank[ridx % 4]
+    # Parity-based interleaving: even rounds interleave, odd rounds sequential
+    do_inter = (ridx % 2 == 0)
+    T = apply_round(T, starts, do_interleave=do_inter)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_micro_delta_round(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+
+    # Global span
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Sample a thin seed from current_T, evenly spaced to diversify structure.
+    # Keep it small and bounded by budget.
+    max_seed_by_budget = max(8, min(32, (budget - 4) // 4))
+    max_seed_by_len = max(8, len(current_T) // 300)
+    seed_sz = min(max_seed_by_budget, max_seed_by_len, 32)
+    seed_sz = max(8, seed_sz)
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Four windows across the global span (fractions chosen to stay well inside [glo, ghi])
+    # This emulates a small KT-like four-block round at a reduced scale.
+    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      win_hi = glo + int(round(fb * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave micro-blocks to maximize FF mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    micro.extend(connectors)
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+  def build_micro_delta_round(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+
+    # Global span
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # We plan to add 7 micro connectors:
+    #  - 2 caps (left/right)
+    #  - 2 crosses (cross1/cross2)
+    #  - 1 long-range cross4
+    #  - 2 short inter-window bridges
+    connectors_count = 7
+
+    # Sample a thin seed from current_T, evenly spaced to diversify structure.
+    # Keep it small and bounded by budget while reserving space for connectors.
+    max_seed_by_budget = max(8, min(32, max(0, (budget - connectors_count)) // 4))
+    max_seed_by_len = max(8, len(current_T) // 300)
+    seed_sz = min(max_seed_by_budget, max_seed_by_len, 32)
+    seed_sz = max(8, seed_sz)
+    # Final guard to ensure 4*seed_sz + connectors_count <= budget
+    if 4 * seed_sz + connectors_count > budget:
+      seed_sz = max(8, max(0, (budget - connectors_count)) // 4)
+
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Four windows across the global span (fractions chosen to stay well inside [glo, ghi])
+    # This emulates a small KT-like four-block round at a reduced scale.
+    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave micro-blocks to maximize FF mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      # Alternate interleaving direction by parity of i to diversify adjacency
+      order = range(len(blocks)) if (i % 2 == 0) else range(len(blocks) - 1, -1, -1)
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    # Added: long-range cross4 and two inter-window bridges to strengthen coupling.
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+      (glo + int(round(0.14 * G)), glo + int(round(0.86 * G))),  # cross4 (longer range)
+      (glo + int(round(0.22 * G)), glo + int(round(0.35 * G))),  # bridge between win1 and win2
+      (glo + int(round(0.68 * G)), glo + int(round(0.80 * G))),  # bridge between win3 and win4
+    ]
+    micro.extend([c for c in connectors if c[1] > c[0]])
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+</DIFF>

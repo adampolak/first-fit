@@ -1,0 +1,68 @@
+<NAME>enhance-spine-with-long-connector-and-expanded-template-bank</NAME>
+<DESCRIPTION>Expand the KT spine template bank to include two additional templates to improve color-mixing, and introduce an optional long-range connector to couple colors across the backbone. The changes are deterministic and CAP-guided to avoid omega blow-up. This should increase FirstFit pressure and potentially raise the combined score without increasing the clique number.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    template_bank = [
+        (2, 6, 10, 14),  # classic KT
+        (1, 5, 9, 13),   # left-shifted
+        (3, 7, 11, 15),  # right-shifted
+        (4, 8, 12, 16),  # stretched-right
+    ]
+=======
+    template_bank = [
+        (2, 6, 10, 14),  # classic KT
+        (1, 5, 9, 13),   # left-shifted
+        (3, 7, 11, 15),  # right-shifted
+        (4, 8, 12, 16),  # stretched-right
+        (2, 4, 8, 12),   # inner-compressed extension
+        (1, 7, 11, 15),  # wide-skew extension
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    BASE_SEED = 7  # small deterministic seed used to derive per-round mixing flags
+=======
+    BASE_SEED = 7  # small deterministic seed used to derive per-round mixing flags
+    LONG_CONNECTOR_ENABLED = True  # enable extra long-range connectors to boost FF pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def _svc_connectors(starts, delta):
+    """Produce four canonical connectors given the start-pattern and block delta."""
+    s0, s1, s2, s3 = starts
+    return [
+        ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+        ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+        ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+        ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+=======
+def _svc_connectors(starts, delta, long_range=False):
+    """Produce four canonical connectors given the start-pattern and block delta.
+    Optionally include a long-range connector to cross-scale coupling."""
+    s0, s1, s2, s3 = starts
+    con = [
+        ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+        ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+        ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+        ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    if long_range:
+        con.append(((s0 - 5) * delta, (s3 + 5) * delta))  # long-range connector
+    return con
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # append canonical connectors
+    S += _svc_connectors(starts, delta)
+=======
+    # append canonical connectors (with optional long-range connector)
+    S += _svc_connectors(starts, delta, long_range=LONG_CONNECTOR_ENABLED)
+>>>>>>> REPLACE
+</DIFF>

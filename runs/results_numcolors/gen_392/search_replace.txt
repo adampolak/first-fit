@@ -1,0 +1,204 @@
+edit_spine_and_micro_augmentations
+</NAME>
+
+<DESCRIPTION>
+Targeted, deterministic augmentations to the existing KT-style spine + micro-phase to increase FirstFit pressure while keeping the clique number controlled:
+
+1) Expand the template_bank with two additional deterministic templates (six-template rotation) to broaden cross-scale coupling.
+2) Add a small, CAP-aware long-range connector augmentation pass right after the main long caps are inserted. These deterministic connectors (quarter, midpoint, three-quarter, tail) tie distant color classes and are budget-gated.
+3) Add a tail micro-window (0.92–0.98) to the micro-phase primary windows to raise pressure near spine ends.
+4) Make phase2 micro-round selection CAP-aware when the user leaves phase2_iters==1: choose 0..2 deterministically based on remaining capacity (more room → more micro rounds).
+5) Add a small deterministic middle harmonization pass appended after the micro-phases: take a small sample from the 40–60% region, stagger and append copies (<=20 intervals) to increase late FF pressure without forming a large clique.
+
+All edits are minimal, deterministic, and capacity-guarded.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed-left (augment)
+    (3, 5, 9, 13),   # gentle-left (augment)
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  # Capacity-guarded insertion
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, caps[:room])
+
+  if len(T) >= CAP - 16:
+    return T
+=======
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  # Capacity-guarded insertion
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, caps[:room])
+
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 1.5: lightweight deterministic long-range connectors to tie distant regions.
+  # These are budget-guarded and chosen to increase FirstFit pressure without inflating omega.
+  room = CAP - len(T)
+  if room > 0:
+    glo = lo
+    ghi = hi
+    G = max(1, ghi - glo)
+    conn_fracs = [(0.25, 0.30), (0.48, 0.52), (0.70, 0.75), (0.92, 0.98)]
+    connectors = []
+    for (a_frac, b_frac) in conn_fracs:
+      a = glo + int(round(a_frac * G))
+      b = glo + int(round(b_frac * G))
+      if b > a:
+        connectors.append((a, b))
+    # Append only as many connectors as room allows (keeps omega small)
+    for c in connectors[:room]:
+      T.append(c)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      shift = (iter_id % 3) * 0.02
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+      ]
+      # Clamp windows inside (0.05, 0.95)
+      window_fracs = [
+        (max(0.05, min(0.90, a)), max(0.10, min(0.95, b)))
+        for (a, b) in window_fracs
+      ]
+=======
+      shift = (iter_id % 3) * 0.02
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+        (0.92 + shift, 0.98 + shift),  # added tail window to hit spine end regions
+      ]
+      # Clamp windows inside (0.05, 0.99) to allow tail window while avoiding exact endpoints
+      window_fracs = [
+        (max(0.05, min(0.95, a)), max(0.10, min(0.99, b)))
+        for (a, b) in window_fracs
+      ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+=======
+  # Execute up to two micro-rounds, capacity-guarded
+  # If the user left phase2_iters at the default (1) we choose 0..2 deterministically
+  # based on remaining capacity to use budget more effectively.
+  if phase2_iters == 1:
+    remaining = CAP - len(T)
+    if remaining < CAP * 0.05:
+      steps = 0
+    elif remaining < CAP * 0.25:
+      steps = 1
+    else:
+      steps = 2
+  else:
+    steps = min(max(0, int(phase2_iters)), 2)
+
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id, alt=False)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T)
+      if len(microB) > avail:
+        microB = microB[:avail]
+      T.extend(microB)
+
+  return T
+=======
+  # Secondary micro-phase with distinct windows to capture missed interactions
+  room = CAP - len(T)
+  if room > 8:
+    microB = build_micro_delta_round(T, room, iter_id=steps, alt=True)
+    if microB:
+      avail = CAP - len(T)
+      if len(microB) > avail:
+        microB = microB[:avail]
+      T.extend(microB)
+
+  # Small deterministic middle harmonization (staggered micro-copies).
+  # Purpose: slightly couple color classes in the middle 40-60% range without creating a large clique.
+  room = CAP - len(T)
+  if room > 0 and T:
+    glo = min(l for l, r in T)
+    ghi = max(r for l, r in T)
+    G = max(1, ghi - glo)
+    mid_lo = glo + int(round(0.40 * G))
+    mid_hi = glo + int(round(0.60 * G))
+    # Collect a deterministic sample of intervals whose left endpoint is in the middle region
+    candidates = [iv for iv in T if iv[0] >= mid_lo and iv[0] <= mid_hi]
+    sample = candidates[::max(1, max(1, len(candidates) // 10))][:20]
+    # Stagger and append (small positive shifts) to intersect many earlier colors but avoid stacking
+    shifts = [1 + (i % 3) for i in range(len(sample))]
+    harmonized = []
+    for (iv, sh) in zip(sample, shifts):
+      a = iv[0] + sh
+      b = iv[1] + sh
+      if b > a:
+        harmonized.append((a, b))
+    if harmonized:
+      if len(harmonized) > room:
+        harmonized = harmonized[:room]
+      T.extend(harmonized)
+
+  return T
+>>>>>>> REPLACE
+</DIFF>

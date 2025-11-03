@@ -1,0 +1,115 @@
+<NAME>
+tail_interleaved_microphases
+</NAME>
+
+<DESCRIPTION>
+I introduce a tail-interleaving mechanism for micro-phase intervals and retune the secondary micro-phase window set. The goal is to increase FirstFit’s color pressure without raising omega beyond 10 by improving arrival-order coupling: instead of appending micro intervals at the end, we deterministically intermix them near the tail of the main spine. This tends to expose many active colors simultaneously while avoiding creation of larger cliques. Concretely:
+
+- Add _insert_near_tail_stride to interleave an interval list into the tail region at a chosen stride.
+- Use this to insert both micro-phase A and B intervals near the tail (stride=3) rather than append.
+- Do the same for the final cross-scale connectors (stride=2).
+- Slightly enlarge the micro-phase seed and differentiate primary and alternate seed sizes to increase interactions while remaining conservative on omega.
+- Retune the alternate micro-phase windows to a tighter set [(0.16,0.26), (0.40,0.50), (0.62,0.72), (0.84,0.94)] inspired by recommended fractional windows, improving cross-layer coupling.
+
+These changes preserve the core KT backbone, keep the interval count under CAP, and emphasize arrival-order engineering (spine + tail injections) known to improve FirstFit usage without inflating the clique number. The modifications are targeted and deterministic, aiming to push the ratio beyond the current 2.30 tier.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+=======
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  def _insert_near_tail_stride(seq, intervals, stride=3):
+    """
+    Interleave 'intervals' into the tail of 'seq' at a fixed stride from the end.
+    This increases mixing with many active colors near the tail while controlling omega.
+    """
+    out = list(seq)
+    if stride <= 0:
+      stride = 1
+    pos = len(out) - 1
+    for iv in intervals:
+      if pos < 0:
+        pos = 0
+      out.insert(pos, iv)
+      pos -= stride
+    return out
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    else:
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+=======
+    else:
+      # Alternate micro-phase with a tighter, later-shifted window set to enhance coupling
+      window_fracs = [(0.16, 0.26), (0.40, 0.50), (0.62, 0.72), (0.84, 0.94)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    seed_sz = max(8, min(40, len(current_T) // 250))
+=======
+    # Slightly larger thin seed; alternate micro uses a tad smaller seed to diversify density
+    seed_sz = max(10, min(48, len(current_T) // (220 if not alt else 240)))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    if microA:
+      if len(microA) > room:
+        microA = microA[:room]
+      T.extend(microA)
+=======
+    if microA:
+      if len(microA) > room:
+        microA = microA[:room]
+      T = _insert_near_tail_stride(T, microA, stride=3)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T.extend(microB)
+=======
+    if microB:
+      if len(microB) > room:
+        microB = microB[:room]
+      T = _insert_near_tail_stride(T, microB, stride=3)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    if room < len(connectors2):
+      connectors2 = connectors2[:room]
+    T.extend(connectors2)
+=======
+    if room < len(connectors2):
+      connectors2 = connectors2[:room]
+    T = _insert_near_tail_stride(T, connectors2, stride=2)
+>>>>>>> REPLACE
+</DIFF>

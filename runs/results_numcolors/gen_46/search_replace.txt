@@ -1,0 +1,52 @@
+<NAME>
+rotate_start_patterns
+</NAME>
+
+<DESCRIPTION>
+Introduce rotation of translation-start patterns across the six rounds to disrupt repeating overlap structure and amplify FF pressure. We define four distinct start tuples and cycle through them by round index. Connectors are regenerated dynamically based on each round's starts instead of using fixed constants. This should increase FirstFit's color usage without raising the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  for _ in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+=======
+  # Cycle through multiple start-pattern templates to break periodic reuse
+  start_patterns = [(2, 6, 10, 14), (1, 5, 9, 13), (3, 7, 11, 15), (2, 4, 8, 12)]
+  T = [(0, 1)]
+  for round_idx in range(6):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # choose the start tuple for this round
+    starts = start_patterns[round_idx % len(start_patterns)]
+    # build translated copies
+    for start in starts:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # dynamic connectors based on the current starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+>>>>>>> REPLACE
+</DIFF>

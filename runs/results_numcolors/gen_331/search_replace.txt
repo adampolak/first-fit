@@ -1,0 +1,167 @@
+<NAME>
+edge_anchor_micro_mix
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes designed to increase FirstFit pressure without inflating the clique number beyond 10:
+
+1) Add sparse edge anchors before the long-cap micro-phase:
+   - Two extra “edge caps” are inserted near the edges of the global span (at roughly [0.05, 0.20] and [0.80, 0.95] fractions), placed near the end of the arrival order. These are positioned away from the most congested central region of the KT spine to avoid increasing omega, yet they still interact with many active colors late, which helps push FF to use additional colors.
+
+2) Enhance micro-phase interleaving and pins on the alternate pass:
+   - For the alternate micro-phase, I add a deterministic block order [0, 2, 1, 3] when the tag is even, to couple non-adjacent windows more effectively.
+   - I also add two tiny pins (very short intervals) at 0.14 and 0.86 span fractions on the alternate pass. These pins are designed to bump FF locally with negligible effect on omega because they are very short and placed away from the center.
+
+These edits are minimal, capacity-guarded, and keep the construction deterministic and compatible with the existing KT-style backbone. They aim to push the FF color count over the previous plateau while keeping the clique number stable.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  lo, hi, delta = _span_delta(T)
+  # Long caps positioned as fractions of the current span; ensure monotone endpoints.
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  # Capacity-guarded insertion
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, caps[:room])
+=======
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  lo, hi, delta = _span_delta(T)
+  # New: sparse edge anchors to couple colors without inflating omega
+  edge_caps = []
+  L1 = lo + max(1, int(round(0.05 * delta)))
+  R1 = lo + max(2, int(round(0.20 * delta)))
+  if R1 > L1:
+    edge_caps.append((L1, R1))
+  L2 = lo + max(1, int(round(0.80 * delta)))
+  R2 = lo + max(2, int(round(0.95 * delta)))
+  if R2 > L2:
+    edge_caps.append((L2, R2))
+  room = CAP - len(T)
+  if room > 0 and edge_caps:
+    T = _insert_near_tail(T, edge_caps[:room])
+
+  # Recompute span after edge anchors and place the main long caps
+  lo, hi, delta = _span_delta(T)
+  # Long caps positioned as fractions of the current span; ensure monotone endpoints.
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  # Capacity-guarded insertion
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, caps[:room])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Interleave micro-blocks (forward on even tag, reverse on odd tag)
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    block_order = list(range(len(blocks)))
+    tag = iter_id if not alt else (iter_id + 1)
+    if tag % 2 == 1:
+      block_order.reverse()
+    for i in range(maxlen):
+      for idx in block_order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add a longer-range cross4 only for the alternate micro-phase
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+    # Interleave micro-blocks (forward on even tag, reverse on odd tag)
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    block_order = list(range(len(blocks)))
+    tag = iter_id if not alt else (iter_id + 1)
+    if tag % 2 == 1:
+      block_order = list(reversed(block_order))
+    elif alt and len(block_order) == 4:
+      # Deterministic mixing to couple non-adjacent windows
+      block_order = [0, 2, 1, 3]
+    for i in range(maxlen):
+      for idx in block_order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add a longer-range cross4 only for the alternate micro-phase
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Add two tiny edge pins on alternate pass to raise FF without increasing omega
+    if alt:
+      eps = max(1, G // 512)
+      pin_positions = [0.14, 0.86]
+      for frac in pin_positions:
+        a = glo + int(round(frac * G))
+        b = a + eps
+        if b > a:
+          micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+</DIFF>

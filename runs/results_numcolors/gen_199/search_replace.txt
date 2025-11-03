@@ -1,0 +1,93 @@
+<NAME>
+add_final_spine_cross4_and_parabolic_micro</NAME>
+
+<DESCRIPTION>
+We enhance the spine by appending a long-range cross4 connector on the final spine round to further pressure FirstFit without increasing omega. Additionally, we insert a lightweight parabolic micro-phase immediately after the two delta2 micro-rounds, sprinkling a handful of long but safe parabolic caps to tie many active colors late in the presentation. These targeted changes aim to boost FF color count without crossing the capacity or inflating the maximum clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        S.extend(connectors)
+=======
+        connectors = [
+            ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+            ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+            ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+            ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+        ]
+        # On the final spine round, append a long-range cross4 to escalate FF pressure
+        if round_idx == depth - 1:
+            connectors.append(((s0 + 4) * delta, (s3 + 4) * delta))  # cross4
+        S.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    room = MAX_INTERVALS - len(T)
+    if room > 12:
+        budgetA = min(room // 2, 200)
+        microA = _build_micro_delta_round(T, budget=budgetA, iter_id=0, alt=False)
+        if microA:
+            avail = MAX_INTERVALS - len(T)
+            if len(microA) > avail:
+                microA = microA[:avail]
+            T.extend(microA)
+
+    room = MAX_INTERVALS - len(T)
+    if room > 12:
+        budgetB = min(room, 200)
+        microB = _build_micro_delta_round(T, budget=budgetB, iter_id=1, alt=True)
+        if microB:
+            avail = MAX_INTERVALS - len(T)
+            if len(microB) > avail:
+                microB = microB[:avail]
+            T.extend(microB)
+
+    # EXTRA PHASE: disabled when depth >= 6 (default); fallback if small depths are requested
+=======
+    room = MAX_INTERVALS - len(T)
+    if room > 12:
+        budgetA = min(room // 2, 200)
+        microA = _build_micro_delta_round(T, budget=budgetA, iter_id=0, alt=False)
+        if microA:
+            avail = MAX_INTERVALS - len(T)
+            if len(microA) > avail:
+                microA = microA[:avail]
+            T.extend(microA)
+
+    room = MAX_INTERVALS - len(T)
+    if room > 12:
+        budgetB = min(room, 200)
+        microB = _build_micro_delta_round(T, budget=budgetB, iter_id=1, alt=True)
+        if microB:
+            avail = MAX_INTERVALS - len(T)
+            if len(microB) > avail:
+                microB = microB[:avail]
+            T.extend(microB)
+
+    # Parabolic micro-phase for additional FF pressure
+    room = MAX_INTERVALS - len(T)
+    if room > 0:
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = max(1, hi - lo)
+        parabolic_fracs = [(0.1, 0.4), (0.3, 0.65), (0.5, 0.9)]
+        for fa, fb in parabolic_fracs:
+            if room <= 0:
+                break
+            L = lo + int(round(fa * delta))
+            R = lo + int(round(fb * delta))
+            if R > L:
+                T.append((L, R))
+                room -= 1
+
+    # EXTRA PHASE: disabled when depth >= 6 (default); fallback if small depths are requested
+>>>>>>> REPLACE
+</DIFF>

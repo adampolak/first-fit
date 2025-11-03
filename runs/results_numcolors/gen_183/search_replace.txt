@@ -1,0 +1,326 @@
+<NAME>
+cross4_plus_dual_micro
+</NAME>
+
+<DESCRIPTION>
+I add two targeted enhancements to increase FirstFit pressure without lifting the clique number notably:
+
+1) Cross4 connectors on the deepest spine rounds
+- I extend the classic four KT connectors with an optional long-range cross connector, enabled only in the last two spine rounds. This deterministic, capacity-safe addition strengthens cross-scale color coupling while preserving the low-omega spine. It is gated per-round via a new add_cross4 flag passed to apply_round and forwarded to the connector builder.
+
+2) A second, distinct delta2 micro-phase
+- After the existing thin micro-phase, I run an additional guarded micro-round with a different set of four fractional windows concentrated near the ends and mid-late sections: [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]. This provides late-stage FF pressure and complements the first micro-phase. For this second micro-phase I also add a single long-range fractional cross connector to further mix colors. All micro additions are budget-bound by CAP and thin-seeded to avoid omega blow-up.
+
+These changes implement recommendations to include explicit cross4 connectors and a second micro-phase with distinct windows, keeping the sequence under 10000 intervals. The edits are minimal and consistent with the existing structure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _append_connectors(S, starts, delta):
+    # Classic four connectors; preserves strong FF pressure while keeping omega modest.
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+=======
+  def _append_connectors(S, starts, delta, add_cross4=False):
+    # Classic four connectors; preserves strong FF pressure while keeping omega modest.
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+    # Optional long-range cross connector to couple distant blocks (final rounds only)
+    if add_cross4:
+      S.append(((s0 + 4) * delta, (s3 + 4) * delta))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Build S either interleaving or sequential
+    S = []
+    if do_interleave:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Append classic connectors
+    _append_connectors(S, starts, delta)
+    return S
+=======
+  def apply_round(current_T, starts, do_interleave=False, reverse_order=False, add_cross4=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Build S either interleaving or sequential
+    S = []
+    if do_interleave:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Append classic connectors (+ optional long-range cross4)
+    _append_connectors(S, starts, delta, add_cross4=add_cross4)
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev)
+=======
+  for ridx in range(depth):
+    starts = template_bank[ridx % len(template_bank)] if rotate_starts else spine_starts
+    # Even/odd interleaving policy; optionally reverse block order each round.
+    do_inter = bool(interleave_blocks and (ridx % 2 == 0))
+    rev = bool(reverse_block_parity and (ridx % 2 == 1))
+    # Enable a long-range cross connector only in the final two rounds to intensify color mixing
+    add_c4 = (ridx >= depth - 2)
+    T = apply_round(T, starts, do_interleave=do_inter, reverse_order=rev, add_cross4=add_c4)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_micro_delta_round(current_T, budget, iter_id=0):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed from current_T, evenly spaced.
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Slightly shift the window positions across iterations for diversification.
+    shift = (iter_id % 3) * 0.02
+    window_fracs = [
+      (0.12 + shift, 0.22 + shift),
+      (0.35 + shift, 0.45 + shift),
+      (0.58 + shift, 0.68 + shift),
+      (0.80 + shift, 0.90 + shift),
+    ]
+    # Clamp windows inside (0.05, 0.95)
+    window_fracs = [
+      (max(0.05, min(0.90, a)), max(0.10, min(0.95, b)))
+      for (a, b) in window_fracs
+    ]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Alternate internal reversal by block to break symmetry
+      if ((int(round(fa * 100)) // 5) + iter_id) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave micro-blocks (forward on even iter, reverse on odd iter)
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    block_order = list(range(len(blocks)))
+    if iter_id % 2 == 1:
+      block_order.reverse()
+    for i in range(maxlen):
+      for idx in block_order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+  def build_micro_delta_round(current_T, budget, iter_id=0, scheme=0):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed from current_T, evenly spaced.
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Choose window profile
+    if scheme == 1:
+      # Distinct late-stage window set to diversify FF pressure
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+    else:
+      # Slightly shift the window positions across iterations for diversification.
+      shift = (iter_id % 3) * 0.02
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+      ]
+    # Clamp windows inside (0.05, 0.95)
+    window_fracs = [
+      (max(0.05, min(0.90, a)), max(0.10, min(0.95, b)))
+      for (a, b) in window_fracs
+    ]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # Alternate internal reversal by block to break symmetry
+      if ((int(round(fa * 100)) // 5) + iter_id + scheme) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave micro-blocks (forward on even iter, reverse on odd iter)
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    block_order = list(range(len(blocks)))
+    if iter_id % 2 == 1:
+      block_order.reverse()
+    for i in range(maxlen):
+      for idx in block_order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    # Add a single long-range cross for the distinct scheme to enhance coupling
+    if scheme == 1:
+      micro_connectors.append((glo + int(round(0.12 * G)), glo + int(round(0.88 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  return T
+=======
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+  for iter_id in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room, iter_id=iter_id)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  # Additional guarded micro-phase with a distinct window profile (scheme=1)
+  room = CAP - len(T)
+  if room > 8:
+    micro2 = build_micro_delta_round(T, room, iter_id=steps, scheme=1)
+    if micro2:
+      avail = CAP - len(T)
+      if len(micro2) > avail:
+        micro2 = micro2[:avail]
+      T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE
+</DIFF>

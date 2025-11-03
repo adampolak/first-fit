@@ -1,0 +1,152 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+  """
+  Modular, safeguarded KT-spine with a clean two-phase workflow.
+
+  - Phase 1: Expand the Kierstead–Trotter spine using four translated blocks per round.
+  - Phase 2 (optional): Light micro-augmentation that adds sparse long caps without blowing omega.
+  - All steps keep total intervals under CAP (9800), and return a deterministic sequence.
+
+  Parameters:
+    rounds (int): desired expansion depth (cap-limited by CAP).
+    rotate_starts (bool): cycle through a bank of four-start templates.
+    reverse_block_parity (bool): optionally reverse every second block to diversify color usage.
+    interleave_blocks (bool): interleave blocks round-robin to maximize color mixing.
+    phase2_iters (int): number of guarded micro-phase iterations (default 1).
+
+  Returns:
+    intervals: list of (l, r) integer tuples, representing open intervals in FF order.
+  """
+
+  # Capacity cap to prevent excessive growth
+  CAP = 9800
+
+  # Template bank of four-start patterns (classic KT style plus variations)
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (2, 4, 8, 12),
+  ]
+
+  # Seed spine with a minimal unit interval
+  T = [(0, 1)]
+
+  # Helpers
+  def round_size(sz):
+    return 4 * sz + 4  # 4 copies + 4 connectors per round
+
+  # Determine safe depth under CAP
+  depth = 0
+  size_est = len(T)
+  while depth < max(0, int(rounds)):
+    nxt = round_size(size_est)
+    if nxt > CAP:
+      break
+    size_est = nxt
+    depth += 1
+
+  # Phase 1: build spine
+  for round_idx in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Choose starts for this round
+    if rotate_starts:
+      starts = template_bank[round_idx % len(template_bank)]
+    else:
+      starts = template_bank[0]
+
+    # Build four translated blocks
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base = s * delta - lo
+      block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+      block = [(l + base, r + base) for (l, r) in block_src]
+      blocks.append(block)
+
+    # Interleave blocks if requested
+    S = []
+    if interleave_blocks:
+      maxlen = max(len(b) for b in blocks)
+      order = list(range(len(blocks)))
+      krot = round_idx % len(order)
+      order = order[krot:] + order[:krot]
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # Connectors (KT-like anchors)
+    s0, s1, s2, s3 = starts[:4]
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    # Optional detoured neighbor-like connectors to slightly diversify color usage
+    for i in range(len(starts) - 1):
+      a = delta * (starts[i] + 0.5)
+      b = delta * (starts[i + 1] - 0.5)
+      connectors.append((a, b))
+
+    S.extend(connectors)
+    T = S
+
+  # Phase 2 (micro-phase): light, capacity-safe long caps
+  if phase2_iters and len(T) < CAP - 6:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 4)
+
+    micro_caps = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+    ]
+    # Guard against overshoot
+    room = CAP - len(T)
+    if room > 0:
+      micro_caps = micro_caps[:max(0, min(len(micro_caps), room))]
+      T.extend(micro_caps)
+
+  # Normalize to non-negative integers
+  if not T:
+    return []
+
+  min_l = min(l for l, r in T)
+  if min_l < 0:
+    T = [(l - min_l, r - min_l) for (l, r) in T]
+
+  # Final integer intervals
+  intervals = []
+  for (l, r) in T:
+    li = int(round(l))
+    ri = int(round(r))
+    if ri <= li:
+      ri = li + 1
+    intervals.append((li, ri))
+    if len(intervals) >= CAP:
+      break
+
+  return intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

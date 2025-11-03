@@ -1,0 +1,178 @@
+<NAME>
+rotating_spine_plus_third_micro
+</NAME>
+
+<DESCRIPTION>
+I introduce two synergistic changes aimed at increasing FirstFit pressure without increasing the clique number: (1) rotate the four-start spine template across rounds using the classic family {(2,6,10,14), (1,5,9,13), (3,7,11,15), (4,8,12,16)} to break spatial symmetry while preserving the Kierstead-Trotter connectors, and (2) enrich the micro-phase by (a) letting micro-rounds choose their start pattern from the same bank (rotating by round id), (b) allowing a tunable scale via a scale_div parameter so we can run two half-scale rounds and then a third quarter-scale round, and (c) adding a controlled long-range cross4 connector. This keeps omega stable while coupling colors across layers more strongly. The third micro-round uses a smaller scale to avoid span blow-up and stays within the capacity guard. These targeted edits follow the recursive and templated strategies observed to improve FF in literature and prior variants.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stable KT-spine start pattern (proven strong in prior runs)
+  spine_starts = [2, 6, 10, 14]
+=======
+  # Stable KT-spine start pattern (proven strong in prior runs)
+  spine_starts = [2, 6, 10, 14]
+  # Rotating spine templates to break symmetry without inflating omega
+  spine_templates = [
+    [2, 6, 10, 14],
+    [1, 5, 9, 13],
+    [3, 7, 11, 15],
+    [4, 8, 12, 16],
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Keep sequential order every round (disabling interleaving lowers omega)
+    T = apply_round(T, spine_starts, do_interleave=False)
+=======
+  for ridx in range(depth):
+    # Rotate start template each round; keep sequential order to avoid omega spikes
+    starts = spine_templates[ridx % len(spine_templates)]
+    T = apply_round(T, starts, do_interleave=False)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def micro_round(current_T, round_id, budget):
+=======
+  # Micro-phase start-pattern bank (shares the same four canonical templates)
+  micro_starts_bank = [
+    [2, 6, 10, 14],
+    [1, 5, 9, 13],
+    [3, 7, 11, 15],
+    [4, 8, 12, 16],
+  ]
+
+  def micro_round(current_T, round_id, budget, scale_div=2):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Use delta2 at half-scale to avoid expanding the global span too aggressively.
+    delta2 = max(1, G // 2)
+
+    # Thin seed: bounded and deterministic size to respect budget
+    # Keep micro blocks small: target at most ~ (budget//6) per block (four blocks + ~8 extras).
+    per_block_target = max(8, min(64, budget // 12))
+    U = thin_seed(current_T, per_block_target)
+
+    if not U:
+      return []
+
+    # Build four translated blocks using the same 4-start template,
+    # with deterministic parity-based interleaving policy:
+    # - Rounds with round_id % 2 == 0: forward interleave
+    # - Rounds with round_id % 2 == 1: reverse interleave
+    starts = spine_starts
+=======
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Use delta2 at a controlled reduced scale to avoid expanding the global span too aggressively.
+    delta2 = max(1, G // max(1, int(scale_div)))
+
+    # Thin seed: bounded and deterministic size to respect budget
+    # Keep micro blocks small: target at most ~ (budget//6) per block (four blocks + ~8 extras).
+    per_block_target = max(8, min(64, budget // 12))
+    U = thin_seed(current_T, per_block_target)
+
+    if not U:
+      return []
+
+    # Build four translated blocks using a rotating 4-start template,
+    # with deterministic parity-based interleaving policy:
+    # - Rounds with round_id % 2 == 0: forward interleave
+    # - Rounds with round_id % 2 == 1: reverse interleave
+    starts = micro_starts_bank[round_id % len(micro_starts_bank)]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    micro.extend(connectors)
+=======
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    # Additional controlled long-range connector to couple distant blocks
+    connectors.append(((s0 + 4) * delta2 + glo, (s3 + 4) * delta2 + glo))  # cross4
+    micro.extend(connectors)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+=======
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2), scale_div=2)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+=======
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining), scale_div=2)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  return T
+=======
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Optional third micro round at a finer scale to add late pressure within capacity
+  remaining = CAP - len(T)
+  mr3 = micro_round(T, round_id=2, budget=max(0, remaining), scale_div=4)
+  if mr3:
+    room = CAP - len(T)
+    if len(mr3) > room:
+      mr3 = mr3[:room]
+    T.extend(mr3)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

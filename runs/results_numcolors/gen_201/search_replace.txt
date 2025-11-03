@@ -1,0 +1,50 @@
+<NAME>
+enhance_micro_connectivity_and_enable_dual_micro</NAME>
+
+<DESCRIPTION>
+Increase FirstFit pressure by enriching the micro-phase with additional long-range connectors and inter-window bridges, and by invoking two micro-rounds plus the parabolic phase by default. We change `phase2_iters` default to 2 and turn on `enable_parabolic`, and extend the connector list in `build_micro_delta_round` to include a “cross4” and two “bridge” intervals, filtering out degenerate ones. This should boost FF color usage without growing ω beyond 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        enable_parabolic=False):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        enable_parabolic=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    micro.extend(connectors)
+=======
+    # Deterministic connectors and bridges across windows (enhanced coupling)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+      (glo + int(round(0.14 * G)), glo + int(round(0.86 * G))),  # cross4 long
+      (glo + int(round(0.22 * G)), glo + int(round(0.35 * G))),  # bridge 1-2
+      (glo + int(round(0.65 * G)), glo + int(round(0.90 * G))),  # bridge 3-4
+    ]
+    # Filter out degenerate connectors and extend micro-list
+    micro.extend([c for c in connectors if c[1] > c[0]])
+>>>>>>> REPLACE
+</DIFF>

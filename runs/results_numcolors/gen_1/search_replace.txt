@@ -1,0 +1,16 @@
+<NAME>
+deepen_recursive_figure4_to_6
+</NAME>
+
+<DESCRIPTION>
+I increase the depth of the recursive Figure 4 construction from 2 to 6 iterations. This preserves the same low-clique structure (omega stays 3 for this construction) while amplifying the number of colors FirstFit is forced to use. The idea, inspired by recursive adversarial constructions, is that each additional level couples colors across replicated blocks via the bridging intervals without increasing the maximum overlap. This should significantly raise the competitive ratio while staying under the 10,000-interval limit (6 levels yield 9,556 intervals).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(2):
+=======
+  for _ in range(6):
+>>>>>>> REPLACE
+
+</DIFF>

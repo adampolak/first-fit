@@ -1,0 +1,253 @@
+--- a/original.py
++++ b/original.py
+@@ -1,147 +1,162 @@
+ # EVOLVE-BLOCK-START
+ 
+-def construct_intervals(depth=3):
++def _max_depth_with_cap(cap, base_size=1, max_depth_cap=8):
+     """
+-    Hybrid rotated-interleaved Kierstead-Trotter inspired construction.
++    Compute the maximum usable depth given a cap on the total number of intervals.
++    Recurrence: size_{k+1} = 4*size_k + 4 with size_0 = base_size.
++    Returns the largest depth d such that size_d <= cap.
++    """
++    size = base_size
++    depth = 0
++    while depth < max_depth_cap:
++        next_size = size * 4 + 4
++        if next_size > cap:
++            break
++        size = next_size
++        depth += 1
++    return depth
+ 
+-    - Rotated four-block start patterns to vary overlap geometry across rounds.
+-    - Optional reversal of every other block to mix color usage.
+-    - Interleaving of intervals from different blocks so FirstFit sees
+-      many overlapping active colors and is forced to create new colors.
+-    - Connector "caps" that couple blocks without creating a large clique.
+-    - Micro-phase sprinkling of a few long sparse caps at the end to further
+-      stress FirstFit.
+-    - Integer arithmetic and adaptive depth limit to keep total intervals < 10000.
++def _build_rotated_blocks(T, delta, lo, starts, reverse_block_parity):
++    """
++    Build 4 translated blocks from T in a deterministic rotated pattern.
++    Each block is shifted by start*delta - lo, and every other block can be reversed
++    to disrupt color reuse and increase FF pressure.
++    Returns a list of 4 blocks, each a list of (l, r) pairs.
++    """
++    blocks = []
++    for b_idx, s in enumerate(starts):
++        block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
++        shift = s * delta - lo
++        block = [(l + shift, r + shift) for (l, r) in block_src]
++        blocks.append(block)
++    return blocks
+ 
+-    Parameters:
+-      depth (int): nominal recursion depth (default 3). If depth is too large,
+-                   it will be reduced to keep the total number of intervals
+-                   below a safety cap.
++def _interleave_blocks(blocks, round_idx, interleave=True):
++    """
++    Interleave blocks in a round-robin fashion to maximize cross-block overlap.
++    If interleave is False, concatenate blocks in order.
++    The visitation order is alternated every round to reduce predictable reuse.
++    """
++    if not interleave:
++        S = []
++        for blk in blocks:
++            S.extend(blk)
++        return S
+ 
+-    Returns: list of (l, r) integer tuples (open intervals) in presentation order.
++    maxlen = max(len(b) for b in blocks)
++    order = list(range(len(blocks)))
++    if round_idx % 2 == 1:
++        order = order[::-1]
++    S = []
++    for i in range(maxlen):
++        for idx in order:
++            blk = blocks[idx]
++            if i < len(blk):
++                S.append(blk[i])
++    return S
++
++def _add_connectors(S, starts, delta):
+     """
+-    depth = max(0, int(depth))
+-    # Safety cap: keep total intervals under this (a little under 10000).
+-    MAX_INTERVALS = 9800
++    Add the four deterministic connectors (caps) that couple blocks without
++    creating a large clique. The formulas mirror classic Figure-4 style patterns.
++    """
++    s0, s1, s2, s3 = starts
++    connectors = [
++        ((s0 - 1) * delta, (s1 - 1) * delta),
++        ((s2 + 2) * delta, (s3 + 2) * delta),
++        ((s0 + 2) * delta, (s2 - 1) * delta),
++        ((s1 + 2) * delta, (s3 - 1) * delta),
++    ]
++    S.extend(connectors)
+ 
+-    # Strategies / toggles (picked deterministically to combine the best parts)
+-    rotate_starts = True
+-    reverse_block_parity = True
+-    interleave_blocks = True
+-    micro_phase = True
++def _normalize_to_non_negative(intervals):
++    """
++    Shift all intervals so that the minimum left endpoint is non-negative.
++    Convert to integer endpoints to ensure clean presentation.
++    """
++    if not intervals:
++        return intervals
++    min_l = min(l for l, _ in intervals)
++    if min_l < 0:
++        intervals = [(l - min_l, r - min_l) for (l, r) in intervals]
++    return [(int(l), int(r)) for (l, r) in intervals]
+ 
+-    # A small cycle of start patterns (recover classical Figure 4 pattern
+-    # but rotate it across rounds to break periodicity).
++def construct_intervals(depth=3,
++                      cap=9800,
++                      rotate_starts=True,
++                      reverse_block_parity=True,
++                      interleave_blocks=True,
++                      phase2_micro=False):
++    """
++    Rotated four-block Kierstead–Trotter style expansion with deterministic connectors.
++    - depth: nominal recursion depth.
++    - cap: safety cap to keep total intervals under ~10k.
++    - rotate_starts: rotate the four-start pattern across rounds to vary geometry.
++    - reverse_block_parity: reverse every other block to mix color usage.
++    - interleave_blocks: interleave blocks in a round-robin fashion to increase FF pressure.
++    - phase2_micro: optionally sprinkle a tiny micro-phase of long sparse caps.
++    Returns a list of (l, r) integer tuples in FF presentation order.
++    """
++    # Cap the depth to avoid exceeding MAX_INTERVALS in worst-case growth
++    MAX_INTERVALS = cap
+     start_patterns = [
+         [2, 6, 10, 14],  # classic
+         [1, 5, 9, 13],   # left-shifted
+         [3, 7, 11, 15],  # right-shifted
+         [2, 4, 8, 12],   # compressed variant
+     ]
+ 
+-    # Base seed
++    # Estimate usable depth under cap
++    depth_eff = _max_depth_with_cap(cap, base_size=1, max_depth_cap=8)
++    depth_eff = min(depth_eff, max(0, int(depth)))
+     T = [(0, 1)]
+ 
+-    # Reduce the effective depth if the naive growth would exceed MAX_INTERVALS.
+-    # We approximate growth as size_{k+1} = 4*size_k + 4 (4 copies plus 4 connectors).
+-    allowed = 0
+-    size = 1
+-    while allowed < depth:
+-        next_size = size * 4 + 4
+-        if next_size > MAX_INTERVALS:
+-            break
+-        size = next_size
+-        allowed += 1
+-    depth = allowed
+-
+-    for round_idx in range(depth):
++    for round_idx in range(depth_eff):
+         lo = min(l for l, r in T)
+         hi = max(r for l, r in T)
+         delta = hi - lo
+         if delta <= 0:
+             delta = 1
+ 
+-        # Choose start pattern for this round
+         starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+ 
+-        # Build the four translated blocks (possibly reversing every other block).
+-        blocks = []
+-        for b_idx, s in enumerate(starts):
+-            block_src = T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T
+-            # Shift so that the leftmost point of this copy becomes s*delta.
+-            shift = s * delta - lo
+-            block = [(l + shift, r + shift) for (l, r) in block_src]
+-            blocks.append(block)
++        blocks = _build_rotated_blocks(T, delta, lo, starts, reverse_block_parity)
+ 
+-        # Interleave the blocks (round-robin) to present intervals from
+-        # different blocks in alternating order; this increases FirstFit pressure.
+-        S = []
+-        if interleave_blocks:
+-            maxlen = max(len(b) for b in blocks)
+-            order = list(range(len(blocks)))
+-            # alternate the block visitation order every other round
+-            if round_idx % 2 == 1:
+-                order = order[::-1]
+-            for i in range(maxlen):
+-                for idx in order:
+-                    blk = blocks[idx]
+-                    if i < len(blk):
+-                        S.append(blk[i])
+-        else:
+-            for blk in blocks:
+-                S.extend(blk)
++        S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+ 
+-        # Deterministic connector/cap formulas derived from chosen starts.
+-        # These link blocks without creating a large clique but propagate colors.
+-        s0, s1, s2, s3 = starts
+-        connectors = [
+-            ((s0 - 1) * delta, (s1 - 1) * delta),
+-            ((s2 + 2) * delta, (s3 + 2) * delta),
+-            ((s0 + 2) * delta, (s2 - 1) * delta),
+-            ((s1 + 2) * delta, (s3 - 1) * delta),
+-        ]
+-        S.extend(connectors)
++        _add_connectors(S, starts, delta)
+ 
+         T = S
+ 
+-    # Optional tiny second phase: sprinkle a few sparse long-range caps to
+-    # further stress FirstFit without blowing up the clique number or count.
+-    if micro_phase and len(T) + 8 <= MAX_INTERVALS:
++    # Optional tiny micro-phase
++    if phase2_micro and len(T) + 8 <= MAX_INTERVALS:
+         lo = min(l for l, r in T)
+         hi = max(r for l, r in T)
+         delta = max(1, hi - lo)
+         d2 = max(1, delta // 4)
+         micro = [
+             (lo + 1 * d2, lo + 5 * d2),
+             (hi - 6 * d2, hi - 2 * d2),
+             (lo + 3 * d2, lo + 8 * d2),
+             (hi - 8 * d2, hi - 3 * d2),
+         ]
+-        # Insert micro gadgets interleaved near the end to maximize pressure.
+-        # We insert them in alternating order to touch many active colors.
++        # sprinkle near the end, alternating to touch many active colors
+         for i, interval in enumerate(micro):
+             insert_pos = len(T) - (i * 2 + 1)
+             if insert_pos < 0:
+                 T.append(interval)
+             else:
+                 T.insert(insert_pos, interval)
+ 
+-    # Normalize coordinates to be non-negative integers (keeps presentation tidy).
+-    min_l = min(l for l, r in T)
+-    if min_l < 0:
+-        T = [(l - min_l, r - min_l) for l, r in T]
+-
+-    # Ensure integer endpoints
+-    intervals = [(int(l), int(r)) for l, r in T]
++    intervals = _normalize_to_non_negative(T)
+     return intervals
+-
+ 
+ def run_experiment(**kwargs):
+     """Main called by evaluator"""
+     return construct_intervals(**kwargs)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

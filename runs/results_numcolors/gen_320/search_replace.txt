@@ -1,0 +1,84 @@
+<NAME>
+enable_parabolic_and_phase2_boost
+</NAME>
+
+<DESCRIPTION>
+Enable the optional parabolic micro-phase by default and raise the default primary micro-phase iteration count to 3. This unlocks an extra late-stage pass of long-range caps, improving cross-scale coupling and FirstFit pressure without significantly inflating the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=2,
+                        enable_parabolic=False):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=3,
+                        enable_parabolic=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+increase_primary_micro_rounds
+</NAME>
+
+<DESCRIPTION>
+Relax the hard cap on primary delta2-driven micro-phase rounds from 2 up to 3, fully utilizing the increased `phase2_iters` to provide additional micro-phase density boosts.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute up to two micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 2)
+=======
+  # Execute up to three micro-rounds, capacity-guarded
+  steps = min(max(0, int(phase2_iters)), 3)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_mid_spine_splice
+</NAME>
+
+<DESCRIPTION>
+Insert a mid-spine splice immediately after the KT spine completes (but before Micro-phase A). We compute half-scale connectors based on the middle template round to tie early and late spine blocks, enhancing FirstFit difficulty through additional cross-scale overlaps without raising omega substantially.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if len(T) >= CAP - 8:
+    return T
+
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+=======
+  if len(T) >= CAP - 8:
+    return T
+
+  # Stage 1.5: mid-spine splice to couple early and late colors with half-scale connectors
+  if len(T) < CAP - 8 and depth > 3:
+    lo, hi, delta = _span_delta(T)
+    d2 = max(1, delta // 2)
+    # derive connectors from the middle template round
+    mids = template_bank[(depth // 2 - 1) % len(template_bank)]
+    s0, s1, s2, s3 = mids
+    splice = [
+      ((s0 - 1) * d2 + lo, (s1 - 1) * d2 + lo),
+      ((s2 + 2) * d2 + lo, (s3 + 2) * d2 + lo),
+      ((s0 + 2) * d2 + lo, (s2 - 1) * d2 + lo),
+    ]
+    for i, iv in enumerate(splice):
+      pos = len(T) - (i * 2 + 1)
+      if pos < 0:
+        T.append(iv)
+      else:
+        T.insert(pos, iv)
+
+  # Micro-phase A: insert a tiny tail of long caps near the end to boost FF mixing.
+>>>>>>> REPLACE
+</DIFF>

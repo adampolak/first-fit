@@ -1,0 +1,101 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(rounds=6, rotate_starts=True, reverse_block_parity=True, phase2_iters=0):
+  """
+  Deterministic rotated four-block Kierstead–Trotter style expansion.
+
+  Parameters:
+    rounds (int): main expansion depth; 6 yields ~9556 intervals (near cap).
+    rotate_starts (bool): rotate the four translated starts across rounds to disrupt
+                          repeating overlap patterns.
+    reverse_block_parity (bool): reverse the order of T for every odd block within a round.
+    phase2_iters (int): optional micro-scale follow-up iterations (kept 0 by default).
+
+  Returns:
+    intervals: list of (l, r) integer tuples, open intervals, in FF presentation order.
+  """
+
+  # Rotation cycle for the four translated copies per round.
+  # These are carefully chosen to preserve coupling while varying interactions:
+  start_patterns = [
+    [2, 6, 10, 14],  # classic
+    [1, 5, 9, 13],   # left-shifted
+    [3, 7, 11, 15],  # right-shifted
+    [2, 4, 8, 12],   # compressed left pair
+  ]
+
+  # Base seed (unit interval). Using 1 seed keeps growth within limit at 6 rounds.
+  T = [(0, 1)]
+
+  # Main deterministic rotated expansion
+  rounds = max(1, int(rounds))
+  for round_idx in range(rounds):
+    # Span of the current set
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo  # integer span
+
+    # Choose the starts for this round
+    if rotate_starts:
+      starts = start_patterns[round_idx % len(start_patterns)]
+    else:
+      starts = start_patterns[0]
+
+    S = []
+
+    # Clone 4 translated copies; optionally reverse every odd block to hinder FF reuse
+    for b_idx, s in enumerate(starts):
+      block = (T[::-1] if (reverse_block_parity and (b_idx % 2 == 1)) else T)
+      base = s * delta - lo
+      for (l, r) in block:
+        # All integer arithmetic to avoid FP artifacts
+        S.append((l + base, r + base))
+
+    # Deterministically computed connectors derived from the selected starts.
+    # Generic formulas that recover Figure 4 at starts=[2,6,10,14]:
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ( (s0 - 1) * delta, (s1 - 1) * delta ),  # left cap
+      ( (s2 + 2) * delta, (s3 + 2) * delta ),  # right cap
+      ( (s0 + 2) * delta, (s2 - 1) * delta ),  # cross 1
+      ( (s1 + 2) * delta, (s3 - 1) * delta ),  # cross 2
+    ]
+    # Append connectors in a color-chaining order
+    for (a, b) in connectors:
+      S.append((a, b))
+
+    # Extra micro connectors to intensify FirstFit pressure at this scale
+    d2 = max(1, delta // 4)
+    # local caps near current min and max to overlap multiple clones
+    S.append((lo + d2, lo + 4 * d2))
+    S.append((hi - 4 * d2, hi - d2))
+
+    T = S
+
+  # Optional tiny second phase (disabled by default to keep count near 9556)
+  # This can add sparse, long-range gadgets at a smaller scale without
+  # blowing up n or omega. Left here as deterministic, but phase2_iters=0 by default.
+  if phase2_iters > 0:
+    for k in range(phase2_iters):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      # Use a smaller subscale to sprinkle a few caps; keep them sparse.
+      d2 = max(1, delta // 4)
+      # Choose a rotating micro-template; keep count constant per phase.
+      micro = [
+        (lo + 1 * d2, lo + 5 * d2),
+        (hi - 6 * d2, hi - 2 * d2),
+        (lo + 3 * d2, lo + 8 * d2),
+        (hi - 8 * d2, hi - 3 * d2),
+      ]
+      # Order interleaved with existing to increase FF pressure slightly.
+      T.extend(micro)
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

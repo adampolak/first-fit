@@ -1,0 +1,73 @@
+<NAME>add_cross4_connector_in_stage1</NAME>
+
+<DESCRIPTION>
+Introduce a lightweight enhancement that occasionally injects a long-range cross4 connector in the last spine round to further increase FF color pressure without enlarging the omega (clique) beyond cap. This leverages the known technique of adding a single extra long-range link in the final stage to amplify color usage, inspired by cross-scale connectors in related literature. The change is implemented as an optional, deterministic feature controlled by a new cross4_enabled flag, preserving compatibility with existing configurations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1):
+=======
+def construct_intervals(rounds=6,
+                        rotate_starts=True,
+                        reverse_block_parity=True,
+                        interleave_blocks=True,
+                        phase2_iters=1,
+                        cross4_enabled=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def apply_round(current_T, starts, do_interleave=False):
+=======
+  def apply_round(current_T, starts, do_interleave=False, add_cross4=False):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Classic connectors that preserve the desired FF pressure without
+    # blowing up omega when used with spine_starts:
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),
+      ((s2 + 2) * delta, (s3 + 2) * delta),
+      ((s0 + 2) * delta, (s2 - 1) * delta),
+      ((s1 + 2) * delta, (s3 - 1) * delta),
+    ]
+    S.extend(connectors)
+    return S
+=======
+    # Classic connectors that preserve the desired FF pressure without
+    # blowing up omega when used with spine_starts:
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),
+      ((s2 + 2) * delta, (s3 + 2) * delta),
+      ((s0 + 2) * delta, (s2 - 1) * delta),
+      ((s1 + 2) * delta, (s3 - 1) * delta),
+    ]
+    if add_cross4:
+      connectors.append(((s0 + 4) * delta, (s3 + 4) * delta))  # long-range cross (final-round only)
+    S.extend(connectors)
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd rounds keep sequential order
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0))
+=======
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd rounds keep sequential order
+    add_cross4_flag = (ridx == depth - 1) and cross4_enabled
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0), add_cross4=add_cross4_flag)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,175 @@
+<NAME>
+rotate_spine_and_shift_capacity_to_windows
+</NAME>
+
+<DESCRIPTION>
+I introduce three coordinated changes inspired by strong constructions from the literature and prior 2.30-tier variants:
+
+1) Rotate the KT spine start templates across rounds instead of using a fixed (2,6,10,14). This couples colors across scales and tends to increase FF without inflating omega, matching the proven pattern in the 2.30 runs.
+
+2) Inject three long-range “tail caps” right after the spine. These caps are known to raise FF pressure while keeping the clique number under control by avoiding dense local stacks.
+
+3) Remove the heavier delta2 micro_round executions and reserve capacity for the fractional-window micro phases, which were the key effective component in previous best performers. This reallocates the CAP budget to the more impactful micro-window phases already present at the end of the program.
+
+Together these edits aim to push the FirstFit usage back up to 23 while preserving omega ≈ 10, improving the combined score under the CAP constraint.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  spine_starts = (2, 6, 10, 14)
+=======
+  # Use the classic fixed start-pattern to preserve strong KT coupling
+  spine_starts = (2, 6, 10, 14)
+  # Rotating template bank for the main KT spine (empirically strong)
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: six KT rounds, alternating interleaving to raise FF pressure
+  for ridx in range(6):
+    # Predict next size: size -> 4*size + 4; abort if it would exceed CAP
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    # Build four translated blocks
+    blocks = []
+    for start in spine_starts:
+      base = start * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in T])
+    # Interleave on even rounds, sequential on odd rounds
+    S = []
+    if ridx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+    # Classic connectors (Figure 4 style)
+    s0, s1, s2, s3 = spine_starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    T = S
+=======
+  # Stage 1: six KT rounds, alternating interleaving to raise FF pressure
+  for ridx in range(6):
+    # Predict next size: size -> 4*size + 4; abort if it would exceed CAP
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+    # Select rotating starts per round to enhance cross-scale coupling
+    starts = template_bank[ridx % len(template_bank)]
+    # Build four translated blocks
+    blocks = []
+    for start in starts:
+      base = start * delta - lo
+      blocks.append([(l + base, r + base) for (l, r) in T])
+    # Interleave on even rounds; on odd rounds, reverse block order (no interleave)
+    S = []
+    if ridx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in reversed(blocks):
+        S.extend(blk)
+    # Classic connectors (Figure 4 style) using the per-round starts
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    T = S
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # If we are already near the cap, return the strong baseline.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+=======
+  # If we are already near the cap, return the strong baseline.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Tail caps injection to boost FirstFit while keeping omega in check
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  span = max(1, hi - lo)
+  def _cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * span)))
+    R = lo + max(1, int(round(b_frac * span)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  for c in (_cap_at(0.08, 0.60), _cap_at(0.25, 0.75), _cap_at(0.75, 0.92)):
+    if len(T) >= CAP:
+      break
+    T.append(c)
+
+  # Stage 2: Guarded micro extension rounds (favor fractional-window phases).
+  # Goals:
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+=======
+  # Skip delta2 micro_rounds to reserve capacity for the fractional-window phases (empirically stronger)
+  # No-op here.
+>>>>>>> REPLACE
+
+</DIFF>

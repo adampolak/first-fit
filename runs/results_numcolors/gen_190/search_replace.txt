@@ -1,0 +1,290 @@
+<NAME>
+cross4_micro_center_windows
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes inspired by deterministic connector strategies and cross-scale coupling observed to increase FirstFit pressure without increasing the clique number:
+
+1) Add a long-range cross4 connector in the spine on the last two rounds. This couples colors across distant translated blocks at a late stage, improving FF mixing while avoiding early-span blowups that risk omega inflation. Implemented by adding an optional add_cross4 flag to the connector routine and enabling it for ridx >= 4 in the main spine loop.
+
+2) Enrich the micro-phase with a central window and an additional long-range connector across the span for both micro families. The extra center window (around 0.46–0.54) ties towers from the middle, and the cross4-like connector spans roughly 0.14 to 0.86 of the span. These alterations create more intersections among active colors late in the sequence without significantly altering omega.
+
+These changes keep the total under the CAP because micro-phase size adapts to the remaining budget. They aim to boost FF’s color usage beyond the previous 23 while preserving omega ≤ 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _append_connectors(S, starts, delta):
+  s0, s1, s2, s3 = starts
+  S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+  S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+  S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+  S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+
+def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+  lo, hi, delta = _span_delta(current_T)
+
+  # Build translated blocks from current_T
+  blocks = []
+  for s in starts:
+    base = s * delta - lo
+    block = [(l + base, r + base) for (l, r) in current_T]
+    blocks.append(block)
+
+  # Assemble S with optional interleaving and reverse order to mix colors
+  S = []
+  if do_interleave:
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(4))
+    if reverse_order:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+  else:
+    if reverse_order:
+      blocks = list(reversed(blocks))
+    for blk in blocks:
+      S.extend(blk)
+
+  # Classic connectors
+  _append_connectors(S, starts, delta)
+  return S
+=======
+def _append_connectors(S, starts, delta, add_cross4=False):
+  s0, s1, s2, s3 = starts
+  S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+  S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+  S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+  S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+  if add_cross4:
+    # Late-stage long-range cross; improves FF pressure without early omega inflation
+    S.append(((s0 + 4) * delta, (s3 + 4) * delta))  # cross4
+
+def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, add_cross4=False):
+  lo, hi, delta = _span_delta(current_T)
+
+  # Build translated blocks from current_T
+  blocks = []
+  for s in starts:
+    base = s * delta - lo
+    block = [(l + base, r + base) for (l, r) in current_T]
+    blocks.append(block)
+
+  # Assemble S with optional interleaving and reverse order to mix colors
+  S = []
+  if do_interleave:
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(4))
+    if reverse_order:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          S.append(blk[i])
+  else:
+    if reverse_order:
+      blocks = list(reversed(blocks))
+    for blk in blocks:
+      S.extend(blk)
+
+  # Classic connectors with optional long-range cross
+  _append_connectors(S, starts, delta, add_cross4=add_cross4)
+  return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 1: six KT rounds, alternating interleaving with reversed block order on odd rounds
+  for ridx in range(6):
+    starts = template_bank[ridx % len(template_bank)]
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    do_interleave = (ridx % 2 == 0)
+    reverse_order = (ridx % 2 == 1)
+    T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+=======
+  # Stage 1: six KT rounds, alternating interleaving with reversed block order on odd rounds
+  for ridx in range(6):
+    starts = template_bank[ridx % len(template_bank)]
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    do_interleave = (ridx % 2 == 0)
+    reverse_order = (ridx % 2 == 1)
+    # Enable cross4 only in the last two rounds to avoid early omega inflation
+    add_cross4 = (ridx >= 4)
+    T = _apply_round(T, starts, do_interleave=do_interleave, reverse_order=reverse_order, add_cross4=add_cross4)
+    if len(T) >= CAP:
+      T = T[:CAP]
+      return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_micro_delta_round(current_T, budget, iter_id=0, alt=False):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed (slightly larger for stronger mixing but bounded)
+    seed_sz = max(8, min(40, len(current_T) // 250))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Window families
+    if not alt:
+      shift = (iter_id % 3) * 0.02
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+      ]
+      window_fracs = [
+        (max(0.05, min(0.90, a)), max(0.10, min(0.95, b)))
+        for (a, b) in window_fracs
+      ]
+    else:
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+    # Build translated micro-blocks aligned to windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      tag = iter_id if not alt else (iter_id + 1)
+      if ((int(round(fa * 100)) // 5) + tag) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave micro-blocks with tag-dependent order
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    tag = iter_id if not alt else (iter_id + 1)
+    if tag % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Connectors at fractional span scale
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+  def build_micro_delta_round(current_T, budget, iter_id=0, alt=False):
+    if not current_T or budget <= 8:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed (slightly larger for stronger mixing but bounded)
+    seed_sz = max(8, min(40, len(current_T) // 250))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Window families (add a central window to increase cross-layer coupling)
+    if not alt:
+      shift = (iter_id % 3) * 0.02
+      window_fracs = [
+        (0.12 + shift, 0.22 + shift),
+        (0.35 + shift, 0.45 + shift),
+        (0.46 + shift, 0.54 + shift),  # new central window
+        (0.58 + shift, 0.68 + shift),
+        (0.80 + shift, 0.90 + shift),
+      ]
+      window_fracs = [
+        (max(0.05, min(0.90, a)), max(0.10, min(0.95, b)))
+        for (a, b) in window_fracs
+      ]
+    else:
+      window_fracs = [
+        (0.05, 0.15),
+        (0.28, 0.38),
+        (0.46, 0.54),  # central window for alternate family as well
+        (0.60, 0.70),
+        (0.82, 0.92),
+      ]
+
+    # Build translated micro-blocks aligned to windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      tag = iter_id if not alt else (iter_id + 1)
+      if ((int(round(fa * 100)) // 5) + tag) % 2 == 1:
+        block = list(reversed(block))
+      blocks.append(block)
+
+    # Interleave micro-blocks with tag-dependent order
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    tag = iter_id if not alt else (iter_id + 1)
+    if tag % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Connectors at fractional span scale (+ a long-range cross4-style connector)
+    micro_connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+      (glo + int(round(0.14 * G)), glo + int(round(0.86 * G))),  # long-range cross4
+    ]
+    if alt:
+      micro_connectors.append((glo + int(round(0.18 * G)), glo + int(round(0.84 * G))))
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+</DIFF>

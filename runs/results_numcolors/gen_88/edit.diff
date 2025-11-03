@@ -1,0 +1,191 @@
+--- a/original.py
++++ b/original.py
+@@ -1,158 +1,188 @@
+ # EVOLVE-BLOCK-START
+ 
+ def _normalize_to_int_intervals(intervals):
+     """Convert to non-negative integer endpoints with minimal adjustments."""
+     if not intervals:
+         return []
+     min_l = min(l for l, _ in intervals)
+     if min_l < 0:
+         intervals = [(l - min_l, r - min_l) for l, r in intervals]
+     # Ensure strictly positive span per interval
+     normalized = []
+     for (l, r) in intervals:
+         li = int(l)
+         ri = int(r)
+         if ri <= li:
+             ri = li + 1
+         normalized.append((li, ri))
+     return normalized
+ 
+ def _append_micro_phase(T, lo, hi, delta, max_extra):
+     """Append a small micro-phase at the end to sprinkle long caps, bounded by max_extra."""
+     if max_extra <= 0:
+         return T
+     d2 = max(1, delta // 4)
+     micro = [
+         (lo + 1 * d2, lo + 5 * d2),
+         (hi - 6 * d2, hi - 2 * d2),
+         (lo + 3 * d2, lo + 8 * d2),
+         (hi - 8 * d2, hi - 3 * d2),
+     ]
+     # insert near end to touch many active colors
+     for i, interval in enumerate(micro):
+         pos = len(T) - (i * 2 + 1)
+         if pos < 0:
+             T.append(interval)
+         else:
+             T.insert(pos, interval)
+     return T
+ 
+ def _make_blocks(T, starts, delta, lo, reverse_parity):
+     """Construct four translated blocks (with optional reversal)"""
+     blocks = []
+     for b_idx, s in enumerate(starts):
+         block_src = T[::-1] if (reverse_parity and (b_idx % 2 == 1)) else T
+         base = s * delta - lo
+         block = [(l + base, r + base) for (l, r) in block_src]
+         blocks.append(block)
+     return blocks
+ 
+ def _interleave_blocks(blocks, round_idx, interleave=True):
+     """Return an interleaved sequence of intervals from blocks; round-dependent order."""
+     if not interleave:
+         # flatten in block order
+         S = []
+         for blk in blocks:
+             S.extend(blk)
+         return S
+ 
+     maxlen = max((len(b) for b in blocks), default=0)
+     order = list(range(len(blocks)))
+     if round_idx % 2 == 1:
+         order = order[::-1]
+     # a subtle rotation to avoid stable overlap patterns
+     krot = round_idx % len(order)
+     order = order[krot:] + order[:krot]
+ 
+     S = []
+     for i in range(maxlen):
+         for idx in order:
+             blk = blocks[idx]
+             if i < len(blk):
+                 S.append(blk[i])
+     return S
+ 
+ def construct_intervals(depth=3):
+     """
+     Fractal KT-inspired construction with modular toggles.
+ 
+     Returns: list of (l, r) integer tuples representing open intervals.
+     """
+     # Global controls (deterministic toggles)
+     rotate_starts   = True
+     reverse_block_parity = True
+     interleave_blocks = True
+     micro_phase = True
+ 
+     # Start patterns (deterministic cycle)
+     start_patterns = [
+         [2, 6, 10, 14],  # classic four-block layout
+         [1, 5, 9, 13],   # left-shifted
+         [3, 7, 11, 15],  # right-shifted
+         [2, 4, 8, 12],   # compressed variant
+     ]
+ 
+     # Seed: a single unit interval; small to allow deeper rounds under cap
+     T = [(0, 1)]
+ 
+     MAX_INTERVALS = 9800  # safety cap
+ 
+     # Compute a safe depth given the MAX_INTERVALS budget
+     depth = max(0, int(depth))
+     allowed = 0
+     size = 1  # current number of intervals notionally
+     while allowed < depth:
+         next_size = size * 4 + 4  # 4 copies + 4 connectors (rough bound)
+         if next_size > MAX_INTERVALS:
+             break
+         size = next_size
+         allowed += 1
+     depth = allowed
+ 
+     for round_idx in range(depth):
+         lo = min(l for l, _ in T)
+         hi = max(r for _, r in T)
+         delta = hi - lo
+         if delta <= 0:
+             delta = 1
+ 
+         starts = start_patterns[round_idx % len(start_patterns)] if rotate_starts else start_patterns[0]
+ 
+         blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
+ 
+         S = _interleave_blocks(blocks, round_idx, interleave=interleave_blocks)
+ 
+         # Deterministic four-connectors (caps) derived from the first four starts
+         s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
+         connectors = [
+             ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+             ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+             ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+             ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+         ]
+         S.extend(connectors)
+ 
+         T = S
+ 
+     # Optional micro-phase sprinkled at end
+     if micro_phase and len(T) + 8 <= MAX_INTERVALS:
+         lo = min(l for l, _ in T)
+         hi = max(r for _, r in T)
+         delta = max(1, hi - lo)
+         T = _append_micro_phase(T, lo, hi, delta, max_extra=8)
+ 
+     # Normalize and convert to integers
+     intervals = _normalize_to_int_intervals(T)
+ 
++    # EXTRA PHASE: post-round two-phase expansion to strengthen FF pressure
++    EXTRA_ROUNDS = 2  # two additional post-rounds
++    if EXTRA_ROUNDS > 0:
++        for extra in range(EXTRA_ROUNDS):
++            lo = min(l for l, _ in T)
++            hi = max(r for _, r in T)
++            delta = hi - lo
++            if delta <= 0:
++                delta = 1
++            # Rotate starts more aggressively for extra phase
++            rot = (depth + extra) % len(start_patterns)
++            starts = start_patterns[rot]
++
++            blocks = _make_blocks(T, starts, delta, lo, reverse_block_parity)
++
++            S = _interleave_blocks(blocks, depth + extra, interleave=interleave_blocks)
++
++            # Deterministic connectors for extra phase (using a shuffled but deterministic mapping)
++            s0, s1, s2, s3 = starts[0], starts[1], starts[2], starts[3]
++            connectors = [
++                ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
++                ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
++                ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
++                ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
++            ]
++            S.extend(connectors)
++
++            T = S
++        intervals = _normalize_to_int_intervals(T)
++
+     return intervals
+ 
+ 
+ def run_experiment(**kwargs):
+     """Main called by evaluator"""
+     return construct_intervals(**kwargs)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

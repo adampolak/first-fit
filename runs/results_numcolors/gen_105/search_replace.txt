@@ -1,0 +1,73 @@
+<NAME>default_enable_interleaving_and_microphase</NAME>
+<DESCRIPTION>
+Enable interleaving of translated blocks and the micro‐phase by default. This increases cross‐block mixing and adds sparse long caps late in the sequence to push FirstFit to use more colors without raising the clique size significantly.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+                        interleave_blocks=False,
+                        micro_phase=False):
+=======
+                        interleave_blocks=True,
+                        micro_phase=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_cross3_connector</NAME>
+<DESCRIPTION>
+Introduce a third “cross” connector in each KT‐round to deepen overlap between distant blocks. This extra connector couples the first and fourth blocks at a larger offset, boosting FirstFit pressure while keeping ω controlled.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+=======
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+      ((s0 + 3) * delta, (s3 + 3) * delta),  # cross 3
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_center_micro_cap</NAME>
+<DESCRIPTION>
+Enhance the micro-phase by adding a third “center” cap around the midpoint of the span, coupling the mid-range intervals. Also adjust the capacity check to allow three micro caps instead of two.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  if micro_phase and T and len(T) + 2 <= CAP:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    span = max(1, hi - lo)
+    d2 = max(1, span // 3)
+
+    micro_caps = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+    ]
+    # Append near end to influence late FF without dense cliques
+    T.extend(micro_caps)
+=======
+  if micro_phase and T and len(T) + 3 <= CAP:
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    span = max(1, hi - lo)
+    d2 = max(1, span // 3)
+    center = lo + span // 2
+    width = max(1, span // 16)
+
+    micro_caps = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (center - width, center + width),  # center cap
+    ]
+    # Append near end to influence late FF without dense cliques
+    T.extend(micro_caps)
+>>>>>>> REPLACE
+</DIFF>

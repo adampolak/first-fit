@@ -1,0 +1,107 @@
+<NAME>
+internal_reversal_and_micro_comb
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted changes designed to increase FirstFit pressure while keeping the clique number modest:
+
+1) Alternate internal reversal inside KT translated blocks and use a nontrivial interleaving order [2,0,3,1]. This diversifies the arrival order across blocks, couples colors more aggressively, and is a classical trick to raise FF without inflating omega. The current implementation builds each block from current_T in the same order, which tends to preserve structure and limits pressure.
+
+2) Add a sparse “micro comb” of very short pins in the delta-scale micro-phase. These pins are placed at deterministic fractional positions and are short relative to the global span, so they avoid creating big cliques but act as blockers that hinder color reuse by FF. This keeps omega nearly unchanged while raising FF colors.
+
+Both edits are deterministic, capacity-guarded by the existing micro-phase budget, and do not introduce new parameters or external dependencies. They should lift the combined score beyond the current 2.30 baseline by squeezing additional colors from FirstFit.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _apply_kt_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks (integer arithmetic)
+    blocks = []
+    for s in starts:
+      base_off = s * delta - lo
+      block = [(l + base_off, r + base_off) for (l, r) in current_T]
+      blocks.append(block)
+
+    S = []
+    if do_interleave:
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    _append_kt_connectors(S, starts, delta, lo)
+    return S
+=======
+  def _apply_kt_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span_delta(current_T)
+
+    # Build four translated blocks with alternating internal reversal (increase mixing)
+    blocks = []
+    for b_idx, s in enumerate(starts):
+      base_off = s * delta - lo
+      src = current_T if (b_idx % 2 == 0) else list(reversed(current_T))
+      block = [(l + base_off, r + base_off) for (l, r) in src]
+      blocks.append(block)
+
+    S = []
+    if do_interleave:
+      # Nontrivial interleaving order to break symmetry
+      order = [2, 0, 3, 1]
+      if reverse_order:
+        order = list(reversed(order))
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    _append_kt_connectors(S, starts, delta, lo)
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+=======
+    for a, b in micro_connectors:
+      if b > a:
+        micro.append((a, b))
+
+    # Sparse micro-comb pins: very short blockers at deterministic fractional positions
+    eps = max(1, G // 640)
+    for frac in (0.19, 0.31, 0.47, 0.71, 0.83):
+      mid = glo + int(round(frac * G))
+      micro.append((mid, mid + eps))
+
+    # trim to budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+>>>>>>> REPLACE
+</DIFF>

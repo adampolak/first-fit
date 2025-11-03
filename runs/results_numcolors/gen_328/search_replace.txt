@@ -1,0 +1,62 @@
+<NAME>
+interleave_boost_alt_expansion
+</NAME>
+
+<DESCRIPTION>
+Always interleave spine blocks for maximal color mixing, adjust reverse parity for variation, increase spine‐density boost and densification seed sizes to amplify FirstFit pressure, and expand the alternate micro‐phase with a larger seed and an extra window to create more cross‐coupling without increasing omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Interleave on even rounds, reverse block order on odd rounds
+    do_inter = (ridx % 2 == 0)
+    rev = (ridx % 2 == 1)
+=======
+    # Always interleave to maximize mixing; vary reverse order every third round
+    do_inter = True
+    rev = (ridx % 3 == 0)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      # boost up to 5 intervals or 10% of current T, staying within capacity
+      boost = min(5, CAP - len(T), len(T) // 10)
+=======
+      # boost up to 10 intervals or 20% of current T, staying within capacity
+      boost = min(10, CAP - len(T), len(T) // 5)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Sample a small seed of intervals uniformly from the KT spine
+    stride = max(1, len(T) // 100)
+    seed = [T[i] for i in range(0, len(T), stride)][:10]
+=======
+    # Sample a larger seed of intervals uniformly from the KT spine
+    stride = max(1, len(T) // 100)
+    seed = [T[i] for i in range(0, len(T), stride)][:20]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    if alt:
+      seed_sz = max(8, min(40, len(current_T) // 250))
+=======
+    if alt:
+      seed_sz = max(8, min(48, len(current_T) // 250))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    else:
+      window_fracs = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+=======
+    else:
+      # expanded five-window family for alt-phase to increase cross-scale overlap
+      window_fracs = [(0.05, 0.15), (0.22, 0.32), (0.45, 0.55), (0.68, 0.78), (0.82, 0.92)]
+>>>>>>> REPLACE
+</DIFF>

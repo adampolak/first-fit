@@ -1,0 +1,176 @@
+<NAME>
+cap_margin_tail_caps_and_four_window_microphase
+</NAME>
+
+<DESCRIPTION>
+We add three coordinated improvements guided by online interval coloring heuristics to push FirstFit higher without increasing omega beyond 10:
+
+1) Introduce CAP_MARGIN and gate Stage 2 budgets to preserve deterministic headroom for extra micro-structure. This prevents late-stage overfilling that previously blocked beneficial micro-phases and helps avoid accidental omega spikes.
+
+2) Add a near-tail “long caps” micro-phase (three fractional-span caps) after the spine to couple colors across distant blocks. This mixes colors late in the order and increases FirstFit pressure without forming dense local cliques.
+
+3) Add a secondary, deterministic four-window micro-phase using a thin, evenly spaced seed and short “pin” connectors. These pins couple windows while keeping overlaps shallow, a known pattern that raises FirstFit but controls the clique number.
+
+We keep the existing KT-style spine and the delta2 micro-round intact (same connectors as before that already maintained OPT=10 in this codebase). The CAP_MARGIN gating ensures the new window micro-phase can run and the total stays under the hard CAP. This mirrors patterns that achieved competitive_ratio ≈ 2.30 in prior runs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+=======
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+  # Margin to retain headroom for micro-phases (prevents late omega spikes)
+  CAP_MARGIN = 32
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 2: delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard and keep OPT <= 10 by avoiding dense local overlaps.
+  remaining = CAP - len(T)
+  if remaining <= 16:
+    return T
+=======
+  # Stage 2: delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard and keep OPT <= 10 by avoiding dense local overlaps.
+
+  # Micro-phase A: insert three long caps near the tail to mix colors without spiking omega
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+
+  # Long caps positioned as fractions of the current span; endpoints are monotone.
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = max(1, hi - lo)
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  room = CAP - len(T)
+  if room > 0 and len(T) <= CAP - CAP_MARGIN:
+    to_add = caps[:min(len(caps), room)]
+    T = _insert_near_tail(T, to_add)
+
+  remaining = CAP - len(T)
+  if remaining <= CAP_MARGIN:
+    return T
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  return T
+=======
+  # Execute two micro rounds with strong guards (leave CAP_MARGIN for a window micro-phase)
+  remaining = CAP - len(T)
+  budget1 = max(0, remaining - CAP_MARGIN)
+  mr1 = micro_round(T, round_id=0, budget=max(0, budget1 // 2))
+  if mr1:
+    room = CAP - len(T) - CAP_MARGIN
+    room = max(0, room)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  budget2 = max(0, (CAP - len(T)) - CAP_MARGIN)
+  mr2 = micro_round(T, round_id=1, budget=budget2)
+  if mr2:
+    room = CAP - len(T) - CAP_MARGIN
+    room = max(0, room)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Secondary micro-phase: four-window thin-seed injection with short pins
+  room2 = CAP - len(T)
+  if room2 > CAP_MARGIN // 2:
+    glo2 = min(l for l, r in T)
+    ghi2 = max(r for l, r in T)
+    G2 = max(1, ghi2 - glo2)
+
+    # Even thinner seed to avoid omega spikes
+    seed_sz2 = max(8, min(24, len(T) // 400))
+    stride2 = max(1, len(T) // max(1, seed_sz2))
+    U2 = [T[i] for i in range(0, len(T), stride2)][:seed_sz2]
+
+    if U2:
+      ulo2 = min(l for l, r in U2)
+      windows2 = [(0.05, 0.15), (0.28, 0.38), (0.60, 0.70), (0.82, 0.92)]
+
+      blocks2 = []
+      for (fa, fb) in windows2:
+        win_lo2 = glo2 + int(round(fa * G2))
+        base2 = win_lo2 - ulo2
+        block2 = [(l + base2, r + base2) for (l, r) in U2]
+        # Alternate reversal on two windows to break symmetry
+        if int(round(fa * 100)) % 20 == 0:
+          block2 = list(reversed(block2))
+        blocks2.append(block2)
+
+      micro2 = []
+      if blocks2:
+        maxlen2 = max(len(b) for b in blocks2)
+        order2 = [3, 1, 0, 2]
+        for i in range(maxlen2):
+          for idx in order2:
+            blk = blocks2[idx]
+            if i < len(blk):
+              micro2.append(blk[i])
+
+      # Tiny pin connectors to couple windows without inflating omega
+      eps = max(1, G2 // 512)
+      for pf in (0.09, 0.33, 0.66, 0.87):
+        a = glo2 + int(round(pf * G2))
+        b = a + eps
+        if b > a:
+          micro2.append((a, b))
+
+      avail2 = CAP - len(T)
+      if avail2 > 0:
+        if len(micro2) > avail2:
+          micro2 = micro2[:avail2]
+        T.extend(micro2)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

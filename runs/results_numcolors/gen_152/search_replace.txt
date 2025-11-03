@@ -1,0 +1,174 @@
+<NAME>
+micro_phase_plus
+</NAME>
+
+<DESCRIPTION>
+I add a disciplined delta2 micro-phase after the six KT spine rounds, inspired by recursive windowed constructions in the literature that raise FirstFit without inflating the clique number. The micro-phase takes a thin, evenly-spaced seed from the current sequence, translates it into four staggered windows across the global span, interleaves them with parity, and appends a small set of long-range connectors (including a cross4) to enhance cross-scale color coupling.
+
+This targets the known heuristics: a modest micro-layer over a low-omega spine increases FF pressure, while thin seeds and window separation keep ω low. Capacity is strictly guarded with a small budget (<= 240). I kept the strong sequential KT spine intact, only adding this micro-phase and retaining the previous tiny micro-tail. I also added the micro-round helper definitions.
+
+These changes are consistent and minimal: no signature changes, preserve CAP, and maintain deterministic ordering. They aim to move competitive_ratio toward prior bests (~2.30) while staying within 10k intervals and keeping ω≈10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _append_micro_tail(T, max_extra=8):
+  """
+  Append a tiny tail of long caps near the end of T. This boosts FF late with minimal
+  impact on omega. Caps are inserted near the end (rather than simply appended) to
+  intersect many active colors while avoiding a single dense core.
+  """
+  if not T or max_extra <= 0:
+    return T
+  lo, hi, delta = _span_delta(T)
+  d2 = max(1, delta // 4)
+  # Symmetric, sparse long caps
+  micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+  ]
+  # Insert near the tail in a staggered fashion
+  for i, interval in enumerate(micro[:max_extra]):
+    pos = len(T) - (i * 2 + 1)
+    if pos < 0:
+      T.append(interval)
+    else:
+      T.insert(pos, interval)
+  return T
+=======
+def _append_micro_tail(T, max_extra=8):
+  """
+  Append a tiny tail of long caps near the end of T. This boosts FF late with minimal
+  impact on omega. Caps are inserted near the end (rather than simply appended) to
+  intersect many active colors while avoiding a single dense core.
+  """
+  if not T or max_extra <= 0:
+    return T
+  lo, hi, delta = _span_delta(T)
+  d2 = max(1, delta // 4)
+  # Symmetric, sparse long caps
+  micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+  ]
+  # Insert near the tail in a staggered fashion
+  for i, interval in enumerate(micro[:max_extra]):
+    pos = len(T) - (i * 2 + 1)
+    if pos < 0:
+      T.append(interval)
+    else:
+      T.insert(pos, interval)
+  return T
+
+def _thin_seed(current_T, max_seed):
+  """
+  Evenly spaced thin sampling of current_T of size <= max_seed.
+  """
+  n = len(current_T)
+  if n == 0 or max_seed <= 0:
+    return []
+  step = max(1, n // max_seed)
+  return current_T[::step][:max_seed]
+
+def _build_micro_delta_round(current_T, budget, iter_id=0):
+  """
+  Build a small delta2-style micro round:
+    - Take a thin seed from current_T,
+    - Translate it into four separated windows across the global span,
+    - Interleave blocks to diversify FF exposure,
+    - Add long-range connectors (including cross4).
+  Capacity-bounded by 'budget'.
+  """
+  if not current_T or budget <= 8:
+    return []
+
+  glo = min(l for l, _ in current_T)
+  ghi = max(r for _, r in current_T)
+  G = max(1, ghi - glo)
+
+  # Seed size: thin and bounded to keep omega modest
+  seed_sz = min(32, max(12, len(current_T) // 300))
+  U = _thin_seed(current_T, seed_sz)
+  if not U:
+    return []
+
+  ulo = min(l for l, _ in U)
+
+  # Four internal windows, safely inside [glo, ghi]
+  window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+  blocks = []
+  for (fa, fb) in window_fracs:
+    win_lo = glo + int(round(fa * G))
+    base = win_lo - ulo
+    block = [(l + base, r + base) for (l, r) in U]
+    blocks.append(block)
+
+  # Parity-based interleaving (even: forward, odd: reverse)
+  micro = []
+  maxlen = max(len(b) for b in blocks)
+  order = list(range(4)) if (iter_id % 2 == 0) else list(reversed(range(4)))
+  for i in range(maxlen):
+    for j in order:
+      blk = blocks[j]
+      if i < len(blk):
+        micro.append(blk[i])
+
+  # Fractional-span connectors (ensure r > l) including cross4
+  def fcap(a_frac, b_frac):
+    a = glo + int(round(a_frac * G))
+    b = glo + int(round(b_frac * G))
+    if b <= a:
+      b = a + 1
+    return (a, b)
+
+  connectors = [
+    fcap(0.08, 0.30),  # left cap
+    fcap(0.60, 0.92),  # right cap
+    fcap(0.26, 0.56),  # cross 1
+    fcap(0.44, 0.78),  # cross 2
+    fcap(0.10, 0.88),  # cross4 analogue
+  ]
+  micro.extend(connectors)
+
+  # Capacity trim
+  if len(micro) > budget:
+    micro = micro[:budget]
+  return micro
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Tiny micro tail: safe and capacity-bounded
+  room = CAP - len(T)
+  if room > 0:
+    # Insert at most 8 extras or available room, whichever is smaller
+    T = _append_micro_tail(T, max_extra=min(8, room))
+
+  return T
+=======
+  # Micro-phase: delta2-driven interleaved micro blocks with connectors (capacity-guarded)
+  room = CAP - len(T)
+  if room > 12:
+    micro_budget = min(room, 240)
+    micro = _build_micro_delta_round(T, micro_budget, iter_id=0)
+    if micro:
+      avail = CAP - len(T)
+      if len(micro) > avail:
+        micro = micro[:avail]
+      T.extend(micro)
+
+  # Tiny micro tail: safe and capacity-bounded
+  room = CAP - len(T)
+  if room > 0:
+    # Insert at most 8 extras or available room, whichever is smaller
+    T = _append_micro_tail(T, max_extra=min(8, room))
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

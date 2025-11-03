@@ -1,0 +1,68 @@
+<NAME>
+tail_caps_and_window_connectors
+</NAME>
+
+<DESCRIPTION>
+I introduce two targeted changes that have empirically yielded higher FirstFit pressure without increasing the clique number in KT-style recursive constructions:
+
+1) Tail long-range caps (Micro-phase A) inserted before the micro-rounds:
+   - Three carefully placed long intervals spanning fractional portions of the global span are inserted near the tail, not just appended. This late arrival-order placement tends to overlap a broad swath of active colors while avoiding mutual clique blow-up, boosting FF color usage by +1 in prior baselines. This mirrors the successful motif used in the stronger 2.30 runs.
+
+2) Window-phase connector set adjusted to a proven, low-omega, high-pressure configuration:
+   - Replace the four window-phase connectors with the fractional-span set {(0.08,0.30),(0.60,0.92),(0.26,0.56),(0.44,0.78)}. This set has worked best in earlier variants for pushing FF without inflating omega, aligning with classic cross/cap placements.
+
+These edits are conservative, capacity-guarded, and deterministic. They preserve the strong six-round KT spine and the existing micro-rounds while adding a minimal but effective tail gadget and a connector refinement. The combined effect is designed to recover and surpass the prior 2.20 run, aiming toward the earlier 2.30 performance without exceeding CAP or increasing OPT beyond 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Skip if near capacity.
+  if len(T) < CAP - 16:
+    def thin_seed(current_T, max_seed):
+=======
+  # Micro-phase A: insert three long-range caps near the tail to boost FF without raising omega.
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo if hi > lo else 1
+  def cap_at(a_frac, b_frac):
+    L = lo + max(1, int(round(a_frac * delta)))
+    R = lo + max(1, int(round(b_frac * delta)))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  caps = [cap_at(0.08, 0.60), cap_at(0.25, 0.75), cap_at(0.75, 0.92)]
+  if len(T) < CAP - 8:
+    out = list(T)
+    for i, cap in enumerate(caps):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(cap)
+      else:
+        out.insert(pos, cap)
+    T = out
+
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Skip if near capacity.
+  if len(T) < CAP - 16:
+    def thin_seed(current_T, max_seed):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        micro_connectors = [
+          (glo + int(round(0.18 * G)), glo + int(round(0.36 * G))),
+          (glo + int(round(0.40 * G)), glo + int(round(0.62 * G))),
+          (glo + int(round(0.66 * G)), glo + int(round(0.90 * G))),
+          (glo + int(round(0.24 * G)), glo + int(round(0.84 * G))),  # long cross
+        ]
+=======
+        micro_connectors = [
+          (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+          (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+          (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+          (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+        ]
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,43 @@
+<NAME>
+cross3_cross4_even_rounds
+</NAME>
+
+<DESCRIPTION>
+Add two extra long-range cross connectors (cross 3 and cross 4) on even spine rounds. These connectors span further scales (s0+3,s3+3 and s0+4,s3+4), coupling distant blocks and increasing FirstFit pressure without significantly raising the clique number. This should push FF to use more colors by creating new overlaps across layers.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # connectors based on per-round starts
+    s0, s1, s2, s3 = starts_r
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+=======
+    # connectors based on per-round starts
+    s0, s1, s2, s3 = starts_r
+    connectors = [
+      (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+      (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+      (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+      (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+    ]
+    # add extra long-range cross connectors on even rounds to boost FF mixing
+    if round_idx % 2 == 0:
+      connectors += [
+        (delta * (s0 + 3), delta * (s3 + 3)),  # cross 3
+        (delta * (s0 + 4), delta * (s3 + 4)),  # cross 4
+      ]
+    for a, b in connectors:
+      S.append((a, b))
+    T = S
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+>>>>>>> REPLACE
+</DIFF>

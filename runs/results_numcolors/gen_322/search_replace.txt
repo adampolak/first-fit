@@ -1,0 +1,33 @@
+<NAME>
+expand_template_bank
+</NAME>
+
+<DESCRIPTION>
+Expand the KT template bank from four to six templates by adding two auxiliary templates.
+This increases cross-scale template diversity (more varied block offsets across rounds),
+which helps FirstFit reuse fewer colors between rounds and tends to raise the online color count
+without materially increasing the clique number. This is a conservative, low-risk change
+that preserves all existing code structure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Four strong KT start templates (empirically best)
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  # Expanded KT start templates (added two aux templates to increase cross-scale mixing)
+  TEMPLATE_BANK = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # aux: compressed-left pair
+    (3, 5, 9, 13),   # aux: gentle-left pack
+  ]
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,236 @@
+--- a/original.py
++++ b/original.py
+@@ -1,107 +1,157 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(rounds=3):
+   """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it tends to maximize the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-  through a recursive wave construction.
++  Construct a sequence of open intervals presented to FirstFit that aims to
++  maximize FF colors used relative to the optimal (omega), using a deterministic
++  rotating multi-scale expansion.
+ 
+-  Improvements over the previous version:
+-  - start with multiple disjoint unit intervals to seed richer early overlaps
+-  - use a small bank of four-interval "templates" and pick a template per round
+-    (breaks strict self-similarity)
+-  - cycle through a list of start-patterns across rounds so translated copies
+-    land in different relative offsets each round
+-  - add sparse bridges across consecutive (and occasional second-next) blocks
+-    to couple colors with minimal omega growth
+-  - inject a small-scale gadget inside a middle block per round
+-    to create intra-block pressure without large cliques
+-  - use two interleaved cap families to increase FF pressure gently
+-  - default to 3 rounds to allow one more expansion (still modest total size)
++  Inputs:
++    - rounds: number of main-round expansions (default 3)
++
++  Returns:
++    - list of (l, r) tuples representing open intervals
+   """
+-  # seed with several disjoint unit intervals (keeps omega small but provides coupling)
++
++  # --------------- Tunable parameters (kept deterministic) ----------------
++  # Bridge: short connectors to couple colors across adjacent blocks
++  bridge_len_frac = 0.18     # length of bridge relative to delta
++  # Caps per round: tiny intervals that discourage color reuse
++  caps_per_round = 2
++  # Fine phase: small-scale expansion after main rounds
++  fine_phase_rounds = 1
++  fine_scale_div = 2.5       # delta2 = delta / fine_scale_div
++  # Micro-gadget scale inside a selected block
++  micro_scale = 1.0 / 16.0
++  # -----------------------------------------------------------------------
++
++  # Seed with multiple disjoint unit intervals to promote early diversity
+   T = [(0, 1), (2, 3), (4, 5), (6, 7)]
+ 
+-  # a small bank of four-interval templates (variants of the gadget)
++  # Four-interval gadget templates (A, B, C, D)
+   templates = [
+-    # template A: original pattern
+-    [(1, 5), (12, 16), (4, 9), (8, 13)],
+-    # template B: shifted variant
+-    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],
+-    # template C: tighter local overlaps
+-    [(1, 4), (6, 9), (3, 7), (9, 13)],
+-    # template D: staggered caps
+-    [(2, 6), (7, 11), (0, 3), (10, 14)]
++    [(1, 5), (12, 16), (4, 9), (8, 13)],        # A
++    [(0.5, 4.5), (11, 15), (3.5, 8.5), (7, 12)],# B
++    [(1, 4), (6, 9), (3, 7), (9, 13)],          # C
++    [(2, 6), (7, 11), (0, 3), (10, 14)],        # D
+   ]
+ 
+-  # a short deterministic cycle of start patterns (each element is a tuple/list of starts)
+-  start_patterns = [
+-    (2, 6, 10, 14),             # compact 4-wave pattern
+-    (2, 4, 6, 8, 10, 12, 14, 16),  # denser pattern
+-    (2, 5, 8, 11, 14, 17, 20),  # staggered 7-wave
++  # Rotating start patterns (Recommendation 1)
++  rotating_starts = [
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (2, 4, 8, 12),
+   ]
+ 
+-  for round_idx in range(rounds):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta = hi - lo
++  # Additional patterns to occasionally densify structure without blowup
++  extra_patterns = [
++    (2, 4, 6, 8, 10, 12),   # moderate 6-wave
++    (2, 5, 8, 11, 14),      # staggered 5-wave
++  ]
++
++  def span_of(intervals):
++    lo = min(l for l, r in intervals)
++    hi = max(r for l, r in intervals)
++    return lo, hi, max(hi - lo, 1.0)
++
++  # Main rounds
++  for rd in range(max(1, int(rounds))):
++    lo, hi, delta = span_of(T)
+     S = []
+ 
+-    # choose start pattern and template deterministically based on round index
+-    starts = list(start_patterns[round_idx % len(start_patterns)])
+-    template = templates[round_idx % len(templates)]
++    # Choose starts: rotate primary, then inject an extra pattern every 2 rounds
++    base_starts = list(rotating_starts[rd % len(rotating_starts)])
++    if rd % 2 == 1:
++      base_starts = list(extra_patterns[(rd // 2) % len(extra_patterns)])
+ 
+-    # vary the inner order of clones to make FirstFit reuse harder
+-    for idx, start in enumerate(starts):
+-      if idx % 2 == 0:
+-        base = T
+-      else:
+-        base = list(reversed(T))
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in base]
++    # Select a template (cycle)
++    template = templates[rd % len(templates)]
+ 
+-      # bridges to couple adjacent (and occasional second-next) blocks
+-      if idx + 1 < len(starts):
+-        nxt = starts[idx + 1]
+-        S.append((delta * (start + 0.35), delta * (nxt + 0.65)))
+-      if (round_idx % 2 == 0) and (idx + 2 < len(starts)):
+-        nxt2 = starts[idx + 2]
+-        S.append((delta * (start + 0.75), delta * (nxt2 + 0.25)))
++    # Decide block order to break inner symmetry
++    if rd % 3 == 0:
++      block_order = base_starts
++    elif rd % 3 == 1:
++      block_order = list(reversed(base_starts))
++    else:
++      block_order = base_starts[1:] + base_starts[:1]
+ 
+-    # place the chosen template intervals scaled by delta
++    # Clone translated copies with alternating inner order
++    for bi, st in enumerate(block_order):
++      base = T if ((rd + bi) % 2 == 0) else list(reversed(T))
++      base_off = delta * st - lo
++      for (l, r) in base:
++        S.append((l + base_off, r + base_off))
++
++      # Short bridge to next block
++      if bi + 1 < len(block_order):
++        nxt = block_order[bi + 1]
++        b_lo = delta * (st + 0.35)
++        b_hi = b_lo + max(delta * bridge_len_frac, 0.5)
++        S.append((b_lo, b_hi))
++
++    # Place gadget template scaled by delta
+     S += [(delta * a, delta * b) for (a, b) in template]
+ 
+-    # micro-gadget: scaled gadget injected inside the middle block to raise FF
+-    anchor = starts[len(starts) // 2]
+-    micro_template = templates[(round_idx + 1) % len(templates)]
+-    S += [(delta * (anchor + a / 16.0), delta * (anchor + b / 16.0)) for (a, b) in micro_template]
++    # Micro-gadget injected inside a middle block
++    mid = block_order[len(block_order) // 2]
++    micro_t = templates[(rd + 1) % len(templates)]
++    for (a, b) in micro_t:
++      S.append((delta * (mid + micro_scale * a), delta * (mid + micro_scale * b)))
+ 
+-    # add dual sparse cap families to couple colors without large omega
+-    max_start = max(starts)
+-    step = max(2, int(max_start // 5))
+-    for j in range(2, max_start, step):
+-      S.append((delta * (j - 0.6), delta * (j + 0.6)))
+-    for j in range(3, max_start, step + 1):
+-      S.append((delta * (j - 0.2), delta * (j + 1.8)))
++    # Sparse towers: couple across two adjacent blocks without raising omega too much
++    for bi in range(len(block_order) - 1):
++      st = block_order[bi]
++      # three staggered layers spanning < 2 blocks
++      for layer in range(3):
++        off = 0.18 * layer
++        t_lo = delta * (st + 0.22 + off)
++        t_hi = delta * (st + 1.92 + off)
++        if t_hi > t_lo:
++          S.append((t_lo, t_hi))
++
++    # Tiny caps to nudge FF
++    max_start = max(block_order) if block_order else 2
++    positions = [int(max_start * (i + 1) / (caps_per_round + 1)) for i in range(caps_per_round)]
++    for pos in positions:
++      c_lo = delta * (pos + 0.12)
++      c_hi = c_lo + max(0.07 * delta, 0.4)
++      S.append((c_lo, c_hi))
+ 
+     T = S
+ 
++  # Fine-scale second phase (Recommendation 3)
++  if fine_phase_rounds > 0 and len(T) > 0:
++    lo, hi, delta = span_of(T)
++    delta2 = max(1.0, delta / fine_scale_div)
++
++    # Use a compact 3-wave fine pattern to avoid blowup
++    fine_patterns = [(1, 4, 7), (2, 5, 8)]
++    for fp in range(fine_phase_rounds):
++      starts = list(fine_patterns[fp % len(fine_patterns)])
++      S = []
++      for bi, st in enumerate(starts):
++        # scale down T into the fine blocks (keep topology, reduce span)
++        base_off = delta2 * st - lo
++        # linear map: x -> (x - lo) * (delta2 / delta) + base_off
++        scale = (delta2 / delta)
++        base = T if ((fp + bi) % 2 == 0) else list(reversed(T))
++        for (l, r) in base:
++          S.append(( (l - lo) * scale + base_off, (r - lo) * scale + base_off ))
++        # tiny bridge inside fine scale
++        if bi + 1 < len(starts):
++          b_lo = delta2 * (st + 0.33)
++          b_hi = b_lo + max(0.05 * delta2, 0.25)
++          S.append((b_lo, b_hi))
++
++      # cap-coupler tying ends within fine scale
++      S.append((delta2 * (starts[0] + 0.4), delta2 * (starts[-1] - 0.4)))
++      T = S
++
+   return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

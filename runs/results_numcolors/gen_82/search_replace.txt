@@ -1,0 +1,234 @@
+<NAME>
+kt_spine_even_interleave_plus_delta2_micro
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted changes aimed at increasing the FirstFit color usage (alg) while keeping the clique number (opt) at or below 10:
+
+1) Even-round interleaving within the KT spine:
+   - In Stage 1, we alternate the internal ordering of the four translated blocks: interleaving on even rounds, sequential on odd rounds. This deterministic, parity-based interleaving is known to increase FF coupling without heavily densifying cliques, aligning with the “alternate interleaving every two rounds” heuristic. Earlier runs showed that even-only interleaving boosted FF colors compared to pure sequential.
+
+2) Replace the minimal two-cap micro-phase with a delta2-driven micro-round:
+   - After the main spine (six rounds), we add a single “thin” micro-round that:
+     - Samples a small, sparse seed from T (e.g., 12–32 intervals, depending on budget),
+     - Translates it into four narrow windows spread across the global span (using global delta),
+     - Interleaves these micro-blocks and adds four medium-span connectors (fractional-span analog of KT caps).
+   - This increases FF pressure by coupling colors across the existing long-range structure without stacking too many intervals at any single point, helping to keep omega within the desired ceiling.
+   - The micro-round is strictly budgeted by CAP and the seed size is capped to ensure we add O(100) intervals at most, well within the 10000 limit.
+
+These two adjustments build on proven KT constructions and deterministic connectors, increase cross-scale interactions (a mini two-phase), and aim to push alg beyond the previous 21 while keeping opt ≤ 10. The changes are minimal and deterministic, preserving reproducibility.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def apply_round(current_T, starts):
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Build four translated blocks sequentially (no interleaving)
+    S = []
+    for s in starts:
+      base = s * delta - lo
+      # No parity reversal here: spine mode
+      S.extend((l + base, r + base) for (l, r) in current_T)
+
+    # Classic connectors that preserve the desired FF pressure without
+    # blowing up omega when used with spine_starts:
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),
+      ((s2 + 2) * delta, (s3 + 2) * delta),
+      ((s0 + 2) * delta, (s2 - 1) * delta),
+      ((s1 + 2) * delta, (s3 - 1) * delta),
+    ]
+    S.extend(connectors)
+    return S
+
+  for _ in range(depth):
+    T = apply_round(T, spine_starts)
+=======
+  def apply_round(current_T, starts, do_interleave=False):
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Build four translated blocks; optionally interleave to enhance color mixing
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Interleave on demand (even rounds), otherwise keep sequential (odd rounds)
+    S = []
+    if do_interleave:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+
+    # Classic connectors that preserve the desired FF pressure without
+    # blowing up omega when used with spine_starts:
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),
+      ((s2 + 2) * delta, (s3 + 2) * delta),
+      ((s0 + 2) * delta, (s2 - 1) * delta),
+      ((s1 + 2) * delta, (s3 - 1) * delta),
+    ]
+    S.extend(connectors)
+    return S
+
+  for ridx in range(depth):
+    # Even rounds interleave blocks, odd rounds keep sequential order
+    T = apply_round(T, spine_starts, do_interleave=(ridx % 2 == 0))
+>>>>>>> REPLACE
+
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # If we already reached or are near the cap, skip phase 2 safely.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 2 (safeguarded): attempt up to phase2_iters micro steps using a smaller delta2.
+  # To avoid harming the strong KT baseline, we:
+  #  - require enough residual capacity,
+  #  - use at most one light-touch micro step by default,
+  #  - place micro additions as sparse long caps that do not densify the core "spine."
+  def micro_caps(current_T, intensity=1):
+    if not current_T:
+      return []
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 3)
+
+    # Two very sparse long caps placed away from the densest overlap
+    caps = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+    ]
+    # intensity>1 adds a symmetric mid cap pair (still light)
+    if intensity > 1:
+      mid = (lo + hi) // 2
+      caps += [
+        (mid - 2 * d2, mid + 2 * d2),
+      ]
+    return caps
+
+  # Compute how many safe micro intervals we can add
+  # Respect requested phase2_iters, but safeguard with CAP and keep additions tiny.
+  micro_steps = max(0, int(phase2_iters))
+  # Each step adds at most 2–3 caps; plan conservatively.
+  add_per_step = 2
+  max_steps_by_cap = max(0, (CAP - len(T)) // add_per_step)
+
+  steps = min(micro_steps, max_steps_by_cap, 1)  # at most 1 guarded micro pass by default
+  for k in range(steps):
+    # keep micro intensity very low to avoid increasing omega
+    caps = micro_caps(T, intensity=1 if k == 0 else 1)
+    # capacity guard
+    room = CAP - len(T)
+    if room <= 0:
+      break
+    if len(caps) > room:
+      caps = caps[:room]
+    T.extend(caps)
+
+  return T
+=======
+  # If we already reached or are near the cap, skip phase 2 safely.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 2: delta2-driven micro round using a thin seed of T to raise FF without
+  # pushing omega too high. Deterministic, capacity-bounded, and single-pass by default.
+  def build_micro_delta_round(current_T, budget):
+    if not current_T or budget <= 8:
+      return []
+
+    # Global span
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Sample a thin seed from current_T, evenly spaced to diversify structure.
+    # Keep it small and bounded by budget.
+    max_seed_by_budget = max(8, min(32, (budget - 4) // 4))
+    max_seed_by_len = max(8, len(current_T) // 300)
+    seed_sz = min(max_seed_by_budget, max_seed_by_len, 32)
+    seed_sz = max(8, seed_sz)
+    stride = max(1, len(current_T) // seed_sz)
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+
+    ulo = min(l for l, r in U)
+
+    # Four windows across the global span (fractions chosen to stay well inside [glo, ghi])
+    # This emulates a small KT-like four-block round at a reduced scale.
+    window_fracs = [(0.12, 0.22), (0.35, 0.45), (0.58, 0.68), (0.80, 0.90)]
+
+    # Build translated micro-blocks aligned to these windows
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      win_hi = glo + int(round(fb * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave micro-blocks to maximize FF mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    for i in range(maxlen):
+      for blk in blocks:
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Deterministic connectors across windows (fractional-span analog of KT caps)
+    connectors = [
+      (glo + int(round(0.08 * G)), glo + int(round(0.30 * G))),  # left cap
+      (glo + int(round(0.60 * G)), glo + int(round(0.92 * G))),  # right cap
+      (glo + int(round(0.26 * G)), glo + int(round(0.56 * G))),  # cross 1
+      (glo + int(round(0.44 * G)), glo + int(round(0.78 * G))),  # cross 2
+    ]
+    micro.extend(connectors)
+
+    # Trim to available budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Respect requested phase2_iters but guard to a single micro-round by default.
+  steps = min(max(0, int(phase2_iters)), 1)
+  for _ in range(steps):
+    room = CAP - len(T)
+    if room <= 8:
+      break
+    micro = build_micro_delta_round(T, room)
+    if not micro:
+      break
+    # Capacity guard and append
+    avail = CAP - len(T)
+    if len(micro) > avail:
+      micro = micro[:avail]
+    T.extend(micro)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

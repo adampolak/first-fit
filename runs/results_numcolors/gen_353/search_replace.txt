@@ -1,0 +1,51 @@
+<NAME>
+extended_template_bank
+</NAME>
+<DESCRIPTION>
+Expand the KT spine’s rotating-template bank from 4 to 6 patterns by adding two auxiliary start-templates. This increases backbone diversity and cross-scale color mixing without raising the clique number, leveraging proven auxiliary templates to strengthen FirstFit pressure.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  # Rotated start templates (empirically strong)
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+  ]
+=======
+  # Rotated start templates (empirically strong)
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # stretched-right
+    (2, 4, 8, 12),   # compressed-block
+    (3, 5, 9, 13),   # gentle-pack
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+post_tail_long_range_caps
+</NAME>
+<DESCRIPTION>
+After injecting the near-tail caps, append two additional long-range connectors spanning almost the full current span. These post-tail caps further couple many active colors at the end of the spine, coercing FirstFit into higher color usage without significantly increasing ω.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, tail_caps[:room])
+=======
+  room = CAP - len(T)
+  if room > 0:
+    T = _insert_near_tail(T, tail_caps[:room])
+
+  # Post-tail long-range caps to further couple active colors
+  post_caps = [cap_at(0.02, 0.98), cap_at(0.15, 0.85)]
+  for c in post_caps:
+    if len(T) < CAP:
+      T.append(c)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,112 @@
+<NAME>deterministic_seed_and_optional_microphase_v2</NAME>
+
+<DESCRIPTION>
+Introduce a deterministic per-round seeding mechanism to select the KT spine starts, ensuring reproducibility while still allowing exploration of more diverse backbone configurations. Also add an optional tiny parabolic-like microphase that can be toggled via the enable_alt_microphase flag. This microphase injects a small, controlled set of extra intervals on top of the backbone without increasing omega beyond CAP. The change is designed to be additive and backward-compatible when the flag is not set.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(enable_alt_microphase=False):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+=======
+def construct_intervals(enable_alt_microphase=False):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
++  # Deterministic per-round seeding to vary backbone while keeping reproducible results
++  BASE_SEED = 123456789
++  def _round_seed(round_idx):
++    # simple Mix32-like scramble using round index
++    x = (BASE_SEED ^ (round_idx * 0x9e3779b9)) & 0xFFFFFFFF
++    x = (x ^ (x >> 16)) * 0x45d9f3b
++    x = (x ^ (x >> 16)) * 0x45d9f3b
++    x = x ^ (x >> 16)
++    return x & 0xFFFFFFFF
++
++  def _select_starts(seed_val, pool):
++    # deterministic selection of a 4-tuple from the pool
++    idx = (seed_val ^ (seed_val >> 3)) % len(pool)
++    return pool[idx]
+
+   # Capacity guard to keep total intervals < 10000
+   CAP = 9800
+
+   # Use the classic fixed start-pattern to preserve strong KT coupling
+-  starts = (2, 6, 10, 14)
++  start_pool = [
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (4, 8, 12, 16),
++  ]
+   T = [(0, 1)]
+   for round_idx in range(6):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta = hi - lo
++    lo = min(l for l, r in T)
++    hi = max(r for l, r in T)
++    delta = hi - lo if hi > lo else 1
++    # deterministically pick starts for this round
++    seed = _round_seed(round_idx)
++    starts = _select_starts(seed, start_pool)
+     # build translated blocks in sequence (no interleaving)
+     blocks = []
+     for start in starts:
+       blocks.append([(delta * start + l - lo, delta * start + r - lo) for l, r in T])
+     S = []
+     # keep sequential order every round to stabilize omega and reproduce KT backbone
+     for blk in blocks:
+       S.extend(blk)
+-    # connectors based on the fixed starts
+-    s0, s1, s2, s3 = starts
++    # connectors based on deterministically chosen starts
++    s0, s1, s2, s3 = starts
+     connectors = [
+       (delta * (s0 - 1), delta * (s1 - 1)),  # left cap
+       (delta * (s2 + 2), delta * (s3 + 2)),  # right cap
+       (delta * (s0 + 2), delta * (s2 - 1)),  # cross 1
+       (delta * (s1 + 2), delta * (s3 - 1)),  # cross 2
+     ]
+     for a, b in connectors:
+       S.append((a, b))
+     T = S
++    # Optional small deterministic micro-phase to sprinkle extra intervals without raising omega
++    if enable_alt_microphase:
++      lo2 = min(l for l, r in T)
++      hi2 = max(r for l, r in T)
++      span2 = max(1, hi2 - lo2)
++      # three fixed windows at this micro-scale
++      micro_windows = [(0.12, 0.20), (0.40, 0.48), (0.70, 0.78)]
++      micro_extra = []
++      for (fa, fb) in micro_windows:
++        wlo = lo2 + int(round(fa * span2))
++        base = wlo - lo2
++        block = [(l + base, r + base) for (l, r) in T]
++        micro_extra.extend(block)
++      if len(T) + len(micro_extra) <= CAP:
++        T.extend(micro_extra)
+
+>>>>>>> REPLACE
+</DIFF>

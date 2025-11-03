@@ -1,0 +1,99 @@
+<NAME>
+add_cross4_and_tail_inserter
+</NAME>
+
+<DESCRIPTION>
+Replace the existing _apply_round helper with a version that supports an optional long-range "cross4" connector and add a small helper _insert_near_tail used to place blocking connectors near the tail. This is a minimal, local change (keeps CAP safety) intended to increase FirstFit pressure by coupling distant colors and by inserting connectors where they block many active colors.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False):
+    lo, hi, delta = _span(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Interleaving policy (round-robin across blocks)
+    S = []
+    if do_interleave:
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Classic four connectors
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+    return S
+=======
+  def _apply_round(current_T, starts, do_interleave=False, reverse_order=False, add_cross4=False):
+    lo, hi, delta = _span(current_T)
+
+    # Build four translated blocks
+    blocks = []
+    for s in starts:
+      base = s * delta - lo
+      block = [(l + base, r + base) for (l, r) in current_T]
+      blocks.append(block)
+
+    # Interleaving policy (round-robin across blocks)
+    S = []
+    if do_interleave:
+      order = list(range(4))
+      if reverse_order:
+        order.reverse()
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for idx in order:
+          blk = blocks[idx]
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      if reverse_order:
+        blocks = list(reversed(blocks))
+      for blk in blocks:
+        S.extend(blk)
+
+    # Classic four connectors
+    s0, s1, s2, s3 = starts
+    S.append(((s0 - 1) * delta, (s1 - 1) * delta))  # left cap
+    S.append(((s2 + 2) * delta, (s3 + 2) * delta))  # right cap
+    S.append(((s0 + 2) * delta, (s2 - 1) * delta))  # cross 1
+    S.append(((s1 + 2) * delta, (s3 - 1) * delta))  # cross 2
+
+    # Optional long-range connector (cross4) to tie distant colors across scales
+    if add_cross4:
+      S.append(((s0 + 4) * delta, (s3 + 4) * delta))
+
+    return S
+
+  # Small helper to insert intervals near the tail (increases blocking effect)
+  def _insert_near_tail(seq, intervals):
+    out = list(seq)
+    for i, iv in enumerate(intervals):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(iv)
+      else:
+        out.insert(pos, iv)
+    return out
+>>>>>>> REPLACE
+</DIFF>

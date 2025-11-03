@@ -1,0 +1,31 @@
+<NAME>
+add_global_tail_caps
+</NAME>
+
+<DESCRIPTION>
+Augment the micro-phase A tail caps with an additional wide-range cap spanning 5%–95% of the current spine span. This extra connector further couples intervals across the whole structure, boosting FirstFit pressure without increasing omega, and is still capacity-guarded by `_insert_tail_caps`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Micro-phase A: tail caps to mix colors without exploding omega
+    lo, hi, delta = _span_delta(T)
+    tail_caps = [
+        (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+        (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+        (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+    ]
+    T = _insert_tail_caps(T, tail_caps, CAP)
+=======
+    # Micro-phase A: tail caps to mix colors without exploding omega
+    lo, hi, delta = _span_delta(T)
+    tail_caps = [
+        (lo + max(1, int(round(delta * 0.08))), lo + max(1, int(round(delta * 0.60)))),
+        (lo + max(1, int(round(delta * 0.25))), lo + max(1, int(round(delta * 0.75)))),
+        (lo + max(1, int(round(delta * 0.75))), lo + max(1, int(round(delta * 0.92)))),
+        # New wide-range cap to couple intervals across the full spine span
+        (lo + max(1, int(round(delta * 0.05))), lo + max(1, int(round(delta * 0.95)))),
+    ]
+    T = _insert_tail_caps(T, tail_caps, CAP)
+>>>>>>> REPLACE
+</DIFF>

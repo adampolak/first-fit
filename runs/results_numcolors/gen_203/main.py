@@ -1,0 +1,205 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(seed_count=1):
+  """
+  Construct a sequence of intervals on the real line, in the order presented to FirstFit,
+  to maximize FF colors divided by the clique number.
+  Returns:
+    intervals: list of (l, r) tuples (open intervals).
+  """
+
+  # Capacity guard to keep total intervals < 10000
+  CAP = 9800
+
+  # Stage 1: Deterministic KT-style spine (rotate among templates), 6 rounds, classic connectors.
+  template_bank = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+
+  # Seed: keep a single unit interval; multi-seed tends to inflate omega too early.
+  T = [(0, 1)] if seed_count <= 1 else [(0, 1)]
+
+  def apply_spine_round(current_T, starts, add_cross4=False):
+    # Compute span and delta
+    lo = min(l for l, r in current_T)
+    hi = max(r for l, r in current_T)
+    delta = hi - lo
+    if delta <= 0:
+      delta = 1
+
+    # Four translated blocks sequentially (no interleaving)
+    S = []
+    for s in starts:
+      base = s * delta - lo
+      S.extend((l + base, r + base) for (l, r) in current_T)
+
+    # Classic connectors (Figure 4 style) with optional long-range cross4
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta, (s1 - 1) * delta),  # left cap
+      ((s2 + 2) * delta, (s3 + 2) * delta),  # right cap
+      ((s0 + 2) * delta, (s2 - 1) * delta),  # cross 1
+      ((s1 + 2) * delta, (s3 - 1) * delta),  # cross 2
+    ]
+    S.extend(connectors)
+    if add_cross4:
+      S.append(((s0 + 4) * delta, (s3 + 4) * delta))
+    return S
+
+  # Small helper: insert a tiny micro tail of long caps near the sequence end.
+  def _append_micro_tail(seq, max_extra=8):
+    if not seq or max_extra <= 0:
+      return seq
+    out = list(seq)
+    lo = min(l for l, r in out)
+    hi = max(r for l, r in out)
+    delta = max(1, hi - lo)
+    d2 = max(1, delta // 4)
+    micro = [
+      (lo + 1 * d2, lo + 5 * d2),
+      (lo + 3 * d2, lo + 8 * d2),
+      (hi - 6 * d2, hi - 2 * d2),
+      (hi - 8 * d2, hi - 3 * d2),
+    ]
+    for i, interval in enumerate(micro[:max_extra]):
+      pos = len(out) - (i * 2 + 1)
+      if pos < 0:
+        out.append(interval)
+      else:
+        out.insert(pos, interval)
+    return out
+
+  # Perform exactly six spine rounds unless capacity would be exceeded.
+  for ridx in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    starts = template_bank[ridx % len(template_bank)]
+    add_c4 = (ridx == 5)
+    T = apply_spine_round(T, starts, add_cross4=add_c4)
+
+  # If we are already near the cap, return the strong baseline.
+  if len(T) >= CAP - 16:
+    return T
+
+  # Stage 2: Two delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard.
+
+  def thin_seed(current_T, max_seed):
+    """Take a thin, evenly spaced sample of current_T of size <= max_seed."""
+    n = len(current_T)
+    if n == 0 or max_seed <= 0:
+      return []
+    step = max(1, n // max_seed)
+    U = current_T[::step][:max_seed]
+    return U
+
+  def micro_round(current_T, round_id, budget):
+    if budget <= 0 or not current_T:
+      return []
+
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Use delta2 at one-third scale to increase micro-level density (more FF pressure)
+    delta2 = max(1, G // 3)
+
+    # Thin seed: larger per-block target to produce richer micro mixing but still budget-limited
+    per_block_target = max(12, min(96, budget // 8))
+    U = thin_seed(current_T, per_block_target)
+
+    if not U:
+      return []
+
+    # Build four translated blocks using the rotating 4-start template,
+    # with deterministic parity-based interleaving policy:
+    # - Rounds with round_id % 2 == 0: forward interleave
+    # - Rounds with round_id % 2 == 1: reverse interleave
+    starts = template_bank[round_id % len(template_bank)]
+    blocks = []
+    ulo = min(l for l, r in U)
+    for s in starts:
+      base = s * delta2 - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      # internal tiny reversal to break regular patterns
+      if ((s // 2) % 2) == (round_id % 2):
+        block = list(reversed(block))
+      blocks.append(block)
+
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    if round_id % 2 == 0:
+      # Forward interleave
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            micro.append(blk[i])
+    else:
+      # Reverse interleave
+      for i in range(maxlen):
+        for blk in reversed(blocks):
+          if i < len(blk):
+            micro.append(blk[i])
+
+    # Deterministic connectors at delta2 scale, including a cross3 extension
+    s0, s1, s2, s3 = starts
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    micro.extend(connectors)
+
+    # Sparse micro caps: add three long but safe caps at micro scale
+    cap1 = (glo + (delta2 // 4), glo + int(1.8 * delta2))
+    cap2 = (glo + int(0.9 * delta2), glo + int(2.6 * delta2))
+    mid = glo + G // 2
+    cap3 = (mid - max(1, delta2 // 8), mid + max(1, delta2 // 8))
+    for cap in (cap1, cap2, cap3):
+      if cap[1] > cap[0]:
+        micro.append(cap)
+
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Append a tiny micro tail of long caps (capacity-safe) to boost late FF pressure
+  room = CAP - len(T)
+  if room > 0:
+    T = _append_micro_tail(T, max_extra=min(8, room))
+
+  return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

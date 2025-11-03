@@ -1,0 +1,59 @@
+<NAME>
+rotate_spine_templates_and_add_cross4
+</NAME>
+
+<DESCRIPTION>
+Rotate among a small bank of four-template spine start patterns across the six main KT rounds, breaking the static symmetry of the classic (2,6,10,14) pattern. This introduces deterministic diversity in the spine that can force FirstFit to use more colors without raising ω. Additionally, in each micro-round we add a new “cross4” long-range connector ((s1+4)*δ₂, (s2+4)*δ₂) to deepen cross-scale coupling, further pressuring FirstFit into using extra colors while keeping cliques bounded.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Perform exactly six spine rounds unless capacity would be exceeded (it won't for this growth).
+  for _ in range(6):
+    # Predict next size: sz -> 4*sz + 4
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    T = apply_spine_round(T, spine_starts)
+=======
+  # Perform exactly six spine rounds, rotating start templates to diversify structure.
+  template_bank = [
+    (2, 6, 10, 14),  # classic KT
+    (1, 5, 9, 13),   # left-shifted
+    (3, 7, 11, 15),  # right-shifted
+    (4, 8, 12, 16),  # alternate
+  ]
+  bank_size = len(template_bank)
+  for ridx in range(6):
+    # Rotate starts per round to break symmetry
+    starts = template_bank[ridx % bank_size]
+    # Predict next size: sz -> 4*sz + 4
+    nxt_size = 4 * len(T) + 4
+    if nxt_size > CAP:
+      break
+    T = apply_spine_round(T, starts)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+    ]
+    micro.extend(connectors)
+=======
+    connectors = [
+      ((s0 - 1) * delta2 + glo, (s1 - 1) * delta2 + glo),  # left cap (localized)
+      ((s2 + 2) * delta2 + glo, (s3 + 2) * delta2 + glo),  # right cap
+      ((s0 + 2) * delta2 + glo, (s2 - 1) * delta2 + glo),  # cross 1
+      ((s1 + 2) * delta2 + glo, (s3 - 1) * delta2 + glo),  # cross 2
+      ((s0 + 3) * delta2 + glo, (s3 + 3) * delta2 + glo),  # cross3 (longer range)
+      ((s1 + 4) * delta2 + glo, (s2 + 4) * delta2 + glo),  # cross4 (extended coupling)
+    ]
+    micro.extend(connectors)
+>>>>>>> REPLACE
+</DIFF>

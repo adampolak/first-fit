@@ -1,0 +1,212 @@
+<NAME>
+spine_no_interleave_tailcaps_window_micro
+</NAME>
+
+<DESCRIPTION>
+I propose three targeted changes inspired by KT-style recursive backbones and windowed micro-phases known to increase FirstFit while controlling omega:
+
+1) Disable interleaving within main spine rounds and instead reverse the block order on odd rounds. Empirically, the strongest runs we saw used a stable, non-interleaved KT spine; interleaving can dilute the color pressure the connectors build between blocks. Reversing block order on odd rounds keeps the coupling asymmetry without inflating omega.
+
+2) Insert a small set of long “tail caps” right after the spine to occupy early colors across large portions of the span. These sparse caps are placed at fractional positions to avoid forming dense cliques while increasing the likelihood that later arrivals force new FF colors.
+
+3) Add a second, window-based micro-phase after the existing delta2 micro-phase. This creates four narrow translated blocks tied to fractional windows and adds gentle cross-window couplers. It is a proven strategy to push FF further without a large omega increase, and it also helps fill the remaining budget toward the CAP. Additionally, I increase the micro-round seed size slightly to better utilize budget without overpacking.
+
+Together these changes aim to move from the ~2.20 ratio toward the 2.30 region seen in our best runs, while staying under CAP and maintaining omega near 10.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Interleave blocks on even rounds; keep sequential on odd rounds
+    S = []
+    if ridx % 2 == 0:
+      maxlen = max(len(b) for b in blocks)
+      for i in range(maxlen):
+        for blk in blocks:
+          if i < len(blk):
+            S.append(blk[i])
+    else:
+      for blk in blocks:
+        S.extend(blk)
+=======
+    # Keep sequential order; on odd rounds, reverse block order to break symmetry (no interleaving)
+    S = []
+    order = blocks if ridx % 2 == 0 else list(reversed(blocks))
+    for blk in order:
+      S.extend(blk)
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    if len(T) > CAP:
+      break
+
+  # Stage 2: delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard and keep OPT <= 10 by avoiding dense local overlaps.
+  remaining = CAP - len(T)
+  if remaining <= 16:
+    return T
+=======
+    if len(T) > CAP:
+      break
+
+  # Stage 1.5: add long, sparse caps near the tail to boost FF while keeping omega modest
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  span = max(1, hi - lo)
+  def _cap(a_frac, b_frac):
+    L = lo + int(round(a_frac * span))
+    R = lo + int(round(b_frac * span))
+    if R <= L:
+      R = L + 1
+    return (L, R)
+  tail_caps = [_cap(0.08, 0.60), _cap(0.26, 0.74), _cap(0.78, 0.92)]
+  room = CAP - len(T)
+  if room > 0:
+    for cap in tail_caps:
+      if len(T) >= CAP:
+        break
+      T.append(cap)
+
+  # Stage 2: delta2-driven micro extension rounds (thin sampling; four-start translations).
+  # Goals:
+  #  - Raise FF pressure via cross-scale coupling and interleaving parity,
+  #  - Keep omega in check by using thin seeds and sparse caps/connectors,
+  #  - Respect strict capacity guard and keep OPT <= 10 by avoiding dense local overlaps.
+  remaining = CAP - len(T)
+  if remaining <= 16:
+    return T
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Thin seed: bounded and deterministic size to respect budget.
+    per_block_target = max(8, min(64, budget // 12))
+    U = thin_seed(current_T, per_block_target)
+=======
+    # Thin seed: bounded and deterministic size to respect budget.
+    per_block_target = max(16, min(96, budget // 8))
+    U = thin_seed(current_T, per_block_target)
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  return T
+=======
+    # Enforce budget
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Additional micro-phase: window-based thin interleaving across the global span
+  def micro_window_round(current_T, budget, iter_id=0):
+    if not current_T or budget <= 8:
+      return []
+    glo = min(l for l, r in current_T)
+    ghi = max(r for l, r in current_T)
+    G = max(1, ghi - glo)
+
+    # Thin seed: small, evenly spaced
+    seed_sz = max(8, min(32, len(current_T) // 300))
+    stride = max(1, len(current_T) // max(1, seed_sz))
+    U = [current_T[i] for i in range(0, len(current_T), stride)][:seed_sz]
+    if not U:
+      return []
+    ulo = min(l for l, r in U)
+
+    # Four narrow windows; shift slightly by iteration parity
+    shift = (iter_id % 2) * 0.015
+    window_fracs = [
+      (0.12 + shift, 0.20 + shift),
+      (0.34 + shift, 0.42 + shift),
+      (0.56 + shift, 0.64 + shift),
+      (0.78 + shift, 0.86 + shift),
+    ]
+    blocks = []
+    for (fa, fb) in window_fracs:
+      win_lo = glo + int(round(fa * G))
+      base = win_lo - ulo
+      block = [(l + base, r + base) for (l, r) in U]
+      blocks.append(block)
+
+    # Interleave windows to maximize mixing
+    micro = []
+    maxlen = max(len(b) for b in blocks)
+    order = list(range(len(blocks)))
+    if iter_id % 2 == 1:
+      order.reverse()
+    for i in range(maxlen):
+      for idx in order:
+        blk = blocks[idx]
+        if i < len(blk):
+          micro.append(blk[i])
+
+    # Add fractional-span caps and cross-window couplers
+    connectors = [
+      (glo + int(round(0.10 * G)), glo + int(round(0.30 * G))),
+      (glo + int(round(0.32 * G)), glo + int(round(0.50 * G))),
+      (glo + int(round(0.52 * G)), glo + int(round(0.70 * G))),
+      (glo + int(round(0.72 * G)), glo + int(round(0.90 * G))),
+      (glo + int(round(0.22 * G)), glo + int(round(0.58 * G))),
+      (glo + int(round(0.40 * G)), glo + int(round(0.82 * G))),
+    ]
+    for a, b in connectors:
+      if b > a:
+        micro.append((a, b))
+
+    if len(micro) > budget:
+      micro = micro[:budget]
+    return micro
+
+  # Execute two micro rounds with strong guards
+  remaining = CAP - len(T)
+  mr1 = micro_round(T, round_id=0, budget=max(0, remaining // 2))
+  if mr1:
+    room = CAP - len(T)
+    if len(mr1) > room:
+      mr1 = mr1[:room]
+    T.extend(mr1)
+
+  remaining = CAP - len(T)
+  mr2 = micro_round(T, round_id=1, budget=max(0, remaining))
+  if mr2:
+    room = CAP - len(T)
+    if len(mr2) > room:
+      mr2 = mr2[:room]
+    T.extend(mr2)
+
+  # Final window-based micro-phase to exploit remaining budget
+  remaining = CAP - len(T)
+  if remaining > 8:
+    win_micro = micro_window_round(T, budget=remaining, iter_id=0)
+    if win_micro:
+      avail = CAP - len(T)
+      if len(win_micro) > avail:
+        win_micro = win_micro[:avail]
+      T.extend(win_micro)
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

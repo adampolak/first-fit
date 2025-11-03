@@ -1,0 +1,37 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=3):
+    """
+    Recursive construction of interval sequence inspired by Kierstead-Trotter style
+    blow-up (see Figure 4 in https://arxiv.org/abs/1506.00192), with one extra
+    level of recursion to push the FirstFit ratio beyond the previous 2.33.
+    depth: number of recursive expansions (default 3)
+    Returns list of (l,r) intervals in presentation order.
+    """
+    # Base pattern T_0
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+        # compute current span
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        span = hi - lo
+        # we will make 4 scaled copies at offsets 2,6,10,14 times span
+        S = []
+        offsets = [2, 6, 10, 14]
+        for off in offsets:
+            base = off * span - lo
+            for (l, r) in T:
+                S.append((l + base, r + base))
+        # add the 4 connector intervals as in Figure 4
+        # they link the 4 blocks into a single FF chain
+        S.append((1 * span, 5 * span))    # connects first two blocks
+        S.append((12 * span, 16 * span))  # connects last two blocks
+        S.append((4 * span, 9 * span))    # cross connector
+        S.append((8 * span, 13 * span))   # cross connector
+        T = S
+    return T
+
+def run_experiment(**kwargs):
+    return construct_intervals(depth=3)
+
+# EVOLVE-BLOCK-END
