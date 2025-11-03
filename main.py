@@ -82,6 +82,10 @@ Heuristics that tend to raise FF without raising omega (suggestions)
 - Build towers: layered stacks of intervals with staggered starts/ends; then caps that overlap one piece from each tower to couple colors across layers.
 - Periodically run the shrinker to keep n and span modest; smaller witnesses are easier to verify.
 
+Try using a SAT solver or an LP solver in your code. The Python environment in which your code is run has installed:
+- python-sat (with all optional dependencies),
+- pulp (with all open source solver).
+
 Be creative and try to find a new solution better than the best known lower bound."""
 
 evo_config = EvolutionConfig(
@@ -107,6 +111,7 @@ evo_config = EvolutionConfig(
   llm_kwargs=dict(
     temperatures=[0.0, 0.5, 1.0],
     reasoning_efforts=["auto", "low", "medium", "high"],
+    # reasoning_efforts=["high"],  # the only option possible for gpt-5-pro
     max_tokens=32768,
   ),
   meta_rec_interval=10,
