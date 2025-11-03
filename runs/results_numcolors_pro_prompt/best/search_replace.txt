@@ -1,0 +1,127 @@
+increase_recursion_levels
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Decide a safe recursion depth that stays below the 10000-interval limit.
+- Make the recursion depth dynamic (compute maximal safe iterations) so we get as many amplification steps as possible.
+- Keep the original motif / replication rule (Figure 4 inspired) intact while increasing overall size.
+- Validate that the produced sequence length stays under the limit and that we perform at least the previous number of iterations.
+
+Description of the edit:
+I replace the fixed small number of recursive replications (for _ in range(2)) by a computed iteration count that increases the number of recursions up to the maximum that keeps the total number of intervals under 10000. This amplifies the construction from the paper (more recursive levels), which is expected to increase the number of colors used by FirstFit while keeping the offline clique size small (as in the original motif). The code automatically computes the largest iter_count such that the length after iter_count iterations satisfies len <= 9999, and then performs that many replication steps (with a floor of 2 iterations to preserve the baseline behavior).
+
+Post-action validation (brief):
+- Verified analytically that the length sequence follows len_{i+1} = 4*len_i + 4, so the loop computing iter_count halts with iter_count = 6 (giving 9556 intervals) which is under 10000.
+- The replacement keeps the original geometric construction intact, only increasing depth; next step would be to run FirstFit on the produced sequence to observe improved competitive_ratio and combined_score.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(2):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+=======
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192.  Here we
+  dynamically increase the number of recursive replications
+  to amplify the FirstFit color usage while keeping the total
+  number of intervals under the practical limit.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+
+  # Choose the maximal number of recursive replications so that
+  # the total number of intervals remains under the allowed limit.
+  max_intervals = 9999
+  iter_count = 0
+  curr_len = len(T)
+  # Each iteration follows the recurrence next_len = 4*curr_len + 4
+  while True:
+    next_len = 4 * curr_len + 4
+    if next_len > max_intervals:
+      break
+    curr_len = next_len
+    iter_count += 1
+
+  # Make sure we do at least the baseline number of iterations
+  if iter_count < 2:
+    iter_count = 2
+
+  for _ in range(iter_count):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+>>>>>>> REPLACE
+</DIFF>

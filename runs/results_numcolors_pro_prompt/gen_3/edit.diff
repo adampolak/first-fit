@@ -1,0 +1,141 @@
+--- a/original.py
++++ b/original.py
+@@ -1,49 +1,98 @@
+ # EVOLVE-BLOCK-START
++import random
++import time
++import math
++
++def first_fit_colors(intervals):
++    """Simulate FirstFit coloring in the given arrival order."""
++    assignments = []
++    for i, (l, r) in enumerate(intervals):
++        forbidden = set()
++        for j, (l2, r2) in enumerate(intervals[:i]):
++            if not (r2 <= l or r <= l2):
++                forbidden.add(assignments[j])
++        c = 1
++        while c in forbidden:
++            c += 1
++        assignments.append(c)
++    return max(assignments) if assignments else 0
++
++def clique_number(intervals):
++    """Compute the maximum clique size via a sweep-line on endpoints."""
++    events = []
++    for l, r in intervals:
++        events.append((l, 1))
++        events.append((r, -1))
++    events.sort()
++    cnt = 0
++    best = 0
++    for _, delta in events:
++        cnt += delta
++        if cnt > best:
++            best = cnt
++    return best
++
++def score(intervals):
++    """Objective: maximize FirstFit_colors / offline_clique, under clique ≤10."""
++    opt = clique_number(intervals)
++    if opt == 0 or opt > 10:
++        return 0
++    ff = first_fit_colors(intervals)
++    return ff / opt
++
++def random_interval():
++    """Generate a random short interval inside [0,1]."""
++    a = random.random()
++    b = a + random.random() * 0.2
++    return (a, b)
++
++def perturb(seq):
++    """Randomly add/remove/modify one interval to explore neighbors."""
++    if not seq:
++        return [random_interval()]
++    op = random.choice(['add', 'remove', 'modify'])
++    new_seq = seq.copy()
++    if op == 'add' and len(new_seq) < 500:
++        new_seq.append(random_interval())
++    elif op == 'remove' and new_seq:
++        idx = random.randrange(len(new_seq))
++        new_seq.pop(idx)
++    elif op == 'modify':
++        idx = random.randrange(len(new_seq))
++        l, r = new_seq[idx]
++        l += (random.random() - 0.5) * 0.1
++        r += (random.random() - 0.5) * 0.1
++        if r - l > 1e-3:
++            new_seq[idx] = (max(0, l), min(1, r))
++    return new_seq
+ 
+ def construct_intervals():
+-  """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-  
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
+-  
+-  Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+-  """
++    """Run a brief simulated annealing to find a high‐ratio instance."""
++    random.seed(1234)
++    best = [random_interval() for _ in range(20)]
++    best_score = score(best)
++    current = best[:]
++    current_score = best_score
++    T = 1.0
++    t_start = time.time()
++    while time.time() - t_start < 1.0:  # 1 second time budget
++        cand = perturb(current)
++        s = score(cand)
++        Δ = s - current_score
++        if Δ > 0 or random.random() < math.exp(Δ / T):
++            current = cand
++            current_score = s
++            if s > best_score:
++                best = cand
++                best_score = s
++        T *= 0.995
++    # Scale to a larger coordinate range for output clarity
++    return [(l * 100.0, r * 100.0) for (l, r) in best]
+ 
+-  T = [(0, 1)]
+-  for _ in range(2):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta = hi - lo
+-    S = []
+-    for start in (2, 6, 10, 14):
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-    S += [
+-      (delta * 1, delta * 5),
+-      (delta * 12, delta * 16),
+-      (delta * 4, delta * 9),
+-      (delta * 8, delta * 13)
+-    ]
+-    T = S
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
+-
++def run_experiment(**kwargs):
++    return construct_intervals()
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

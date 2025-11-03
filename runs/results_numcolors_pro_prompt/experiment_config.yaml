@@ -1,0 +1,112 @@
+database_config:
+  archive_size: 40
+  db_path: results73v4prolpsat_omega/evolution_db.sqlite
+  elite_selection_ratio: 0.3
+  enforce_island_separation: true
+  exploitation_alpha: 1.0
+  exploitation_ratio: 0.2
+  island_elitism: true
+  migration_interval: 10
+  migration_rate: 0.1
+  num_archive_inspirations: 4
+  num_beams: 5
+  num_islands: 2
+  num_top_k_inspirations: 2
+  parent_selection_lambda: 10.0
+  parent_selection_strategy: weighted
+evolution_config:
+  code_embed_sim_threshold: 0.995
+  embedding_model: text-embedding-3-small
+  init_program_path: initial73.py
+  job_type: local
+  language: python
+  llm_dynamic_selection: ucb1
+  llm_dynamic_selection_kwargs:
+    exploration_coef: 1.0
+  llm_kwargs:
+    max_tokens: 32768
+    reasoning_efforts:
+    - high
+    temperatures:
+    - 0.0
+    - 0.5
+    - 1.0
+  llm_models:
+  - o4-mini
+  - gpt-5
+  - gpt-5-mini
+  - gpt-5-nano
+  - gpt-5-pro
+  max_novelty_attempts: 3
+  max_parallel_jobs: 5
+  max_patch_attempts: 3
+  max_patch_resamples: 3
+  meta_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  meta_llm_models:
+  - gpt-5-nano
+  meta_max_recommendations: 5
+  meta_rec_interval: 10
+  novelty_llm_kwargs:
+    max_tokens: 16384
+    temperatures:
+    - 0.0
+  novelty_llm_models:
+  - gpt-5-nano
+  num_generations: 400
+  patch_type_probs:
+  - 0.6
+  - 0.3
+  - 0.1
+  patch_types:
+  - diff
+  - full
+  - cross
+  results_dir: results73v4prolpsat_omega
+  task_sys_msg: "# Role and Objective\nYou are an expert in mathematics and theoretical\
+    \ computer science, specializing\nin online graph coloring algorithms, interval\
+    \ graphs, and computational geometry.\nYour objective is to construct a sequence\
+    \ of open intervals that can be colored\noffline with at most 10 colors and maximizes\
+    \ the nuber of colors used by the\nFirstFit algorithm.\nBegin with a concise checklist\
+    \ (3\u20137 bullets) of your sub-tasks before starting substantive work; keep\
+    \ the items conceptual and high-level.\n# Instructions\n- Construct a sequence\
+    \ of open intervals that maximizes number of colors used by FirstFit while keeping\
+    \ the offline optimum at most 10.\n- Recall: The offline optimum equals the clique\
+    \ number of the intersection graph, i.e., the largest number of intervals covering\
+    \ a single point (\u03C9).\n- Current best-known bounds on performance of FirstFit:\n\
+    - Lower bound: 5*omega\n- Upper bound: 8*omega\n- Apply recursive strategies where\
+    \ helpful.\n- Draw inspiration from: https://arxiv.org/abs/1506.00192\n- Additionally,\
+    \ consult the scientific literature for variants on online interval coloring and\
+    \ related problems.\n- For practical reasons the sequence must contain less than\
+    \ 10000 intervals.\n## Heuristic Suggestions\n- Maintain a low \u03C9 \"spine\"\
+    \ (e.g., 3\u202F\u2264\u202F\u03C9\u202F\u2264\u202F5) of long intervals; inject\
+    \ waves of short intervals that pairwise avoid forming larger cliques but overlap\
+    \ many active colors, pushing FirstFit's color usage up.\n- Engineer the arrival\
+    \ order: arrange for early \"blocker\" intervals to occupy low colors; subsequently,\
+    \ intervals overlapping these blockers but not each other can force FirstFit to\
+    \ introduce new colors above 5\xB7\u03C9.\n- Build \"towers\": create layers of\
+    \ staggered intervals; then add capping intervals that each intersect one interval\
+    \ from every tower, coupling colors across layers.\n- Use periodic \"shrinking\"\
+    \ strategies to keep both n (number of intervals) and total span modest, enabling\
+    \ easier verification and smaller witness constructions.\n# Additional Guidelines\n\
+    - Experiment with SAT or LP solvers in your implementation.\n- Available packages\
+    \ in your Python environment:\n- `python-sat` (with all optional dependencies)\n\
+    - `pulp` (with all open-source solver backends)\n- Strive for creativity and aim\
+    \ to construct a new example that improves on the current best-known lower bound.\n\
+    # Context\n- Focus on constructing sequences maximizing the competitive ratio\
+    \ of FirstFit for interval coloring.\n- Reference literature such as https://arxiv.org/abs/1506.00192\
+    \ for existing constructions and ideas.\n- Incorporate heuristic and algorithmic\
+    \ suggestions into your approach, using available computational tools where suited.\n\
+    # Post-action Validation\n- After each substantive step (e.g., construction, algorithm\
+    \ proposal, code run, or solver invocation), briefly validate the outcome (in\
+    \ 1\u20132 lines) and decide on the next step or, if an issue arises, self-correct.\n"
+  use_text_feedback: false
+job_config:
+  conda_env: null
+  eval_program_path: evaluate_omega.py
+  extra_cmd_args: {}
+  time: null
+results_directory: results73v4prolpsat_omega
+timestamp: '2025-10-23T20:37:04.362454'
