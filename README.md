@@ -31,10 +31,10 @@ python3 main.py
 
 The `runs` folder contains logs from five most successful runs. Some files changed their names along the way, the code was cleaned up, etc., so they can be somewhat inconsistent with what the current code would produce.
 
-- `runs/results` -- baseline, optimizes competitive ratio, run for ~200 iterations, the best solution is 13/5=2.6, found after 1 iteration;
-– `runs/results_pro` -- same as above but with the gpt-5-pro model added to the list of models (uncomment  lines 89, 93, 94 in `main.py` to get it), run for ~50 iterations, results the same as previously;
-– `runs/results_pro_prompt` -- same as above but with prompt optimized with OpenAI Prompt Optimizer (uncomment line 67 in `main.py` to get it), run for ~40 iterations, results still the same;
-- `runs/results_numcolors` -- variant where instead of directly maximizing the competitive ratio we require opt<=10 and we maximize the number of colors used by FirstFit (uncomment lines 7 and 68 in `main.py`), run for 400 iterations (the `evolution_db.sqlite` file for this run is not in the repo because it exceeds the Github's file size limit), the best solution is 22/8=2.75, found after 91 iterations;
-- `runs/results_numcolors_pro_prompt` -- the above variant but with gpt-5-pro enabled and with optimized prompt, run for 5 iterations, the best solution is 19/7=2.714..., found after 3 iterations.
+- `runs/results` — baseline, optimizes competitive ratio, run for ~200 iterations, the best solution is 13/5=2.6, found after 1 iteration;
+- `runs/results_pro` — same as above but with the gpt-5-pro model added to the list of models (uncomment  lines 89, 93, 94 in `main.py` to get it), run for ~50 iterations, results the same as previously;
+- `runs/results_pro_prompt` — same as above but with prompt optimized with OpenAI Prompt Optimizer (uncomment line 67 in `main.py` to get it), run for ~40 iterations, results still the same;
+- `runs/results_numcolors` — variant where instead of directly maximizing the competitive ratio we require opt<=10 and we maximize the number of colors used by FirstFit (uncomment lines 7 and 68 in `main.py`), run for 400 iterations (the `evolution_db.sqlite` file for this run is not in the repo because it exceeds the Github's file size limit), the best solution is 22/8=2.75, found after 91 iterations;
+- `runs/results_numcolors_pro_prompt` — the above variant but with gpt-5-pro enabled and with optimized prompt, run for 5 iterations, the best solution is 19/7=2.714..., found after 3 iterations.
 
 
