@@ -2,7 +2,7 @@ import argparse
 
 from shinka.core import run_shinka_eval
 
-MAX_NUM_INTERVALS = 1000
+MAX_NUM_INTERVALS = 10000
 
 def simulate_first_fit(intervals: list[tuple[float, float]]) -> int:
   colors = []
@@ -50,8 +50,6 @@ def validate(intervals: list[tuple[float, float]]) -> tuple[bool, str]:
   return True, "OK"
 
 def compute_metrics(results: list[list[tuple[float, float]]]) -> dict:
-  # if not results:
-  #   return {"combined_score": 0.0, "error": "No results to aggregate"}
   assert 1 == len(results)
   intervals = results[0]
   ALG = simulate_first_fit(intervals)
@@ -61,7 +59,7 @@ def compute_metrics(results: list[list[tuple[float, float]]]) -> dict:
     'combined_score': competitive_ratio,
     'public': {
       'num_intervals': len(intervals),
-      'intervals': str(intervals),
+      'intervals': str(intervals)[:1000],
       'alg': ALG,
       'opt': OPT,
     }

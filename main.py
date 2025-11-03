@@ -3,7 +3,7 @@ from shinka.core import EvolutionRunner, EvolutionConfig
 from shinka.database import DatabaseConfig
 from shinka.launch import LocalJobConfig
 
-job_config = LocalJobConfig(eval_program_path="evaluate.py")
+job_config = LocalJobConfig(eval_program_path="evaluate_ratio.py")
 
 strategy = "weighted"
 if strategy == "uniform":
