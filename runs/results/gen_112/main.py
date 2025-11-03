@@ -1,0 +1,216 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+  """
+  Normalize endpoints to a compact integer grid while preserving order.
+  Each unique endpoint is mapped to an increasing even integer.
+  Returns a new list of (l, r) with integer coordinates.
+  """
+  if not intervals:
+    return []
+  endpoints = sorted(set([x for seg in intervals for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2  # spacing by 2 to keep even gaps
+  return [(coord[l], coord[r]) for (l, r) in intervals]
+
+
+def construct_intervals(iterations=4, normalize=True):
+  """
+  Build a sequence of open intervals that forces FirstFit
+  to use many colors while keeping the clique size controlled.
+
+  Cross-over design:
+    - Figure-4-style recursive expansion (four copies per level + four blockers)
+    - alternating offset patterns across levels
+    - connector scheduling (after vs split)
+    - optional extra copy on the first level
+    - normalization to a compact integer grid
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 4)
+    normalize: whether to apply endpoint normalization (default True)
+
+  Returns:
+    intervals: list of tuples (l, r) with integer endpoints (open intervals)
+  """
+
+  # ---------- Utilities (robust for open-interval semantics) ----------
+
+  def overlaps(a, b):
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+  def firstfit_colors(intervals):
+    """
+    Simulate FirstFit on intervals given in arrival order using robust overlap checks.
+    Returns number of colors used.
+    """
+    colors = []  # color classes: list of lists of intervals
+    for iv in intervals:
+      placed = False
+      for cls in colors:
+        conflict = False
+        for u in cls:
+          if overlaps(u, iv):
+            conflict = True
+            break
+        if not conflict:
+          cls.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+
+  def clique_number(intervals):
+    """
+    Sweep-line maximum number of open intervals covering a single point.
+    Right endpoints processed before left to respect open boundaries.
+    """
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    # At ties: (-1) first, then (+1)
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  # ---------- Pattern generator ----------
+
+  def build_candidate(depth, pattern_cycle, connectors, schedule='after', extra_first=False):
+    """
+    Build a depth-level recursive pattern using:
+      - pattern_cycle: tuple/list of offset tuples (cycled over levels)
+      - connectors: list of 4 tuples (a,b) as multipliers of delta
+      - schedule: 'after' or 'split' (blockers arrival relative to copies)
+      - extra_first: add a 5th copy at level 0 to increase coupling
+    """
+    T = [(0.0, 1.0)]
+    for lvl in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+
+      # Offsets for this level
+      offs_base = pattern_cycle[lvl % len(pattern_cycle)]
+      if extra_first and lvl == 0:
+        # Extend by one more copy at the next arithmetic step (+4),
+        # matching the canonical spacing used in the literature.
+        offs = tuple(list(offs_base) + [max(offs_base) + 4])
+      else:
+        offs = offs_base
+
+      # Build copies (left-anchored translation; robust and simple)
+      def copies_from(src_T, offsets):
+        S = []
+        for start in offsets:
+          offset = delta * start - lo
+          for (l, r) in src_T:
+            S.append((l + offset, r + offset))
+        return S
+
+      # Blockers anchored to the left (canonical)
+      blks = [(delta * a, delta * b) for (a, b) in connectors]
+
+      if schedule == 'after':
+        S = copies_from(T, offs) + blks
+      elif schedule == 'before':
+        # blockers first, then all copies
+        S = blks + copies_from(T, offs)
+      else:  # 'split' schedule: half copies, then blockers, then rest
+        h = len(offs) // 2
+        S = copies_from(T, offs[:h]) + blks + copies_from(T, offs[h:])
+
+      T = S
+    return T
+
+  # ---------- Candidate search space (compact but diverse) ----------
+
+  # Offset patterns (cycled by level)
+  canonical = (2, 6, 10, 14)
+  alt_a = (1, 5, 9, 13)
+  alt_b = (3, 7, 11, 15)
+  alt_d = (0, 4, 8, 12)
+
+  pattern_cycles = [
+    (canonical,),                               # fixed canonical
+    (alt_d,),                                   # fixed D
+    (canonical, alt_a),                         # alternate A↔B
+    (canonical, alt_b),                         # alternate A↔C
+    (canonical, alt_d),                         # alternate A↔D
+    (alt_a, alt_b),                             # alternate B↔C
+    (canonical, alt_a, alt_b, alt_d),           # cycle A→B→C→D
+  ]
+
+  # Connector templates (Figure-4 and recommended variants)
+  connectors_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],       # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],       # shifted variant
+    [(2, 6), (12, 16), (4, 9), (8, 13)],       # shift first blocker
+    [(0, 4), (7, 11), (3, 7), (10, 14)],       # Template B (recommended)
+    [(1, 5), (9, 13), (5, 9), (12, 16)],       # Template C (recommended)
+  ]
+
+  schedules = ['after', 'before', 'split']     # three effective orderings
+  extra_first_choices = [False, True]          # optional extra first-level copy
+
+  # Keep search modest for runtime; include one deeper level capped at 5
+  depths = sorted(set([max(2, iterations - 1), iterations, min(5, iterations + 1)]))
+
+  best = None  # (ratio, -n, alg, opt, intervals)
+
+  for depth in depths:
+    for pat in pattern_cycles:
+      for conn in connectors_templates:
+        for sch in schedules:
+          for ex in extra_first_choices:
+            T = build_candidate(depth, pat, conn, schedule=sch, extra_first=ex)
+            om = clique_number(T)
+            if om <= 0:
+              continue
+            cols = firstfit_colors(T)
+            ratio = cols / om
+            n = len(T)
+            cand = (ratio, -n, cols, om, T)
+            if best is None or cand > best:
+              best = cand
+
+  # Fallback to canonical if nothing found (should not happen)
+  if best is None:
+    # canonical 4-iteration construction
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        offset = delta * start - lo
+        S.extend([(offset + l, offset + r) for l, r in T])
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return _normalize_grid(T) if normalize else T
+
+  # Return best found (normalized if requested)
+  intervals = best[4]
+  return _normalize_grid(intervals) if normalize else intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

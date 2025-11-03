@@ -1,0 +1,74 @@
+<NAME>
+add_blocker_templates
+</NAME>
+<DESCRIPTION>
+Expand the blocker template search space by adding two new geometries (Template D and E). This introduces alternative long intervals configurations that may better couple colors across copies without increasing the clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+    ]
+=======
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: lengthened first and second
+        ((1, 6), (11, 16), (4, 9), (8, 13)),
+        # Template E: shifted and broadened
+        ((0, 5), (10, 15), (3, 8), (7, 12)),
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+extra_copies_range
+</NAME>
+<DESCRIPTION>
+Allow two types of extra copies: not only appending on the right, but also prepending on the left. Extend the `extra_copies_opts` to include option 2 for left-shifted extras.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    extra_copies_opts = [0, 1]  # allow a single extra translated copy on first level
+=======
+    extra_copies_opts = [0, 1, 2]  # allow a single extra translated copy on first level, or prepended copy
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+extra_copy_logic
+</NAME>
+<DESCRIPTION>
+Implement handling for the new `extra==2` case in the offsets logic: when extra==2, prepend a translated copy one "step" left of the first offset. This enriches the geometry search without altering core pattern.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by one extra copy (small geometry variation)
+                                offs = tuple(offsets)
+                                if extra == 1:
+                                    last = offs[-1] if len(offs) > 0 else 0
+                                    offs = tuple(list(offs) + [last + 4])
+=======
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by extra copies (small geometry variation)
+                                offs = tuple(offsets)
+                                if extra == 1:
+                                    # append an extra copy to the right
+                                    last = offs[-1] if len(offs) > 0 else 0
+                                    offs = tuple(list(offs) + [last + 4])
+                                elif extra == 2:
+                                    # prepend an extra copy to the left
+                                    first = offs[0] if len(offs) > 0 else 0
+                                    offs = tuple([first - 4] + list(offs))
+>>>>>>> REPLACE
+</DIFF>

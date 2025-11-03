@@ -1,0 +1,83 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    Hybrid gadget: four-layer recursive expansion with alternating shift patterns,
+    plus canonical bridge intervals. Outputs a sequence of open intervals.
+    """
+
+    def expand_layer(template, starts, bridges):
+        """
+        Given a list of intervals `template`, produce one expansion layer:
+        - replicate `template` shifted by each factor in `starts`
+        - add each bridge interval scaled by the current span
+        """
+        lo = min(l for l, r in template)
+        hi = max(r for l, r in template)
+        span = hi - lo
+        result = []
+        # replicate
+        for s in starts:
+            offset = span * s - lo
+            for (l, r) in template:
+                result.append((l + offset, r + offset))
+        # add bridges (each specified as (a,b) factors)
+        for a, b in bridges:
+            result.append((span * a, span * b))
+        return result
+
+    def build(depth):
+        """
+        Build the gadget by repeatedly expanding the template `depth` times.
+        Use a 4-cycle of start-factor patterns and bridge-sets to increase
+        asymmetry and coupling while preserving a small clique number.
+        """
+        # initial seed: single unit interval
+        T = [(0.0, 1.0)]
+        # four start-factor patterns (cycled by layer)
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+            (4, 8, 12, 16),
+            (5, 9, 13, 17),
+        ]
+        # four bridge-sets (cycled by layer), all scaled by current span
+        bridge_sets = [
+            [(1, 5),  (12, 16), (4, 9),  (8, 13)],  # baseline (Figure 4)
+            [(2, 6),  (11, 15), (5, 10), (9, 14)],  # shifted inward/outward
+            [(3, 7),  (10, 14), (6, 11), (7, 12)],  # midband couplers
+            [(4, 8),  (13, 17), (7, 12), (8, 13)],  # heavier right cap
+        ]
+        for i in range(depth):
+            starts = patterns[i % 4]
+            bridges = bridge_sets[i % 4]
+            T = expand_layer(T, starts, bridges)
+        return T
+
+    def normalize(intervals, scale=12):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+
+    # Build with 4 recursive layers to push FF >> opt=4
+    raw = build(depth=4)
+    # Map to integer grid and clean up
+    return normalize(raw)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

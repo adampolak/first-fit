@@ -1,0 +1,204 @@
+--- a/original.py
++++ b/original.py
+@@ -1,113 +1,157 @@
+ # EVOLVE-BLOCK-START
+ 
+ from math import gcd
+ 
+ # --- overlap, FirstFit, clique on floats ---
+ 
+ def overlaps(a,b):
+     (l1,r1),(l2,r2)=a,b
+-    return max(l1,l2)<min(r1,r2)
++    return max(l1,l2) < min(r1,r2)
+ 
+ def firstfit_colors(T):
+     colors=[]
+     for iv in T:
+         placed=False
+         for c in colors:
+             if not any(overlaps(iv,u) for u in c):
+                 c.append(iv)
+                 placed=True
+                 break
+         if not placed:
+             colors.append([iv])
+     return len(colors)
+ 
+ def clique_number(T):
+     ev=[]
+     for l,r in T:
+         if l<r:
+             ev.append((l,1))
+             ev.append((r,-1))
+     ev.sort(key=lambda x:(x[0], x[1]))
+     cur=best=0
+     for _,t in ev:
+         cur+=t
+         if cur>best: best=cur
+     return best
+ 
+-# --- strict pruning on floats ---
+-
+-def prune_strict_floats(intervals, target_cols, target_om):
+-    cur=list(intervals)
+-    # sort by descending length to try to remove long redundant ones first
+-    def length(iv): return iv[1]-iv[0]
+-    changed=True
+-    while changed:
+-        changed=False
+-        order=sorted(range(len(cur)), key=lambda i:(-length(cur[i]),i))
+-        for i in order:
+-            cand=cur[:i]+cur[i+1:]
+-            if firstfit_colors(cand)==target_cols and clique_number(cand)==target_om:
+-                cur=cand
+-                changed=True
+-                break
+-    return cur
+-
+ # --- normalize floats -> small ints ---
+ 
+ def normalize_intervals(T):
+     if not T: return []
+     pts=sorted({x for seg in T for x in seg})
+     # map to even integers
+     mp={}
+     c=0
+     for x in pts:
+         mp[x]=c; c+=2
+     L=[(mp[l],mp[r]) for l,r in T]
+     # shift min to 0
+     mn=min(min(a,b) for a,b in L)
+     L=[(a-mn,b-mn) for a,b in L]
+     # divide out gcd
+     g=0
+     for a,b in L:
+         g=gcd(g,abs(a)); g=gcd(g,abs(b))
+     if g>1:
+         L=[(a//g,b//g) for a,b in L]
+     return L
+ 
+-# --- build one round of 4‐copy + 4‐blockers ---
+-
+-def expand_once(T):
+-    lo=min(l for l,r in T)
+-    hi=max(r for l,r in T)
+-    delta=hi-lo
++# --- build one round of 4-copy + 4-blockers ---
++def expand_once_with_option(T, starts, connectors, iter_idx, extra_first=False):
++    lo = min(l for l,r in T)
++    hi = max(r for l,r in T)
++    delta = hi - lo
++    # optionally add an extra 5th copy on the first iteration
++    if extra_first and iter_idx==0:
++        use_starts = starts + (18,)
++    else:
++        use_starts = starts
+     S=[]
+-    # four standard copies
+-    for s in (2,6,10,14):
+-        off=delta*s - lo
++    for s in use_starts:
++        off = delta * s - lo
+         for l,r in T:
+-            S.append((l+off,r+off))
+-    # four blockers
+-    for a,b in ((1,5),(12,16),(4,9),(8,13)):
+-        S.append((delta*a,delta*b))
++            S.append((l+off, r+off))
++    for a,b in connectors:
++        S.append((delta*a, delta*b))
+     return S
+ 
+-# --- main construction with per-level pruning ---
++# --- main construction with pattern cycling and per-config evaluation ---
+ 
+ def construct_intervals():
+-    T=[(0.0,1.0)]
+-    # target ratio ~2.6 comes from depth=4 giving FF=13, ω=5
+-    for _ in range(4):
+-        S=expand_once(T)
+-        # compute local targets on floats
+-        target_om=clique_number(S)
+-        target_cols=firstfit_colors(S)
+-        # prune strictly on floats
+-        T=prune_strict_floats(S, target_cols, target_om)
+-    # normalize to small ints
+-    return normalize_intervals(T)
++    """
++    Hybrid construction:
++    - cycles through multiple start-patterns and connector templates
++    - explores a few extra-copy variants per level
++    - evaluates each configuration by FirstFit colors and clique size on the resulting pattern
++    - returns the best normalized interval list
++    """
++    start_patterns = [
++        (2,6,10,14),
++        (1,5,9,13),
++        (3,7,11,15),
++    ]
++    connect_patterns = [
++        [(1,5),(12,16),(4,9),(8,13)],
++        [(0,4),(11,15),(3,8),(7,12)],
++    ]
++
++    best_T=None
++    best_ratio=-1.0
++    best_details=None
++
++    # Enumerate a modest config space (deterministic search)
++    for sp_idx in range(len(start_patterns)):
++        for cp_idx in range(len(connect_patterns)):
++            for extra_first in (False, True):
++                # start with base
++                T=[(0.0,1.0)]
++                # four iterations of expansion
++                for i in range(4):
++                    lo = min(l for l,r in T)
++                    hi = max(r for l,r in T)
++                    delta = hi - lo
++                    starts = start_patterns[sp_idx]
++                    connectors = connect_patterns[cp_idx]
++                    T = expand_once_with_option(T, starts, connectors, i, extra_first=extra_first)
++
++                om = clique_number(T)
++                cols = firstfit_colors(T)
++                ratio = cols / om if om>0 else 0.0
++                n = len(T)
++
++                if ratio > best_ratio + 1e-12:
++                    best_ratio = ratio
++                    best_T = T
++                    best_details = (sp_idx, cp_idx, extra_first, om, cols, n)
++                elif abs(ratio - best_ratio) <= 1e-12:
++                    # tie-break: prefer fewer intervals, then more colors
++                    if best_T is None or n < len(best_T) or (n == len(best_T) and cols > (firstfit_colors(best_T) if best_T else 0)):
++                        best_T = T
++                        best_details = (sp_idx, cp_idx, extra_first, om, cols, n)
++
++    # Fallback to a known-safe baseline if search somehow fails
++    if best_T is None:
++        T=[(0.0,1.0)]
++        for _ in range(4):
++            lo = min(l for l,r in T)
++            hi = max(r for l,r in T)
++            delta = hi - lo
++            S=[]
++            for start in (2,6,10,14):
++                S += [(delta*start + l - lo, delta*start + r - lo) for l,r in T]
++            S += [
++                (delta*1, delta*5),
++                (delta*12, delta*16),
++                (delta*4, delta*9),
++                (delta*8, delta*13)
++            ]
++            T = S
++        best_T = T
++
++    return normalize_intervals(best_T)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

@@ -1,0 +1,45 @@
+<NAME>alternate_offsets_and_mid_blockers</NAME>
+<DESCRIPTION>
+Introduce alternating offset patterns per recursion level to break regularity and add two additional “mid” connectors at each level. By alternating between (2,6,10,14) and (1,5,9,13), we frustrate FirstFit’s ability to reuse color classes across levels. The extra mid-connectors (at multipliers (3,8) and (9,14)) further entangle intervals without raising the maximum clique size, aiming to boost the FirstFit color count relative to ω.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled/translated copies at staggered offsets
+    for start in (2, 6, 10, 14):
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+    # Add the four connecting long intervals (these create the coupling
+    # between copies but are designed not to increase the clique beyond
+    # the intended constant)
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    T = S
+=======
+  # dynamic offset patterns to break regularity and introduce variation
+  start_patterns = [(2, 6, 10, 14), (1, 5, 9, 13)]
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place scaled/translated copies using alternating offset patterns
+    starts = start_patterns[i % len(start_patterns)]
+    for start in starts:
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+    # Add main and additional mid connectors to further entangle colors
+    blockers = [(1, 5), (12, 16), (4, 9), (8, 13), (3, 8), (9, 14)]
+    for a, b in blockers:
+      S.append((delta * a, delta * b))
+    T = S
+>>>>>>> REPLACE
+</DIFF>

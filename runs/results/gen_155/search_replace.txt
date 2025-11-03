@@ -1,0 +1,109 @@
+<NAME>
+add_short_wave_inserts
+</NAME>
+
+<DESCRIPTION>
+Introduce deterministic short "wave" intervals into the recursive construction to raise FirstFit's color usage without increasing the clique number (omega) significantly.
+
+Rationale and changes:
+- Expert heuristics suggest injecting short intervals (waves) that overlap many active colors yet avoid creating a larger clique. These waves interact with many colored classes and force FirstFit to open new colors.
+- I add a helper add_wave_intervals() and modify build_pattern() to insert small waves at each level (deterministically) between the copies and the blockers. The waves are short intervals (a small fraction of delta) placed so they overlap one endpoint of many translated copies but not the long blockers that determine omega.
+- The construct_intervals() caller is unchanged in signature; the new behavior is enabled deterministically for all enumerated candidates.
+- The rest of the program (normalize, evaluate, pruning) is unchanged, keeping the pipeline intact.
+
+This local, targeted modification attempts to increase FirstFit colors while preserving omega and overall determinism.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def build_pattern(k, base_seed, offsets, blockers, translation, blocker_anchor):
+    """
+    Recursively expand the base_seed k times using the 4-copy + 4-blocker scheme.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        S = []
+        S = make_copies(T, offsets, delta, lo, center, translation)
+        S = add_blockers(S, blockers, delta, blocker_anchor, center)
+
+        T = S
+    return T
+=======
+def build_pattern(k, base_seed, offsets, blockers, translation, blocker_anchor):
+    """
+    Recursively expand the base_seed k times using the 4-copy + 4-blocker scheme.
+
+    Enhancement: insert deterministic short "waves" of small intervals at each
+    level to increase FirstFit's consumption of colors without enlarging omega.
+    The waves are short intervals of length fraction * delta placed so that
+    they overlap many translated copies but avoid creating large cliques.
+    """
+    def add_wave_intervals(S, delta, lo, offsets, fraction=0.10, density=3):
+        """
+        Insert short wave intervals into S.
+        - fraction: length of a wave relative to delta (small, e.g. 0.10)
+        - density: number of small intervals per gap (controls pressure)
+        Placement strategy:
+          For each adjacent pair of offsets (and also near boundaries) insert
+          'density' short intervals centered near the boundary between copies,
+          shifted slightly so they overlap many of the small copies but avoid
+          the long blockers positioned at integer multiples.
+        Deterministic and cheap.
+        """
+        waves = []
+        wave_len = fraction * delta
+        # use deterministic small shifts derived from offsets
+        offs_list = list(offsets)
+        # create a set of anchor positions between copies to target
+        anchors = []
+        if offs_list:
+            # between each consecutive offset, and two side anchors
+            anchors.append(offs_list[0] - 0.5)
+            for i in range(len(offs_list) - 1):
+                anchors.append((offs_list[i] + offs_list[i + 1]) / 2.0)
+            anchors.append(offs_list[-1] + 0.5)
+        else:
+            anchors = [0.0, 1.0]
+
+        for a in anchors:
+            base_center = delta * a - lo
+            # place 'density' small intervals with tiny deterministic micro-shifts
+            for j in range(density):
+                # micro shift uses j to avoid exact alignment across levels
+                shift = (j - (density - 1) / 2.0) * (wave_len * 0.2)
+                l = base_center + shift - wave_len / 2.0
+                r = base_center + shift + wave_len / 2.0
+                # ensure proper nondegenerate interval
+                if r - l > 1e-12:
+                    waves.append((l, r))
+        # append waves into S (after copies but before blockers in our usage)
+        S.extend(waves)
+        return S
+
+    T = list(base_seed)
+    for lvl in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        S = []
+        S = make_copies(T, offsets, delta, lo, center, translation)
+
+        # Insert deterministic waves at intermediate levels (not too fine: use lvl threshold)
+        # We avoid waves at the deepest levels to keep size moderate.
+        if lvl < max(1, k - 1):
+            # fraction and density chosen conservatively to pressure FirstFit but not blow up omega
+            S = add_wave_intervals(S, delta, lo, offsets, fraction=0.10, density=2)
+
+        S = add_blockers(S, blockers, delta, blocker_anchor, center)
+
+        T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,264 @@
+--- a/original.py
++++ b/original.py
+@@ -1,181 +1,215 @@
+ # EVOLVE-BLOCK-START
+ 
+ def _normalize_grid(intervals):
+     """
+     Normalize endpoints to a compact integer grid while preserving order.
+     Each unique endpoint is mapped to an increasing even integer.
+     Returns a new list of (l, r) with integer coordinates.
+     """
+     endpoints = sorted(set([x for seg in intervals for x in seg]))
+     coord = {}
+     cur = 0
+     for e in endpoints:
+         coord[e] = cur
+         cur += 2  # spacing by 2 to keep even gaps
+     return [(coord[l], coord[r]) for (l, r) in intervals]
+ 
+ 
+ def _ff_count(intervals):
+     """
+     Fast FirstFit color count using per-color last end tracking.
+     For open intervals, a color c is compatible if l >= last_end[c].
+     """
+     last_end = []
+     for (l, r) in intervals:
+       placed = False
+       for i, le in enumerate(last_end):
+         if l >= le:
+           last_end[i] = r
+           placed = True
+           break
+       if not placed:
+         last_end.append(r)
+     return len(last_end)
+ 
+ 
+ def _omega_open(intervals):
+     """
+     Compute omega (max number of intervals covering a single point) for open intervals
+     via sweep. Process right endpoints before left endpoints on ties.
+     """
+     events = []
+     for (l, r) in intervals:
+         if l < r:
+             events.append((l, +1))
+             events.append((r, -1))
+     # right (-1) before left (+1) at the same coordinate
+     events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+     cur = best = 0
+     for _, t in events:
+         cur += t
+         if cur > best:
+             best = cur
+     return best
+ 
+ 
+-def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left'):
++def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left', blocker_anchor='left'):
+     """
+     Build a depth-level recursive pattern using four scaled copies per level and four long connectors.
+-    - starts: tuple of offsets (multipliers) for the copies
++    - starts: tuple of offsets (multipliers) for the copies, or a cycle (tuple of tuples) alternated per level
+     - blockers: list of 4 pairs (a,b) as multipliers of delta
+-    - schedule: 'after' | 'before' | 'split' controls the order within a level
+-    - extra_first: adds a 5th copy (start=18) at the first level to enhance coupling
+-    - translation: 'left' | 'center' anchor for positioning copies/blockers
++    - schedule: 'after' | 'before' | 'split' | 'interleave' controls the order within a level
++    - extra_first: int|bool; if truthy, add a 5th copy (start=18) on the first 'extra_first' levels (bool->1)
++    - translation: 'left' | 'center' anchor for positioning copies
++    - blocker_anchor: 'left' | 'center' anchor for positioning blockers
+     """
+     T = [(0.0, 1.0)]
+     for i in range(depth):
+         lo = min(l for l, r in T)
+         hi = max(r for l, r in T)
+         delta = hi - lo
+         center = (lo + hi) / 2.0
+ 
+-        offs = tuple(starts)
+-        if extra_first and i == 0 and 18 not in offs:
++        # Support per-level offset cycles
++        if isinstance(starts, (list, tuple)) and starts and isinstance(starts[0], (list, tuple)):
++            offs_base = tuple(starts[i % len(starts)])
++        else:
++            offs_base = tuple(starts)
++
++        # Optional extra copy at start=18 for early levels
++        extra_levels = int(extra_first) if isinstance(extra_first, bool) else int(extra_first)
++        offs = offs_base
++        if extra_levels > 0 and i < extra_levels and 18 not in offs:
+             offs = offs + (18,)
+ 
+         def make_copies(from_T, offsets):
+             S = []
+             for start in offsets:
+                 if translation == 'left':
+                     offset = delta * start - lo
+                 else:
+                     offset = delta * start - center
+                 for (l, r) in from_T:
+                     S.append((l + offset, r + offset))
+             return S
+ 
+-        # scale blockers
+-        if translation == 'left':
++        # scale blockers with their own anchor
++        if blocker_anchor == 'left':
+             blk = [(delta * a, delta * b) for (a, b) in blockers]
+         else:
+             blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+ 
+         if schedule == 'after':
+             S = make_copies(T, offs) + blk
+         elif schedule == 'before':
+             S = list(blk) + make_copies(T, offs)
+-        else:  # split
++        elif schedule == 'split':
+             h = len(offs) // 2
+             S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
++        else:  # 'interleave': alternate copies and single blockers to increase coupling
++            S = []
++            m = max(len(offs), len(blk))
++            for j in range(m):
++                if j < len(offs):
++                    S += make_copies(T, (offs[j],))
++                if j < len(blk):
++                    S.append(blk[j])
+ 
+         T = S
+     return T
+ 
+ 
+ def construct_intervals(iterations=4, normalize=True):
+     """
+-    Adaptive search-driven construction. Sweep a modest parameter space (offsets, blockers,
+-    schedule, translation, extra-first, depth) and return the instance maximizing FirstFit/omega.
++    Adaptive search-driven construction. Sweep a modest parameter space (offset cycles, blockers,
++    schedule, translation vs blocker-anchors, extra-first depth window, recursion depth)
++    and return the instance maximizing FirstFit/omega.
+     Arguments:
+-      iterations: maximum recursion depth considered (we try iterations-1 and iterations, min 2)
++      iterations: maximum recursion depth considered (we try iterations-1, iterations, iterations+1; min 2)
+       normalize: normalize endpoints to a compact integer grid (recommended)
+     Returns: list of intervals (l, r) in arrival order.
+     """
+-    depths = sorted(set([max(2, iterations - 1), max(2, iterations)]))
++    depths = sorted(set([max(2, iterations - 1), max(2, iterations), max(2, iterations + 1)]))
++
++    # Offset sets and cycles (cycled per level when a tuple of tuples is provided)
++    canonical = (2, 6, 10, 14)
++    alt_a = (1, 5, 9, 13)
++    alt_b = (3, 7, 11, 15)
++    alt_left = (0, 4, 8, 12)
++    skew_a = (2, 6, 9, 13)
++    skew_b = (3, 6, 10, 13)
+ 
+     start_sets = [
+-        (2, 6, 10, 14),   # canonical
+-        (1, 5, 9, 13),    # shift left
+-        (3, 7, 11, 15),   # shift right
+-        (0, 4, 8, 12),    # leftmost
++        canonical, alt_a, alt_b, alt_left, skew_a, skew_b,
++        (canonical, alt_a),           # cycle canonical with left-shift
++        (canonical, alt_b),           # cycle canonical with right-shift
+     ]
++
++    # Blocker templates (Figure-4-like and variants)
+     blocker_templates = [
+         [(1, 5), (12, 16), (4, 9), (8, 13)],             # canonical
+         [(1, 5), (11, 15), (4, 9), (8, 13)],             # slight shift
+         [(2, 6), (12, 16), (4, 9), (8, 13)],             # shift first
+         [(1, 6), (11, 16), (3, 9), (7, 13)],             # lengthened
++        [(0, 4), (7, 11), (3, 7), (10, 14)],             # Template B (staggered)
++        [(1, 5), (9, 13), (5, 9), (12, 16)],             # Template C (coupled middle)
++        [(3, 8), (7, 12), (11, 16), (15, 20)],           # aggressive staggered
+     ]
+-    schedules = ['after', 'before', 'split']
+-    translations = ['left', 'center']
+-    extras = [False, True]
++
++    schedules = ['after', 'before', 'split', 'interleave']
++    translations = ['left', 'center']          # for copies
++    blocker_anchors = ['left', 'center']       # separate anchor for blockers
++    extras = [0, 1, 2]                         # add extra copy at first 0/1/2 levels
+ 
+     best_T = None
+     best_ratio = -1.0
+     best_n = None
+     best_cols = 0
+     best_om = 0
+ 
+     for d in depths:
+-        # guard explosion: rough size ~ (4^d)*8; keep manageable
+-        if (4 ** d) * 8 > 4000:
++        # Guard explosion: depth 5 yields ~2388 intervals; allow comfortably
++        if (4 ** d) * 8 > 25000:
+             continue
+         for starts in start_sets:
+             for blockers in blocker_templates:
+                 for sch in schedules:
+                     for tr in translations:
+-                        for ex in extras:
+-                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=ex, translation=tr)
+-                            om = _omega_open(T)
+-                            if om == 0:
+-                                continue
+-                            cols = _ff_count(T)
+-                            ratio = cols / om
+-                            n = len(T)
+-                            better = False
+-                            if ratio > best_ratio + 1e-12:
+-                                better = True
+-                            elif abs(ratio - best_ratio) <= 1e-12:
+-                                if best_n is None or n < best_n:
++                        for ba in blocker_anchors:
++                            for ex in extras:
++                                T = _build_candidate(d, starts, blockers, schedule=sch,
++                                                     extra_first=ex, translation=tr, blocker_anchor=ba)
++                                om = _omega_open(T)
++                                if om == 0:
++                                    continue
++                                cols = _ff_count(T)
++                                ratio = cols / om
++                                n = len(T)
++                                better = False
++                                if ratio > best_ratio + 1e-12:
+                                     better = True
+-                                elif n == best_n and cols > best_cols:
+-                                    better = True
+-                            if better:
+-                                best_ratio = ratio
+-                                best_T = T
+-                                best_n = n
+-                                best_cols = cols
+-                                best_om = om
++                                elif abs(ratio - best_ratio) <= 1e-12:
++                                    if best_n is None or n < best_n:
++                                        better = True
++                                    elif n == best_n and cols > best_cols:
++                                        better = True
++                                if better:
++                                    best_ratio = ratio
++                                    best_T = T
++                                    best_n = n
++                                    best_cols = cols
++                                    best_om = om
+ 
+     # Fallback to canonical if search failed
+     if best_T is None:
+-        best_T = _build_candidate(depth=max(2, iterations), starts=(2, 6, 10, 14),
++        best_T = _build_candidate(depth=max(2, iterations), starts=canonical,
+                                   blockers=[(1, 5), (12, 16), (4, 9), (8, 13)],
+-                                  schedule='after', extra_first=False, translation='left')
++                                  schedule='after', extra_first=0, translation='left', blocker_anchor='left')
+ 
+     return _normalize_grid(best_T) if normalize else best_T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

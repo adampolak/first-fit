@@ -1,0 +1,31 @@
+<NAME>extend_depth_search</NAME>
+<DESCRIPTION>Extend the search over fractal depths up to 5 to explore deeper constructions that may yield a higher FirstFit/OPT ratio, trading off more intervals for potentially better performance.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  for depth in range(1, 5):
+=======
+  for depth in range(1, 6):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>increase_random_shuffles</NAME>
+<DESCRIPTION>Increase the number of seeded random shuffles from 3 to 10 to sample more adversarial arrival orders and improve the chance of finding an order with a higher competitive ratio.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    for i in range(3):
+=======
+    for i in range(10):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_center_orderings</NAME>
+<DESCRIPTION>Add new ordering strategies sorting by interval center ascending and descending to diversify the adversarial orders tested and potentially discover stronger worst-case sequences for FirstFit.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    orders.append(("right_first", sorted(seq, key=lambda x: -x[0])))
+=======
+    orders.append(("right_first", sorted(seq, key=lambda x: -x[0])))
+    orders.append(("center_first", sorted(seq, key=lambda x: (x[0] + x[1]) / 2)))
+    orders.append(("center_last", sorted(seq, key=lambda x: -(x[0] + x[1]) / 2)))
+>>>>>>> REPLACE
+</DIFF>

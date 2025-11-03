@@ -1,0 +1,359 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+
+# Public API: construct_intervals(iterations=4) -> list of (l,r) integer endpoints
+def construct_intervals(iterations=4):
+    """
+    Build a sequence of open intervals (arrival order) that aims to maximize
+    FirstFit / OPT (omega). Returns integer endpoints mapped to a compact grid.
+
+    Parameter:
+      iterations: hint for recursion depth; we try depths among {3,4,5,iterations}
+    """
+    # ---------- utilities ----------
+    def overlaps(a, b):
+        (l1, r1), (l2, r2) = a, b
+        return max(l1, l2) < min(r1, r2)
+
+    def firstfit_colors(intervals):
+        """FirstFit using per-color last_end tracking (works for open intervals)."""
+        last_end = []
+        for (l, r) in intervals:
+            placed = False
+            for i, le in enumerate(last_end):
+                if l >= le:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    def clique_number(intervals):
+        """Omega: sweep-line for open intervals; right endpoints before left on ties."""
+        events = []
+        for (l, r) in intervals:
+            if l < r:
+                events.append((l, +1))
+                events.append((r, -1))
+        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+        cur = best = 0
+        for _, t in events:
+            cur += t
+            if cur > best:
+                best = cur
+        return best
+
+    def normalize_grid(intervals):
+        """
+        Map unique endpoints to a compact even integer grid (0,2,4,...).
+        Returns list of integer interval endpoints preserving arrival order.
+        """
+        if not intervals:
+            return []
+        pts = sorted(set(x for seg in intervals for x in seg))
+        mapping = {p: 2 * i for i, p in enumerate(pts)}
+        return [(mapping[l], mapping[r]) for (l, r) in intervals]
+
+    # ---------- recursive pattern builder ----------
+    def build_level(base_T, offsets, blockers, translation='left', blocker_anchor='left', order='after'):
+        """
+        Create one expansion level from base_T:
+         - offsets: tuple/list of start multipliers for copies (e.g., (2,6,10,14))
+         - blockers: list of (a,b) multiplier pairs for long blockers
+         - translation: 'left' or 'center' (anchor copies)
+         - blocker_anchor: 'left' or 'center' for blocker anchor
+         - order: 'after', 'split', or 'interleaved' (arrival ordering within level)
+        """
+        lo = min(l for l, r in base_T)
+        hi = max(r for l, r in base_T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        # make groups for each copy
+        copy_groups = []
+        for start in offsets:
+            if translation == 'left':
+                off = delta * start - lo
+            else:
+                off = delta * start - center
+            group = [(l + off, r + off) for (l, r) in base_T]
+            copy_groups.append(group)
+
+        # scale blockers
+        if blocker_anchor == 'left':
+            blk = [(delta * a, delta * b) for (a, b) in blockers]
+        else:
+            blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+
+        # arrange arrival order
+        if order == 'after':
+            S = []
+            for g in copy_groups:
+                S.extend(g)
+            S.extend(blk)
+            return S
+        elif order == 'split':
+            h = max(1, len(copy_groups) // 2)
+            S = []
+            for g in copy_groups[:h]:
+                S.extend(g)
+            S.extend(blk)
+            for g in copy_groups[h:]:
+                S.extend(g)
+            return S
+        else:  # 'interleaved'
+            S = []
+            # interleave each copy group with a blocker where possible
+            for i, g in enumerate(copy_groups):
+                S.extend(g)
+                if i < len(blk):
+                    S.append(blk[i])
+            # append any remaining blockers
+            for j in range(len(copy_groups), len(blk)):
+                S.append(blk[j])
+            return S
+
+    def build_recursive(base_seed, depth, offsets, blockers, translation='left', blocker_anchor='left', order='after', extra_first=False, per_level_norm=False):
+        """
+        Recursively expand base_seed depth times, applying the given per-level rules.
+        extra_first: if True add one extra translated copy on level 0 (amplifies coupling).
+        per_level_norm: whether to normalize to integer grid after each level (stabilizes shapes).
+        """
+        T = [tuple(iv) for iv in base_seed]
+        for level in range(depth):
+            offs = tuple(offsets)
+            # deterministic extra copy only at first level
+            if extra_first and level == 0:
+                # append a copy shifted by +4 of last offset (deterministic)
+                offs = offs + (offs[-1] + 4,)
+            S = build_level(T, offs, blockers, translation=translation, blocker_anchor=blocker_anchor, order=order)
+            if per_level_norm:
+                S = normalize_grid(S)
+            T = S
+        # final normalization is done outside by caller for consistency
+        return T
+
+    # ---------- pruning that preserves certificate ----------
+    def prune_preserve_certificate(intervals, passes=2):
+        """
+        Deterministic pruning: remove intervals one-by-one only if both omega and
+        FirstFit color count remain exactly the same (certificate-preserving).
+        Two passes of back-to-front and front-to-back scans by default.
+        """
+        if not intervals:
+            return intervals
+        T = list(intervals)
+        base_norm = normalize_grid(T)
+        base_om = clique_number(base_norm)
+        base_cols = firstfit_colors(base_norm)
+        # operate on the raw (non-normalized) T but evaluate on normalized version
+        for _ in range(passes):
+            changed = False
+            # backward pass
+            i = len(T) - 1
+            while i >= 0:
+                cand = T[:i] + T[i+1:]
+                if cand:
+                    cn = normalize_grid(cand)
+                    if clique_number(cn) == base_om and firstfit_colors(cn) == base_cols:
+                        T = cand
+                        changed = True
+                        i = len(T) - 1
+                        continue
+                i -= 1
+            # forward pass
+            i = 0
+            while i < len(T):
+                cand = T[:i] + T[i+1:]
+                if cand:
+                    cn = normalize_grid(cand)
+                    if clique_number(cn) == base_om and firstfit_colors(cn) == base_cols:
+                        T = cand
+                        changed = True
+                        # do not increment i; we have new element here
+                        continue
+                i += 1
+            if not changed:
+                break
+        return T
+
+    def shrink_prune_keep_ratio(intervals, target_ratio):
+        """
+        Conservative shrink: try removing intervals (prefer longer ones) but only accept
+        if observed FirstFit/omega ratio remains >= target_ratio (we typically set target_ratio
+        to current best ratio so we never weaken the witness).
+        """
+        cur = list(intervals)
+        if not cur:
+            return cur
+        def length(iv): return iv[1] - iv[0]
+        # initial ratio
+        norm = normalize_grid(cur)
+        initial_cols = firstfit_colors(norm)
+        initial_om = clique_number(norm)
+        if initial_om == 0:
+            return cur
+        base_ratio = initial_cols / initial_om
+        if target_ratio is None:
+            target_ratio = base_ratio
+        # attempt removals by decreasing length deterministically
+        order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+        changed = True
+        while changed:
+            changed = False
+            for idx in list(order):
+                if idx >= len(cur):
+                    continue
+                cand = cur[:idx] + cur[idx+1:]
+                cn = normalize_grid(cand)
+                if not cn:
+                    continue
+                cols = firstfit_colors(cn)
+                om = clique_number(cn)
+                if om == 0:
+                    continue
+                ratio = cols / om
+                if ratio >= target_ratio:
+                    cur = cand
+                    # recompute order
+                    order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+                    changed = True
+                    break
+        return cur
+
+    # ---------- search space / deterministic enumeration ----------
+    # offsets and blocker templates inspired by prior art and provided suggestions
+    OFFSETS_POOL = [
+        (2, 6, 10, 14),  # canonical
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    BLOCKER_TEMPLATES = [
+        # canonical (Figure-4)
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # alternate shift to probe other overlaps
+        ((0, 4), (11, 15), (3, 8), (7, 12)),
+        # lengthened first and third blockers to try to occupy low colors early
+        ((1, 6), (12, 16), (4, 10), (8, 13)),
+    ]
+    TRANSLATIONS = ['left', 'center']
+    BLOCKER_ANCHORS = ['left', 'center']
+    ORDERS = ['after', 'split', 'interleaved']
+    PER_LEVEL_NORM_OPTIONS = [False, True]
+    EXTRA_FIRST_OPTIONS = [False, True]
+
+    # Candidate depths: try a small set deterministically
+    candidate_depths = sorted(set([3, 4, 5, iterations]))[:3]  # keep at most 3 depths (deterministic)
+    candidate_depths = [d for d in candidate_depths if d in (3,4,5)]
+    if not candidate_depths:
+        candidate_depths = [4]
+
+    best = None  # store (ratio, cols, om, -n, intervals_raw)
+    tested = 0
+    MAX_CANDIDATES = 128  # budget
+
+    # Base seeds to diversify small-level interactions
+    BASE_SEEDS = [
+        [(0.0, 1.0)],
+        [(0.0, 1.0), (2.0, 3.0)],
+    ]
+
+    # Deterministic nested loops (bounded by MAX_CANDIDATES)
+    for base in BASE_SEEDS:
+        for depth in candidate_depths:
+            # rough size guard
+            if (4 ** depth) * (len(base) + 2) > 3000:
+                continue
+            for offsets in OFFSETS_POOL:
+                for blockers in BLOCKER_TEMPLATES:
+                    for translation in TRANSLATIONS:
+                        for anchor in BLOCKER_ANCHORS:
+                            for order in ORDERS:
+                                for per_level_norm in PER_LEVEL_NORM_OPTIONS:
+                                    for extra_first in EXTRA_FIRST_OPTIONS:
+                                        # Build candidate (raw intervals)
+                                        T_raw = build_recursive(
+                                            base_seed=base,
+                                            depth=depth,
+                                            offsets=offsets,
+                                            blockers=blockers,
+                                            translation=translation,
+                                            blocker_anchor=anchor,
+                                            order=order,
+                                            extra_first=extra_first,
+                                            per_level_norm=per_level_norm
+                                        )
+                                        # Normalize for evaluation consistency
+                                        T_eval = normalize_grid(T_raw)
+                                        if not T_eval:
+                                            continue
+                                        om = clique_number(T_eval)
+                                        if om <= 0:
+                                            continue
+                                        cols = firstfit_colors(T_eval)
+                                        ratio = cols / om
+                                        n = len(T_eval)
+
+                                        cand = (ratio, cols, om, -n, T_raw)
+                                        if best is None or cand > best:
+                                            best = cand
+                                        tested += 1
+                                        if tested >= MAX_CANDIDATES:
+                                            break
+                                    if tested >= MAX_CANDIDATES:
+                                        break
+                                if tested >= MAX_CANDIDATES:
+                                    break
+                            if tested >= MAX_CANDIDATES:
+                                break
+                        if tested >= MAX_CANDIDATES:
+                            break
+                    if tested >= MAX_CANDIDATES:
+                        break
+                if tested >= MAX_CANDIDATES:
+                    break
+            if tested >= MAX_CANDIDATES:
+                break
+        if tested >= MAX_CANDIDATES:
+            break
+
+    # If search found nothing, fall back to canonical pattern
+    if best is None:
+        depth = 4
+        T_raw = build_recursive(
+            base_seed=[(0.0,1.0)],
+            depth=depth,
+            offsets=(2,6,10,14),
+            blockers=((1,5),(12,16),(4,9),(8,13)),
+            translation='left',
+            blocker_anchor='left',
+            order='after',
+            extra_first=False,
+            per_level_norm=False
+        )
+        return normalize_grid(T_raw)
+
+    # Best raw candidate
+    best_ratio, best_cols, best_om, neg_n, best_raw = best
+
+    # Certificate-preserving pruning (aggressively remove redundant intervals)
+    pruned = prune_preserve_certificate(best_raw, passes=2)
+    # Conservative shrink prune to reduce long blockers while keeping ratio >= best_ratio
+    shrunk = shrink_prune_keep_ratio(pruned, target_ratio=best_ratio)
+
+    # Final normalization
+    final = normalize_grid(shrunk)
+    # If pruning removed items that break the certificate (should not happen), fall back
+    if not final:
+        final = normalize_grid(best_raw)
+
+    # Final safety check: ensure omega>0
+    if clique_number(final) == 0:
+        return normalize_grid(best_raw)
+
+    return final
+
+# EVOLVE-BLOCK-END

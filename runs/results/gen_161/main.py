@@ -1,0 +1,207 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of intervals of real line to maximize FirstFit/omega.
+  We explore small variations inspired by adversarial arrival-order engineering:
+  - per-level cycling of offsets (tiling-cycle mutation)
+  - per-level cycling of blocker templates
+  - alternating left/center anchoring per level
+  - optional extra copy at the first iteration to couple layers
+  These deterministic variations break perfect regularity and tend to raise FF
+  while keeping omega small.
+  """
+
+  # --- Helper routines (kept lightweight and deterministic) ---
+
+  def firstfit_colors(intervals):
+    """Simulate FirstFit using per-color last end-point tracking."""
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def clique_number(intervals):
+    """Sweep for open intervals; process right endpoints before left at ties."""
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def build_candidate(k, schedule='after', extra_first=False):
+    """
+    Build k-level recursive pattern using four (occasionally five) scaled copies per level,
+    with four long connectors ("blockers"). Implements per-level cycles:
+      - offsets_cycle: four deterministic tilings used in a round-robin fashion
+      - blockers_cycle: small set of blocker templates to vary connector geometry
+      - anchoring alternates left/center each level to create small misalignments
+    schedule may be 'after','before','split' (applies as a base), or 'vary' to
+    use a small deterministic level-wise schedule pattern.
+    """
+    # deterministic offset patterns (tiling-cycle mutation)
+    offsets_cycle = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (0, 4, 8, 12),
+    ]
+    # several blocker templates (multipliers) to cycle through
+    blockers_cycle = [
+      ((1, 5), (12, 16), (4, 9), (8, 13)),   # canonical
+      ((1, 5), (11, 15), (4, 9), (8, 13)),   # slight shift second
+      ((2, 6), (12, 16), (4, 9), (8, 13)),   # shift first
+    ]
+    # small deterministic per-level schedule pattern for 'vary'
+    level_sched_pattern = ['after', 'split', 'before']
+
+    T = [(0.0, 1.0)]
+    for i in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # choose offsets and blockers deterministically for this level
+      offs = offsets_cycle[i % len(offsets_cycle)]
+      # optionally add a fifth copy only on the very first level to diversify branching
+      if extra_first and i == 0:
+        if 18 not in offs:
+          offs = offs + (18,)
+
+      blk_tpl = blockers_cycle[i % len(blockers_cycle)]
+      # create blocker intervals scaled by delta and anchored appropriately
+      def make_blockers(anchor='left'):
+        B = []
+        for (a, b) in blk_tpl:
+          if anchor == 'left':
+            B.append((delta * a, delta * b))
+          else:
+            # center-shift blockers slightly so they do not align exactly
+            B.append((delta * a - center, delta * b - center))
+        return B
+
+      # create translated copies with optional anchoring
+      def make_copies(from_T, offsets, anchor='left'):
+        S = []
+        for start in offsets:
+          if anchor == 'left':
+            off = delta * start - lo
+          else:
+            off = delta * start - center
+          for (l, r) in from_T:
+            S.append((l + off, r + off))
+        return S
+
+      # decide anchoring: alternate left/center to break symmetry
+      anchor = 'center' if (i % 2 == 1) else 'left'
+
+      # decide schedule for this level: base schedule or vary pattern
+      lvl_schedule = schedule
+      if schedule == 'vary':
+        lvl_schedule = level_sched_pattern[i % len(level_sched_pattern)]
+
+      # assemble S for this level according to level schedule
+      if lvl_schedule == 'after':
+        S = make_copies(T, offs, anchor=anchor) + make_blockers(anchor=anchor)
+      elif lvl_schedule == 'before':
+        S = make_blockers(anchor=anchor) + make_copies(T, offs, anchor=anchor)
+      else:  # 'split'
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first, anchor=anchor) + make_blockers(anchor=anchor) + make_copies(T, second, anchor=anchor)
+
+      T = S
+    return T
+
+  # --- Enumerate a modest set of candidates and select the best by ratio ---
+  configs = []
+  depths = [max(2, iterations - 1), iterations]  # try one less and the given
+  # include the new 'vary' schedule to enable per-level schedule pattern
+  schedules = ['after', 'before', 'split', 'vary']
+  extras = [False, True]
+
+  best_T = None
+  best_ratio = -1.0
+  best_n = None
+  best_cols = 0
+  best_om = 0
+
+  for k in depths:
+    for sch in schedules:
+      for ex in extras:
+        T = build_candidate(k, schedule=sch, extra_first=ex)
+        om = clique_number(T)
+        if om == 0:
+          continue
+        cols = firstfit_colors(T)
+        ratio = cols / om
+        n = len(T)
+        # Prefer higher ratio; tie-break by fewer intervals then more colors
+        better = False
+        if ratio > best_ratio + 1e-12:
+          better = True
+        elif abs(ratio - best_ratio) <= 1e-12:
+          if best_n is None or n < best_n:
+            better = True
+          elif n == best_n and cols > best_cols:
+            better = True
+        if better:
+          best_ratio = ratio
+          best_T = T
+          best_n = n
+          best_cols = cols
+          best_om = om
+
+  # Fallback to baseline 4-iteration construction if search fails
+  if best_T is None:
+    T = [(0, 1)]
+    for i in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    return T
+
+  return best_T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

@@ -1,0 +1,15 @@
+<NAME>
+increase_depth_iter5
+</NAME>
+<DESCRIPTION>
+We extend the recursive expansion from 4 to 5 iterations. In the Figure 4–style gadget, each iteration tends to increase the clique number by about 1 while forcing roughly 2–4 additional FirstFit colors. Empirically from the prior runs: 2→3 iterations improved the ratio from ~2.33 to ~2.50, and 3→4 to ~2.60. Adding a 5th iteration should push FirstFit to use more colors while the clique increases only modestly, yielding an improved alg/opt ratio (expected ~2.66 or better), which directly improves the combined_score. This change keeps the structure and arrival order intact, only deepening the recursive construction. While it increases the number of intervals, the metric we optimize is the ratio, and previous evaluations show this approach scales favorably.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  # Perform four recursive expansions, with alternating placement to diversify gadget
+  for i in range(4):
+=======
+  # Perform five recursive expansions, with alternating placement to diversify gadget
+  for i in range(5):
+>>>>>>> REPLACE
+</DIFF>

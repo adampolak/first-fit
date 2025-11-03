@@ -1,0 +1,250 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of open intervals (l, r) presented in order to FirstFit.
+
+  Improvements over the baseline:
+  - Explore a small deterministic parameter space (nearby recursion depths,
+    a few offset templates, blocker templates, and schedules).
+  - Use an exact FirstFit simulator (checks overlaps per color) for correctness.
+  - After selecting the best candidate by ratio cols/omega, run a strict
+    deterministic prune that removes intervals only if both FirstFit colors
+    and clique number remain exactly equal to the original witness.
+  - Normalize to a compact integer grid with gcd reduction.
+  """
+  # --- basic geometry helpers ----------------------------------------------
+  def overlaps(a, b):
+    # open intervals: (l1,r1) and (l2,r2) overlap iff l1 < r2 and l2 < r1
+    return a[0] < b[1] and b[0] < a[1]
+
+  def firstfit_colors(intervals):
+    """Exact FirstFit simulation for arbitrary arrival order (deterministic)."""
+    colors = []  # list of lists of intervals assigned to that color
+    for iv in intervals:
+      placed = False
+      for col in colors:
+        # check compatibility with all intervals already in this color
+        ok = True
+        for u in col:
+          if overlaps(iv, u):
+            ok = False
+            break
+        if ok:
+          col.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+
+  def clique_number(intervals):
+    """Sweep-line for open intervals; right endpoints before left at ties."""
+    ev = []
+    for l, r in intervals:
+      if l < r:
+        ev.append((l, +1))
+        ev.append((r, -1))
+    # process same-coordinates with -1 before +1 so touching intervals don't count
+    ev.sort(key=lambda x: (x[0], x[1]))
+    cur = best = 0
+    for _, t in ev:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  # --- candidate construction primitives -----------------------------------
+  base_gadget = [(0.0, 1.0), (3.0, 4.0)]  # keep previous small two-interval base
+
+  offset_templates = {
+    'A': (2, 6, 10, 14),  # baseline
+    'B': (1, 5, 9, 13),   # shifted variant
+    'C': (0, 4, 8, 12),   # aligned to 0 mod 4
+    'D': (3, 7, 11, 15),  # alternate staggering
+  }
+
+  blocker_templates = {
+    # baseline (Figure 4)
+    'A': [(1, 5), (12, 16), (4, 9), (8, 13)],
+    # Template B: couples copies differently (from suggestions)
+    'B': [(0, 4), (7, 11), (3, 7), (10, 14)],
+    # Template C: alternate coupling (attempt different overlaps)
+    'C': [(1, 5), (9, 13), (5, 9), (12, 16)],
+  }
+
+  def build_candidate(k, offsets, blockers, schedule='after', extra_first=False):
+    """
+    Build a k-level recursive adversary using a given offsets tuple and
+    blocker coefficient pairs. schedule determines whether blockers appear
+    before copies, after copies, or split between halves of the copies.
+    extra_first allows adding an extra 5th copy at offset 18 on the first level.
+    """
+    T = list(base_gadget)
+    for level in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      # optionally add a fifth copy on the first level
+      offs = tuple(offsets) if not (extra_first and level == 0) else tuple(list(offsets) + [18])
+      # create translated copies
+      copies = []
+      for s in offs:
+        off = delta * s - lo
+        for (l, r) in T:
+          copies.append((l + off, r + off))
+      # create blocker intervals using multiplier coefficients
+      blk = [(delta * a, delta * b) for (a, b) in blockers]
+      # schedule arrival order inside the level
+      if schedule == 'after':
+        S = copies + blk
+      elif schedule == 'before':
+        S = blk + copies
+      else:  # split: some copies, blockers, remaining copies
+        h = max(1, len(offs) // 2)
+        first_offs = offs[:h]
+        second_offs = offs[h:]
+        first_copies = []
+        for s in first_offs:
+          off = delta * s - lo
+          for (l, r) in T:
+            first_copies.append((l + off, r + off))
+        second_copies = []
+        for s in second_offs:
+          off = delta * s - lo
+          for (l, r) in T:
+            second_copies.append((l + off, r + off))
+        S = first_copies + blk + second_copies
+      T = S
+    return T
+
+  # --- deterministic search over a modest parameter space ------------------
+  depths = []
+  # search nearby depths (keep in [2,5] to avoid explosion)
+  depths.append(max(2, iterations - 1))
+  depths.append(iterations)
+  depths.append(min(iterations + 1, 5))
+  depths = sorted(set(depths))
+
+  schedules = ['after', 'before', 'split']
+  extras = [False, True]
+  off_keys = list(offset_templates.keys())
+  blk_keys = list(blocker_templates.keys())
+
+  best_T = None
+  best_ratio = -1.0
+  best_metrics = None
+
+  for k in depths:
+    for off_k in off_keys:
+      offs = offset_templates[off_k]
+      for blk_k in blk_keys:
+        blks = blocker_templates[blk_k]
+        for sch in schedules:
+          for ex in extras:
+            T = build_candidate(k, offs, blks, schedule=sch, extra_first=ex)
+            om = clique_number(T)
+            if om <= 0:
+              continue
+            cols = firstfit_colors(T)
+            ratio = cols / om
+            # deterministic tie-breaks: prefer higher ratio, then fewer intervals, then more colors
+            n = len(T)
+            better = False
+            if ratio > best_ratio + 1e-12:
+              better = True
+            elif abs(ratio - best_ratio) <= 1e-12:
+              if best_metrics is None or n < best_metrics[0]:
+                better = True
+              elif n == best_metrics[0] and cols > best_metrics[1]:
+                better = True
+            if better:
+              best_ratio = ratio
+              best_T = T
+              best_metrics = (n, cols, om, k, off_k, blk_k, sch, ex)
+
+  # If search failed (should not), fall back to original simple construction
+  if best_T is None:
+    T = list(base_gadget)
+    for i in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      starts = (2, 6, 10, 14) if i % 2 == 0 else (1, 5, 9, 13)
+      for start in starts:
+        offset = delta * start - lo
+        S.extend([(offset + l, offset + r) for l, r in T])
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    best_T = T
+    best_metrics = (len(T), firstfit_colors(T), clique_number(T), iterations, 'fallback', 'A', 'after', False)
+
+  # --- strict deterministic pruning (keep witness exact) -------------------
+  def strict_prune(T):
+    target_cols = firstfit_colors(T)
+    target_om = clique_number(T)
+    if target_om == 0:
+      return T
+    changed = True
+    passes = 0
+    # Try a few passes (forward/backward and length-ordered) to remove redundant intervals
+    while changed and passes < 4:
+      changed = False
+      # prefer removing long connectors first: sort by descending length
+      order = sorted(range(len(T)), key=lambda i: (-(T[i][1] - T[i][0]), i))
+      for i in order:
+        cand = T[:i] + T[i+1:]
+        if clique_number(cand) == target_om and firstfit_colors(cand) == target_cols:
+          T = cand
+          changed = True
+          break
+      if changed:
+        passes += 1
+        continue
+      # try backward scan (remove late-arriving intervals)
+      i = len(T) - 1
+      while i >= 0:
+        cand = T[:i] + T[i+1:]
+        if clique_number(cand) == target_om and firstfit_colors(cand) == target_cols:
+          T = cand
+          changed = True
+          break
+        i -= 1
+      passes += 1
+    return T
+
+  T = strict_prune(best_T)
+
+  # --- normalization to a compact integer grid -----------------------------
+  pts = sorted({x for seg in T for x in seg})
+  coord = {}
+  cur = 0
+  for p in pts:
+    coord[p] = cur
+    cur += 2
+  L = [(coord[l], coord[r]) for l, r in T]
+  # shift min to 0
+  mn = min(min(a, b) for a, b in L) if L else 0
+  L = [(a - mn, b - mn) for a, b in L]
+  # divide out gcd to tighten coordinates
+  from math import gcd
+  g = 0
+  for a, b in L:
+    g = gcd(g, abs(a))
+    g = gcd(g, abs(b))
+  if g > 1:
+    L = [(a // g, b // g) for a, b in L]
+
+  return L
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

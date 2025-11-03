@@ -1,0 +1,115 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+    """
+    Build an adversarial sequence of open intervals presented to FirstFit,
+    using the four-copy + four-blocker recursion, then prune redundancies
+    while preserving the FirstFit-to-OPT ratio.
+
+    Arguments:
+      iterations: number of recursive expansion steps (default 4)
+
+    Returns:
+      T: list of (l, r) floats representing open intervals
+    """
+
+    # --- Efficient FirstFit and omega computations ---
+
+    def firstfit_colors(intervals):
+        # Track, for each color, the rightmost end used so far
+        last_end = []
+        for l, r in intervals:
+            placed = False
+            for i, le in enumerate(last_end):
+                if l >= le:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    def clique_number(intervals):
+        # Sweep‐line: +1 at left, -1 at right; open intervals process -1 before +1
+        events = []
+        for l, r in intervals:
+            if l < r:
+                events.append((l, +1))
+                events.append((r, -1))
+        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+        cur = best = 0
+        for _, delta in events:
+            cur += delta
+            if cur > best:
+                best = cur
+        return best
+
+    # --- Shrink-witness pruning ---
+
+    def shrink_witness(T, target_cols, target_omega, max_passes=2):
+        """
+        Remove any interval whose deletion keeps
+        FirstFit(T) >= target_cols and omega(T) == target_omega.
+        Do forward/backward scans for a few passes.
+        """
+        passes = 0
+        changed = True
+        while changed and passes < max_passes:
+            changed = False
+            # forward
+            i = 0
+            while i < len(T):
+                cand = T[:i] + T[i+1:]
+                if clique_number(cand) == target_omega and firstfit_colors(cand) >= target_cols:
+                    T = cand
+                    changed = True
+                    # do not advance i, new interval at i
+                else:
+                    i += 1
+            # backward
+            i = len(T) - 1
+            while i >= 0:
+                cand = T[:i] + T[i+1:]
+                if clique_number(cand) == target_omega and firstfit_colors(cand) >= target_cols:
+                    T = cand
+                    changed = True
+                i -= 1
+            passes += 1
+        return T
+
+    # --- Four-copy + four-blocker recursion ---
+
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        S = []
+        # four scaled copies at offsets 2,6,10,14
+        for start in (2, 6, 10, 14):
+            off = delta * start - lo
+            for l, r in T:
+                S.append((l + off, r + off))
+        # four long blockers
+        S.extend([
+            (delta * 1,  delta * 5),
+            (delta * 12, delta * 16),
+            (delta * 4,  delta * 9),
+            (delta * 8,  delta * 13),
+        ])
+        T = S
+
+    # --- Prune redundant intervals while preserving FF/OPT ratio ---
+
+    om   = clique_number(T)
+    cols = firstfit_colors(T)
+    if om > 0 and cols > 0:
+        T = shrink_witness(T, cols, om)
+
+    return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

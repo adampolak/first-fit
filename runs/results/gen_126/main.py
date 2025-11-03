@@ -1,0 +1,376 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Build a sequence of open intervals aiming to maximize FirstFit/OPT.
+  Novelty: mixed-arity (3/4/5) copy schedules with pairwise cap couplers,
+  level-wise interleaving/scheduling, and a two-stage deterministic pruning.
+
+  Returns:
+    list of (l, r) integer endpoints (open intervals) in arrival order.
+  """
+
+  # ------------- core utilities -------------
+
+  def ff_count(intervals):
+    """FirstFit for open intervals using per-color last end tracking."""
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def omega_open(intervals):
+    """Maximum clique size (open intervals) via sweep; right endpoints first on ties."""
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def normalize_grid(intervals):
+    """
+    Map unique endpoints to even integers (0,2,4,...). Preserves order and overlap.
+    """
+    if not intervals:
+      return []
+    pts = sorted(set(x for seg in intervals for x in seg))
+    idx = {p: 2*i for i, p in enumerate(pts)}
+    return [(idx[l], idx[r]) for (l, r) in intervals]
+
+  # ------------- geometry blueprints -------------
+
+  # Offset tilings for 3-, 4-, and 5-copy levels (rotations to test robustness)
+  OFFSETS_3 = [
+    (2, 8, 14),
+    (1, 7, 13),
+    (3, 9, 15),
+  ]
+  OFFSETS_4 = [
+    (2, 6, 10, 14),   # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+  ]
+  OFFSETS_5 = [
+    (2, 5, 8, 11, 14),
+    (1, 4, 7, 10, 13),
+    (3, 6, 9, 12, 15),
+  ]
+
+  # Cap coupler templates: (a,b) are multipliers of delta at each level.
+  # These are distinct from the classical 4-blocker set and are chosen to
+  # primarily couple adjacent copies while keeping clique growth modest.
+  CAPS_3 = [
+    # pairwise caps + one outer
+    ((1, 6), (7, 12), (4, 10)),
+    ((0, 5), (6, 11), (3, 9)),
+  ]
+  CAPS_4 = [
+    # adjacent caps (1-2, 2-3, 3-4) plus one outer
+    ((1, 5), (5.5, 9.5), (10, 14), (4, 12)),
+    ((0.5, 4.5), (4.5, 8.5), (8.5, 12.5), (3.5, 11.5)),
+  ]
+  CAPS_5 = [
+    # caps between consecutive windows + mild outer span
+    ((1, 4), (4, 7), (7, 10), (10, 13), (3, 11)),
+    ((0.5, 3.5), (3.5, 6.5), (6.5, 9.5), (9.5, 12.5), (2.5, 10.5)),
+  ]
+
+  # Per-level schedule/ordering choices
+  SCHEDULES = ['after', 'before', 'split']      # caps placement wrt copies
+  INTERLEAVES = ['block', 'zip']                # intra-level emission order
+  ANCHORS = ['left', 'center']                  # translation anchor
+
+  # ------------- builder -------------
+
+  def make_copies(T, offsets, delta, lo, center, translation, reverse_alt=False):
+    """
+    Create copies of T translated by offsets. If reverse_alt is True, every
+    other copy is emitted in reversed order (adversarial arrival order).
+    """
+    copy_lists = []
+    for idx, start in enumerate(offsets):
+      off = delta * start - (lo if translation == 'left' else center)
+      src = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+      copy_lists.append([(l + off, r + off) for (l, r) in src])
+    return copy_lists
+
+  def interleave_copies(copy_lists, mode):
+    if mode == 'block' or not copy_lists:
+      S = []
+      for lst in copy_lists:
+        S.extend(lst)
+      return S
+    # zip: round-robin
+    m = len(copy_lists[0])
+    S = []
+    for j in range(m):
+      for lst in copy_lists:
+        S.append(lst[j])
+    return S
+
+  def scale_caps(caps, delta, center, anchor):
+    out = []
+    for (a, b) in caps:
+      if anchor == 'left':
+        out.append((delta * a, delta * b))
+      else:
+        out.append((delta * a - center, delta * b - center))
+    return out
+
+  def build_candidate(arity_schedule, offsets_choice, caps_choice,
+                      interleave_schedule, caps_schedule,
+                      translation_schedule, anchor_schedule,
+                      reverse_alt=False):
+    """
+    Build a candidate instance with per-level arity (3/4/5), offset set,
+    cap template, interleave mode, cap placement schedule, translation anchor,
+    and per-level reverse-alt choice.
+    """
+    T = [(0.0, 1.0)]  # base seed
+    levels = len(arity_schedule)
+    for lvl in range(levels):
+      arity = arity_schedule[lvl]
+      # choose an offsets template for this arity
+      if arity == 3:
+        offsets = OFFSETS_3[offsets_choice[lvl] % len(OFFSETS_3)]
+        caps_tpl = CAPS_3[caps_choice[lvl] % len(CAPS_3)]
+      elif arity == 4:
+        offsets = OFFSETS_4[offsets_choice[lvl] % len(OFFSETS_4)]
+        caps_tpl = CAPS_4[caps_choice[lvl] % len(CAPS_4)]
+      else:  # arity == 5
+        offsets = OFFSETS_5[offsets_choice[lvl] % len(OFFSETS_5)]
+        caps_tpl = CAPS_5[caps_choice[lvl] % len(CAPS_5)]
+
+      inter_mode = interleave_schedule[lvl]
+      cap_sched = caps_schedule[lvl]
+      trans = translation_schedule[lvl]
+      anch = anchor_schedule[lvl]
+
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # copies
+      copies = make_copies(T, offsets, delta, lo, center, trans, reverse_alt=reverse_alt)
+      S_copies = interleave_copies(copies, inter_mode)
+
+      # caps
+      S_caps = scale_caps(caps_tpl, delta, center, anch)
+
+      # compose per schedule
+      if cap_sched == 'before':
+        S = S_caps + S_copies
+      elif cap_sched == 'split':
+        # split copies in half around caps (block-mode split)
+        if inter_mode == 'block':
+          h = max(1, len(copies) // 2)
+          first_half = []
+          for i in range(h):
+            first_half.extend(copies[i])
+          second_half = []
+          for i in range(h, len(copies)):
+            second_half.extend(copies[i])
+          S = first_half + S_caps + second_half
+        else:
+          # with zip interleave, just place caps mid-stream
+          mid = len(S_copies) // 2
+          S = S_copies[:mid] + S_caps + S_copies[mid:]
+      else:  # 'after'
+        S = S_copies + S_caps
+
+      T = S
+    return T
+
+  # ------------- evaluation and pruning -------------
+
+  def score_tuple(intervals):
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = omega_open(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = ff_count(intervals)
+    # Slight size penalty to break ties reproducibly
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+
+  def prune_preserve_frontier(intervals, rounds=2):
+    """
+    Two-stage deterministic pruning:
+      - Stage 1: remove intervals only if ratio strictly improves or stays equal with smaller n.
+      - Stage 2: bias removals to the longest intervals (caps) while preserving the observed ratio.
+    """
+    def metrics(T):
+      om = omega_open(T)
+      if om == 0:
+        return (0, 0, 0.0)
+      cols = ff_count(T)
+      return (cols, om, cols / om)
+
+    cur = list(intervals)
+    cols, om, ratio = metrics(cur)
+    if om == 0:
+      return cur
+
+    # Stage 1: greedy local improvement
+    for _ in range(rounds):
+      improved = False
+      for i in range(len(cur)):
+        cand = cur[:i] + cur[i+1:]
+        c_cols, c_om, c_ratio = metrics(cand)
+        if c_om == 0:
+          continue
+        if c_ratio > ratio + 1e-12 or (abs(c_ratio - ratio) <= 1e-12 and len(cand) < len(cur)):
+          cur = cand
+          cols, om, ratio = c_cols, c_om, c_ratio
+          improved = True
+          break
+      if not improved:
+        break
+
+    # Stage 2: remove long caps while preserving exact ratio
+    target_ratio = ratio
+    # sort by length desc, then by index
+    order = sorted(range(len(cur)), key=lambda i: (cur[i][1] - cur[i][0], i), reverse=True)
+    changed = True
+    while changed:
+      changed = False
+      for idx in list(order):
+        if idx >= len(cur):
+          continue
+        cand = cur[:idx] + cur[idx+1:]
+        c_cols, c_om, c_ratio = metrics(cand)
+        if c_om == 0:
+          continue
+        if abs(c_ratio - target_ratio) <= 1e-12 and len(cand) < len(cur):
+          cur = cand
+          changed = True
+          # recompute order with current cur
+          order = sorted(range(len(cur)), key=lambda i: (cur[i][1] - cur[i][0], i), reverse=True)
+          break
+
+    return cur
+
+  # ------------- search space -------------
+
+  # Depth/arity schedules (mixed-arity) to explore; include iterations if in {3,4,5}
+  candidate_depths = {3, 4, 5}
+  if iterations in (3, 4, 5):
+    candidate_depths.add(iterations)
+
+  # Mixed arity schedules: 4-copy baseline, mixed 3-4-5 towers, and staggered forms
+  ARITY_SCHEDULES = [
+    # Uniform
+    [4, 4, 4],
+    [4, 4, 4, 4],
+    # Mixed with symmetric caps
+    [3, 4, 4, 3],
+    [4, 3, 4, 3],
+    [4, 5, 4],
+    [5, 4, 5],
+  ]
+
+  # For each level we choose offset/cap template indices deterministically.
+  # We rotate among the available templates using fixed patterns.
+  def gen_index_vectors(levels, k_off=0, k_cap=0):
+    offs_idx = [(i + k_off) % 3 if (i % 3 == 0) else (i + k_off) % 4 for i in range(levels)]
+    caps_idx = [(i + k_cap) % 2 for i in range(levels)]
+    return offs_idx, caps_idx
+
+  # Interleave/cap schedules per level (cycled deterministically)
+  INTER_SCHED_ROT = ['block', 'zip']
+  CAP_SCHED_ROT = ['after', 'before', 'split']
+  ANCHOR_ROT = ['left', 'center']
+
+  # ------------- master sweep -------------
+
+  best = None  # (score, omega, colors, n, intervals)
+
+  # We cap instance growth by a coarse bound to keep runtime modest.
+  def approx_size(arity_schedule, base=1):
+    p = 1
+    s = 0
+    for a in arity_schedule:
+      p *= a
+      s += p
+    # copies contribution + linear number of caps per level
+    return p * base + 6 * len(arity_schedule) + s // 4
+
+  for arity_sched in ARITY_SCHEDULES:
+    # restrict by approximate size
+    if approx_size(arity_sched) > 3500:
+      continue
+    levels = len(arity_sched)
+
+    # Generate per-level index vectors (several rotations)
+    for k_off in range(2):
+      for k_cap in range(2):
+        offs_idx, caps_idx = gen_index_vectors(levels, k_off=k_off, k_cap=k_cap)
+
+        # Schedules per level (cycle through deterministic patterns)
+        interleave_sched = [INTER_SCHED_ROT[i % len(INTER_SCHED_ROT)] for i in range(levels)]
+        caps_sched = [CAP_SCHED_ROT[i % len(CAP_SCHED_ROT)] for i in range(levels)]
+        trans_sched = [ANCHOR_ROT[(i + 1) % len(ANCHOR_ROT)] for i in range(levels)]
+        anchor_sched = [ANCHOR_ROT[i % len(ANCHOR_ROT)] for i in range(levels)]
+
+        # Try both reverse-alt options
+        for rev in (False, True):
+          T = build_candidate(
+            arity_schedule=arity_sched,
+            offsets_choice=offs_idx,
+            caps_choice=caps_idx,
+            interleave_schedule=interleave_sched,
+            caps_schedule=caps_sched,
+            translation_schedule=trans_sched,
+            anchor_schedule=anchor_sched,
+            reverse_alt=rev
+          )
+          sc, om, cols, n = score_tuple(T)
+          cand = (sc, om, cols, n, T)
+          if best is None or cand[0] > best[0] + 1e-9 or (
+             abs(cand[0] - best[0]) <= 1e-9 and (cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]))):
+            best = cand
+
+  # Fallback: canonical 4x4 pattern if sweep fails (unlikely)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        off = delta * start - lo
+        S += [(l + off, r + off) for (l, r) in T]
+      # simple caps (distinct from classical to mark novelty)
+      S += [(delta * 1, delta * 5), (delta * 5.5, delta * 9.5), (delta * 10, delta * 14), (delta * 4, delta * 12)]
+      T = S
+    return normalize_grid(T)
+
+  # Two-stage deterministic pruning on the best candidate to tighten footprint/frontier
+  pruned = prune_preserve_frontier(best[4])
+
+  # Normalize endpoints to compact integers
+  return normalize_grid(pruned if pruned else best[4])
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

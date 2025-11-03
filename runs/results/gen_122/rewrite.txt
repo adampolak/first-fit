@@ -1,0 +1,240 @@
+# EVOLVE-BLOCK-START
+
+from typing import List, Tuple, Sequence, Dict
+import math
+import itertools
+import copy
+
+Interval = Tuple[float, float]
+
+
+def _normalize_grid(intervals: Sequence[Interval], spacing: int = 2) -> List[Tuple[int, int]]:
+    """
+    Map the unique endpoints of 'intervals' to an increasing integer grid
+    spaced by 'spacing' (default 2) and return a list of integer intervals.
+    This preserves order and relative adjacencies (and ensures integer output).
+    """
+    endpoints = sorted({x for seg in intervals for x in seg})
+    coord: Dict[float, int] = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += spacing
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+
+def _firstfit_colors(intervals: Sequence[Interval]) -> int:
+    """
+    Simulate FirstFit in the online order given by 'intervals'.
+    Uses the invariant: for each color remember the right endpoint of the
+    last interval assigned to that color. A color is available if last_r <= l.
+    (This respects open intervals: last_r == l => no overlap.)
+    """
+    last_r: List[float] = []
+    for (l, r) in intervals:
+        assigned = False
+        for i in range(len(last_r)):
+            if last_r[i] <= l:
+                last_r[i] = r
+                assigned = True
+                break
+        if not assigned:
+            last_r.append(r)
+    return len(last_r)
+
+
+def _clique_number(intervals: Sequence[Interval]) -> int:
+    """
+    Compute the clique number (maximum number of intervals covering any point).
+    For open intervals (l,r) we must treat an end at x before a start at x
+    so that (a,x) and (x,b) do not overlap; thus process 'end' events first.
+    """
+    events = []
+    for (l, r) in intervals:
+        events.append((l, "start"))
+        events.append((r, "end"))
+    # sort by coordinate, and process 'end' before 'start' at the same coordinate
+    events.sort(key=lambda e: (e[0], 0 if e[1] == "end" else 1))
+    cur = 0
+    best = 0
+    for _, typ in events:
+        if typ == "end":
+            cur -= 1
+        else:
+            cur += 1
+            if cur > best:
+                best = cur
+    return best
+
+
+def _expand_level(T: Sequence[Interval], starts: Sequence[int], blockers: Sequence[Tuple[int, int]]) -> List[Interval]:
+    """
+    Given current template T, create translated/scaled copies at offsets 'starts'
+    (these are integer multipliers) and append blockers specified as multipliers
+    relative to the current span (delta).
+    The pattern follows the Figure-4 style replacement.
+    """
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S: List[Interval] = []
+    for s in starts:
+        offset = delta * s - lo
+        for (l, r) in T:
+            S.append((offset + l, offset + r))
+    for (a, b) in blockers:
+        S.append((delta * a, delta * b))
+    return S
+
+
+# Pre-defined tiling offset sets (A–D) and blocker templates (A–C).
+TILING_SETS = {
+    "A": (2, 6, 10, 14),
+    "B": (1, 5, 9, 13),
+    "C": (3, 7, 11, 15),
+    "D": (0, 4, 8, 12),
+}
+
+BLOCKER_TEMPLATES = {
+    # Template A: original Figure-4 style
+    "A": ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # Template B: alternate blockers (deterministic variant)
+    "B": ((0, 4), (7, 11), (3, 7), (10, 14)),
+    # Template C: another deterministic alternate
+    "C": ((1, 5), (9, 13), (5, 9), (12, 16)),
+}
+
+
+def _build_recursive(base: Sequence[Interval],
+                     depth: int,
+                     starts: Sequence[int],
+                     blockers: Sequence[Tuple[int, int]],
+                     normalize_cadence: str = "final") -> List[Interval]:
+    """
+    Build recursively for 'depth' levels:
+      - starts: offsets used to replicate copies at each level
+      - blockers: list of (a,b) multiplier pairs appended each level
+      - normalize_cadence: "every", "two", or "final" determines whether
+        we compress endpoint coordinates periodically.
+    Returns a list of intervals (float endpoints) in online order.
+    """
+    T = [ (float(l), float(r)) for (l, r) in base ]  # copy as float intervals
+    for level in range(depth):
+        T = _expand_level(T, starts, blockers)
+        if normalize_cadence == "every":
+            # normalize and convert back to floats to keep coordinates compact
+            T = [(float(a), float(b)) for (a, b) in _normalize_grid(T)]
+        elif normalize_cadence == "two" and (level + 1) % 2 == 0:
+            T = [(float(a), float(b)) for (a, b) in _normalize_grid(T)]
+        # otherwise "final" -> do nothing until the end
+    if normalize_cadence == "final":
+        # compress to reduce numerical size
+        T = [(float(a), float(b)) for (a, b) in _normalize_grid(T)]
+    return T
+
+
+def _prune_frontier_preserving(intervals: List[Tuple[int, int]],
+                               max_attempts: int = 200) -> List[Tuple[int, int]]:
+    """
+    Deterministic earliest-added-first pruning:
+    Try removing intervals in arrival order; accept a removal only if both
+    FirstFit color count and clique number remain unchanged. Limit the
+    number of successful removals to 'max_attempts' to keep runtime bounded.
+    """
+    n = len(intervals)
+    orig_intervals = list(intervals)
+    orig_alg = _firstfit_colors(orig_intervals)
+    orig_opt = _clique_number(orig_intervals)
+    removed = [False] * n
+    attempts = 0
+    # iterate earliest-first; multiple sweeps until no removal or max_attempts reached
+    changed = True
+    while changed and attempts < max_attempts:
+        changed = False
+        for i in range(n):
+            if removed[i]:
+                continue
+            # build candidate skipping i and any already removed
+            candidate = [orig_intervals[j] for j in range(n) if j != i and not removed[j]]
+            c_alg = _firstfit_colors(candidate)
+            c_opt = _clique_number(candidate)
+            if c_alg == orig_alg and c_opt == orig_opt:
+                removed[i] = True
+                attempts += 1
+                changed = True
+                # update orig_intervals is unnecessary; we keep referencing original indices
+                if attempts >= max_attempts:
+                    break
+        # loop will stop when no removal in pass
+    # reconstruct final list
+    final = [orig_intervals[i] for i in range(n) if not removed[i]]
+    return final
+
+
+# EVOLVE-BLOCK-END
+
+
+def construct_intervals(iterations: int = 4) -> List[Tuple[int, int]]:
+    """
+    Top-level constructor. Performs a deterministic small search over a
+    handful of structural choices and returns the best interval sequence found
+    (maximizing FirstFit/OPT ratio, tie-breaking on smaller witness size).
+
+    The returned intervals are integer pairs (l, r) in arrival order.
+    """
+    # Base gadget choices: 'pair' (two small disjoint intervals) empirically
+    # provides a rich local overlap structure; keep deterministic.
+    base_pair = [(0.0, 1.0), (3.0, 4.0)]
+    base_single = [(0.0, 1.0)]
+
+    # We'll search over:
+    # - 4 tiling sets (A-D)
+    # - 3 blocker templates (A-C)
+    # - 3 normalization cadences ('every', 'two', 'final')
+    # - 2 recursion depths: iterations-1 and iterations  (keeps search compact)
+    cadences = ("every", "two", "final")
+    tilings = ("A", "B", "C", "D")
+    blocker_keys = ("A", "B", "C")
+    depths = list(sorted({max(1, iterations - 1), iterations}))
+
+    best_score = -1.0
+    best_candidate: List[Tuple[int, int]] = []
+    best_stats = None
+
+    # Deterministically try the cross-product of options (small finite set)
+    for tiling_key, blocker_key, cadence, depth, base_choice in itertools.product(
+            tilings, blocker_keys, cadences, depths, (0, 1)):
+        starts = TILING_SETS[tiling_key]
+        blockers = BLOCKER_TEMPLATES[blocker_key]
+        base = base_pair if base_choice == 0 else base_single
+
+        # Build candidate (float intervals during construction)
+        T_float = _build_recursive(base=base, depth=depth, starts=starts, blockers=blockers, normalize_cadence=cadence)
+        # Normalize to integer grid for evaluation (arrival order preserved)
+        T_int = _normalize_grid(T_float)
+
+        # Evaluate
+        alg = _firstfit_colors(T_int)
+        opt = _clique_number(T_int)
+        ratio = alg / opt if opt > 0 else 0.0
+
+        # Decide if this candidate is better. Tie-breaker: prefer smaller witness.
+        if (ratio > best_score) or (math.isclose(ratio, best_score) and len(T_int) < len(best_candidate)):
+            best_score = ratio
+            best_candidate = T_int
+            best_stats = (tiling_key, blocker_key, cadence, depth, "pair" if base_choice == 0 else "single", alg, opt, len(T_int))
+
+    # Apply frontier-preserving pruning to reduce size while preserving metrics.
+    pruned = _prune_frontier_preserving(best_candidate, max_attempts=300)
+
+    # Final normalization (to make coordinates compact after pruning)
+    final = _normalize_grid([(float(l), float(r)) for (l, r) in pruned])
+
+    return final
+
+
+def run_experiment(**kwargs):
+    """Main called by evaluator; keep same interface as original."""
+    # Accept an 'iterations' override to allow evaluator to vary depth.
+    iterations = kwargs.get("iterations", 4)
+    return construct_intervals(iterations=iterations)

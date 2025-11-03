@@ -1,0 +1,390 @@
+--- a/original.py
++++ b/original.py
+@@ -1,200 +1,224 @@
+ # EVOLVE-BLOCK-START
+ 
++from math import gcd
++
+ def _normalize_grid(intervals):
+-    """
+-    Normalize endpoints to a compact integer grid while preserving order.
+-    Each unique endpoint is mapped to an increasing even integer.
+-    Returns a new list of (l, r) with integer coordinates.
+-    """
+-    endpoints = sorted(set([x for seg in intervals for x in seg]))
++    """Map unique endpoints to 0,2,4,… then divide by gcd for compactness."""
++    pts = sorted({x for seg in intervals for x in seg})
+     coord = {}
+-    cur = 0
+-    for e in endpoints:
+-        coord[e] = cur
+-        cur += 2  # spacing by 2 to keep even gaps
+-    return [(coord[l], coord[r]) for (l, r) in intervals]
+-
++    c = 0
++    for p in pts:
++        coord[p] = c
++        c += 2
++    mapped = [(coord[l], coord[r]) for (l, r) in intervals]
++    # shift to zero
++    mn = min(l for l, r in mapped)
++    shifted = [(l - mn, r - mn) for (l, r) in mapped]
++    # divide by gcd
++    g = 0
++    for l, r in shifted:
++        g = gcd(g, l); g = gcd(g, r)
++    if g > 1:
++        shifted = [(l // g, r // g) for (l, r) in shifted]
++    return shifted
+ 
+ def firstfit_colors(intervals):
+-    """
+-    Simulate online FirstFit coloring for given intervals presented in order.
+-    Returns number of colors used and the color assignment list (0-based colors).
+-    """
+-    # intervals are (l,r) in arrival order
+-    colors = []  # list of assigned colors per interval
+-    # maintain for each color the current active interval end (we need to check overlap)
+-    color_active_intervals = []  # list of lists of intervals assigned to that color (we'll check overlaps)
+-    for (l, r) in intervals:
+-        # find smallest color c such that no interval in that color overlaps (l,r)
+-        assigned = False
+-        for c, assigned_list in enumerate(color_active_intervals):
+-            # check overlap with any interval in assigned_list
+-            conflict = False
+-            for (al, ar) in assigned_list:
+-                # open intervals overlap iff not (ar <= l or r <= al)
+-                if not (ar <= l or r <= al):
+-                    conflict = True
+-                    break
+-            if not conflict:
+-                assigned_list.append((l, r))
+-                colors.append(c)
+-                assigned = True
++    """Simulate FirstFit online coloring."""
++    last_end = []
++    for l, r in intervals:
++        placed = False
++        for i in range(len(last_end)):
++            if l >= last_end[i]:
++                last_end[i] = r
++                placed = True
+                 break
+-        if not assigned:
+-            # new color
+-            color_active_intervals.append([(l, r)])
+-            colors.append(len(color_active_intervals) - 1)
+-    return len(color_active_intervals), colors
+-
++        if not placed:
++            last_end.append(r)
++    return len(last_end)
+ 
+ def offline_optimum_clique(intervals):
+-    """
+-    Compute offline optimum (maximum number of intervals covering a single point).
+-    We'll do an exact sweep-line: count overlaps at endpoints (open intervals).
+-    For open intervals (l,r) we treat them as events: +1 at l, -1 at r but since open,
+-    an interval with endpoint equal to a point does not include that endpoint. Using strict ordering,
+-    counting +1 at l and -1 at r works for non-degenerate endpoints.
+-    """
+-    events = []
+-    for (l, r) in intervals:
+-        events.append((l, 1))
+-        events.append((r, -1))
+-    # sort by coordinate, break ties: -1 before +1 so open intervals handled correctly
+-    events.sort(key=lambda x: (x[0], x[1]))
+-    cur = 0
+-    best = 0
+-    for _, delta in events:
+-        cur += delta
++    """Sweep line to compute maximum overlap (clique number)."""
++    ev = []
++    for l, r in intervals:
++        ev.append((l, +1))
++        ev.append((r, -1))
++    ev.sort(key=lambda x: (x[0], x[1]))
++    cur = best = 0
++    for _, d in ev:
++        cur += d
++        if cur > best: best = cur
++    return best
++
++def get_frontier_points(intervals):
++    """Return coordinates where the overlap count achieves ω."""
++    ev = []
++    for l, r in intervals:
++        ev.append((l, +1)); ev.append((r, -1))
++    ev.sort(key=lambda x: (x[0], x[1]))
++    cur = best = 0
++    frontier = set()
++    for x, d in ev:
++        cur += d
+         if cur > best:
+             best = cur
+-    return best
+-
+-
+-def make_recursive_template(base_T, starts=(2, 6, 10, 14), blockers=None, depth=4):
+-    """
+-    Build a recursive expansion starting from base_T (list of intervals).
+-    starts: offsets per copy (multipliers)
+-    blockers: list of 4 blocker tuples given as multipliers of delta: [(a,b), ...] with four entries.
+-    depth: number of recursive iterations
+-    Returns list of intervals in arrival order.
+-    """
+-    if blockers is None:
+-        # default blockers similar to original Figure-4
+-        blockers = [(1, 5), (12, 16), (4, 9), (8, 13)]
+-
+-    T = list(base_T)
+-    for _ in range(depth):
++            frontier = {x}
++        elif cur == best:
++            frontier.add(x)
++    return frontier
++
++def make_copies(T, offsets, delta, lo, center, translation):
++    S = []
++    for offmul in offsets:
++        if translation == 'left':
++            off = delta * offmul - lo
++        else:
++            off = delta * offmul - center
++        for (l, r) in T:
++            S.append((l + off, r + off))
++    return S
++
++def add_blockers(S, blockers, delta, anchor, center):
++    for (a, b) in blockers:
++        if anchor == 'left':
++            S.append((delta * a, delta * b))
++        else:
++            S.append((delta * a - center, delta * b - center))
++    return S
++
++def add_waves(S, wave_template, delta, anchor, center):
++    for (a, b) in wave_template:
++        if anchor == 'left':
++            S.append((delta * a, delta * b))
++        else:
++            S.append((delta * a - center, delta * b - center))
++    return S
++
++def build_pattern(depth, base_seed, offsets, blockers,
++                  translation, blocker_anchor,
++                  wave_templates, wave_anchor):
++    """
++    Recursively expand base_seed for 'depth' levels,
++    inserting blockers and alternating waves per level.
++    """
++    T = list(base_seed)
++    for lvl in range(depth):
+         lo = min(l for l, r in T)
+         hi = max(r for l, r in T)
+         delta = hi - lo
+-        S = []
+-        # four copies placed in order (this order affects FirstFit)
+-        for start in starts:
+-            offset = delta * start - lo
+-            for (l, r) in T:
+-                S.append((offset + l, offset + r))
+-        # append blockers in a carefully chosen order (we'll keep given order)
+-        for (a, b) in blockers:
+-            S.append((delta * a, delta * b))
++        center = (lo + hi) / 2.0
++        S = make_copies(T, offsets, delta, lo, center, translation)
++        S = add_blockers(S, blockers, delta, blocker_anchor, center)
++        wave = wave_templates[lvl % len(wave_templates)]
++        S = add_waves(S, wave, delta, wave_anchor, center)
+         T = S
+     return T
+ 
+-
+-def shrink_prune(intervals, target_ratio):
+-    """
+-    Conservative pruning: try removing intervals one-by-one (prefer blockers and long intervals)
+-    If removal does not reduce the observed FirstFit/OPT ratio below target_ratio, accept removal.
+-    This attempts to shrink redundant intervals while preserving power.
+-    """
+-    cur = list(intervals)
+-    # attempt removals in order of decreasing length (prefer removing long blockers)
+-    lengths = [(i, cur[i][1] - cur[i][0]) for i in range(len(cur))]
+-    order = [i for i, _ in sorted(lengths, key=lambda x: (-x[1], x[0]))]
++def prune_frontier_preserving(raw, target_ratio):
++    """
++    Two-stage pruning preserving frontier:
++      Stage1: remove only intervals that don't cover any frontier point.
++      Stage2: then remove any intervals if ratio holds.
++    """
++    cur = list(raw)
++    # Normalize once for initial ratio
++    norm = _normalize_grid(cur)
++    base_om = offline_optimum_clique(norm)
++    base_ff = firstfit_colors(norm)
++    if base_om == 0: return cur
++    # Stage1
++    frontier = get_frontier_points(norm)
+     changed = True
+     while changed:
+         changed = False
+-        for idx in order:
+-            if idx >= len(cur):
+-                continue
+-            cand = cur[:idx] + cur[idx + 1 :]
+-            alg, _ = firstfit_colors(cand)
+-            opt = offline_optimum_clique(cand)
+-            ratio = alg / opt if opt > 0 else 0
+-            if ratio >= target_ratio:
+-                # accept removal
++        for i in range(len(cur)):
++            iv = norm[i]
++            # skip if this interval covers a frontier point
++            if any(iv[0] < x < iv[1] for x in frontier): continue
++            cand = cur[:i] + cur[i+1:]
++            cn = _normalize_grid(cand)
++            om = offline_optimum_clique(cn)
++            if om == 0: continue
++            ff = firstfit_colors(cn)
++            if ff / om >= target_ratio - 1e-12:
+                 cur = cand
+-                # recompute order (lengths changed)
+-                lengths = [(i, cur[i][1] - cur[i][0]) for i in range(len(cur))]
+-                order = [i for i, _ in sorted(lengths, key=lambda x: (-x[1], x[0]))]
++                norm = cn
+                 changed = True
+                 break
+-        # loop until no more removals accepted
++    # Stage2
++    changed = True
++    while changed:
++        changed = False
++        for i in range(len(cur)):
++            cand = cur[:i] + cur[i+1:]
++            cn = _normalize_grid(cand)
++            om = offline_optimum_clique(cn)
++            if om == 0: continue
++            ff = firstfit_colors(cn)
++            if ff / om >= target_ratio - 1e-12:
++                cur = cand
++                norm = cn
++                changed = True
++                break
+     return cur
+ 
+-
+-def construct_intervals(iterations=4, normalize=True):
+-    """
+-    Adaptive search-driven construction. Sweep a small space of parameters and pick best.
+-    Arguments:
+-      iterations: maximum recursion depth to try (we will try depths from 2..iterations)
+-      normalize: whether to normalize endpoints to integer grid at the end
+-    Returns:
+-      list of intervals (l,r) in arrival order (normalized if requested)
+-    """
+-    # base gadget: single small interval (keeps clique small)
+-    base_T = [(0.0, 1.0)]
+-
+-    # candidate start geometries to test (small variations around the canonical)
+-    start_sets = [
+-        (2, 6, 10, 14),  # canonical
++def construct_intervals():
++    """
++    Sweep:
++      - depths ∈ {3,4,5}
++      - offsets ∈ cycle of 4 templates
++      - blockers ∈ 3 templates
++      - translation & blocker_anchor ∈ {left,center}
++      - wave_anchor ∈ {left,center}
++    Pick best by FF/ω, tie-break on fewer intervals.
++    Then apply frontier-preserving pruning and normalize.
++    """
++    base_seed = [(0.0, 1.0)]
++    offsets_list = [
++        (2, 6, 10, 14),
+         (1, 5, 9, 13),
+         (3, 7, 11, 15),
+-        (0.5, 4.5, 8.5, 12.5)
++        (0, 4, 8, 12),
+     ]
+-
+-    # candidate blocker templates (each is 4 blockers, as multipliers of delta)
+     blocker_templates = [
+-        [(1, 5), (12, 16), (4, 9), (8, 13)],  # canonical
+-        [(1, 5), (11, 15), (4, 9), (8, 13)],  # shifted one blocker
+-        [(2, 6), (12, 16), (4, 9), (8, 13)],  # shift first
+-        [(1, 6), (11, 16), (3, 9), (7, 13)],  # slightly lengthened blockers
++        [(1,5),(12,16),(4,9),(8,13)],
++        [(1,5),(11,15),(4,9),(8,13)],
++        [(2,6),(12,16),(4,9),(8,13)],
+     ]
+-
+-    best_inst = None
+-    best_score = -1.0
+-    best_meta = None
+-
+-    # iterate over small depths to keep size manageable
+-    for depth in range(2, iterations + 1):
+-        for starts in start_sets:
+-            for blockers in blocker_templates:
+-                inst = make_recursive_template(base_T, starts=starts, blockers=blockers, depth=depth)
+-                # compute alg and opt
+-                alg, _ = firstfit_colors(inst)
+-                opt = offline_optimum_clique(inst)
+-                if opt == 0:
+-                    continue
+-                score = alg / opt
+-                # prefer higher ratio, tie-breaker: smaller number of intervals (more concise witness)
+-                if (score > best_score) or (abs(score - best_score) < 1e-12 and (best_inst is None or len(inst) < len(best_inst))):
+-                    best_score = score
+-                    best_inst = inst
+-                    best_meta = dict(depth=depth, starts=starts, blockers=blockers, alg=alg, opt=opt)
+-
+-    # If none found (shouldn't happen), fall back to canonical
+-    if best_inst is None:
+-        best_inst = make_recursive_template(base_T, depth=4)
+-
+-    # apply conservative pruning: don't allow ratio to drop below found best_score
+-    pruned = shrink_prune(best_inst, best_score)
+-
+-    final = pruned
+-    if normalize:
+-        final = _normalize_grid(final)
++    wave_short = [(2.5,3.5),(5.5,6.5)]  # short wave
++    wave_long  = [(4.5,7.5),(9.5,12.5)] # long wave
++    wave_templates = [wave_short, wave_long]
++    best = None  # (ratio, n, raw_intervals)
++    for depth in (3,4,5):
++        for i, offsets in enumerate(offsets_list):
++            blockers = blocker_templates[i % len(blocker_templates)]
++            for translation in ('left','center'):
++                for blocker_anchor in ('left','center'):
++                    for wave_anchor in ('left','center'):
++                        raw = build_pattern(depth, base_seed, offsets, blockers,
++                                            translation, blocker_anchor,
++                                            wave_templates, wave_anchor)
++                        norm = _normalize_grid(raw)
++                        om = offline_optimum_clique(norm)
++                        if om == 0: continue
++                        ff = firstfit_colors(norm)
++                        ratio = ff / om
++                        cand = (ratio, len(norm), raw)
++                        if best is None or \
++                           (ratio > best[0] + 1e-12) or \
++                           (abs(ratio - best[0])<1e-12 and cand[1]<best[1]):
++                            best = cand
++    if best is None:
++        # fallback to simple depth-4
++        raw = build_pattern(4, base_seed, offsets_list[0], blocker_templates[0],
++                            'left','left', wave_templates, 'left')
++        best = (0, len(raw), raw)
++    target_ratio, _, best_raw = best
++    pruned = prune_frontier_preserving(best_raw, target_ratio)
++    final = _normalize_grid(pruned)
+     return final
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

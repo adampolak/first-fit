@@ -1,0 +1,255 @@
+<NAME>
+corridor_waves_augment
+</NAME>
+
+<DESCRIPTION>
+I add a deterministic corridor-waves augmentation step after building the best recursive template. The idea, inspired by known lower bounds and “wave” heuristics, is to locate a long region where the baseline coverage is at most omega−1, then inject one or two long intervals (“waves”) that overlap many colors but only overlap each other on a tiny core, so the clique number stays unchanged while FirstFit is forced to introduce new colors.
+
+Concretely:
+- I replace the simplified FirstFit simulation with a strict one that checks overlap against all intervals in a color class, ensuring correctness for open intervals.
+- I add a sweep-based coverage decomposition to find coverage cells and the longest run with coverage ≤ omega−1.
+- I attempt to add one or two wings that overlap via a small core. Each addition is accepted only if it leaves omega unchanged and increases the number of FirstFit colors under the strict simulator.
+- If the augmentation improves the FirstFit/omega ratio, we keep it; otherwise we return the baseline pattern.
+
+This targeted augmentation aims to push the color count beyond the baseline 13 without increasing omega 5, potentially improving the combined score. The changes are localized and keep the overall structure intact.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(iterations=4):
+=======
+def construct_intervals(iterations=4):
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  def _firstfit_colors(intervals):
+    """
+    Simulated FirstFit with a simple per-color end-tracking rule.
+    We keep for each color the rightmost end of its last interval and allow
+    reuse if the new interval starts after that end.
+    Returns number of colors used.
+    """
+    last_end = []  # per-color last end
+    for (l, r) in intervals:
+      placed = False
+      for i, end in enumerate(last_end):
+        if l >= end:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+=======
+  def _firstfit_colors(intervals):
+    """
+    Strict FirstFit for open intervals:
+    assign each arriving interval to the first color class whose intervals
+    do not overlap it; otherwise open a new color.
+    """
+    def _overlap(a, b):
+      (l1, r1), (l2, r2) = a, b
+      return max(l1, l2) < min(r1, r2)
+
+    colors = []
+    for iv in intervals:
+      placed = False
+      for c in colors:
+        conflict = False
+        for u in c:
+          if _overlap(u, iv):
+            conflict = True
+            break
+        if not conflict:
+          c.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  def _clique_number(intervals):
+    """
+    Exact clique number via sweep-line on open intervals.
+    Treat (l, r) as open; count active intervals between endpoints.
+    """
+    # Build events: (position, delta); open at l, close at r
+    ev = []
+    for (l, r) in intervals:
+      if l < r:
+        ev.append((l, 1))
+        ev.append((r, -1))
+    # sort by position; for ties, end (-1) before start (+1) to model open intervals
+    ev.sort(key=lambda x: (x[0], x[1]))
+    cur = 0
+    best = 0
+    for _, d in ev:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+=======
+  def _clique_number(intervals):
+    """
+    Exact clique number via sweep-line on open intervals.
+    Treat (l, r) as open; count active intervals between endpoints.
+    """
+    ev = []
+    for (l, r) in intervals:
+      if l < r:
+        ev.append((l, +1))
+        ev.append((r, -1))
+    # sort: at ties process closures (-1) before openings (+1)
+    ev.sort(key=lambda x: (x[0], 0 if x[1] == -1 else 1))
+    cur = 0
+    best = 0
+    for _, d in ev:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  def _make_candidate_template(k, offsets=(2,6,10,14), extra_first=False, translation='left', schedule='after'):
+=======
+  def _make_candidate_template(k, offsets=(2,6,10,14), extra_first=False, translation='left', schedule='after'):
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    return T
+=======
+    return T
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  # Candidate configuration space (compact and deterministic)
+=======
+  # Coverage utilities (for augmentation)
+  def _coverage_cells(intervals):
+    """
+    Decompose the line into open cells (a,b) where coverage is constant.
+    Returns list of (a,b,m) with m the number of covering intervals on (a,b).
+    """
+    ev = []
+    for (l, r) in intervals:
+      if l < r:
+        ev.append((l, +1))
+        ev.append((r, -1))
+    if not ev:
+      return []
+    ev.sort(key=lambda x: (x[0], 0 if x[1] == -1 else 1))
+    xs = sorted({x for x, _ in ev})
+    # sweep to get coverage right after each endpoint
+    cur = 0
+    idx = 0
+    cells = []
+    # accumulate deltas at each coordinate in order
+    for i in range(len(xs)-1):
+      x = xs[i]
+      y = xs[i+1]
+      while idx < len(ev) and ev[idx][0] == x:
+        cur += ev[idx][1]
+        idx += 1
+      if x < y:
+        cells.append((x, y, cur))
+    return cells
+
+  def _augment_corridor(intervals):
+    """
+    Try to add one or two 'wave' intervals inside a long run where coverage <= omega-1.
+    Accept only if omega stays unchanged and FirstFit colors strictly increase.
+    """
+    if not intervals:
+      return intervals
+    omega = _clique_number(intervals)
+    if omega <= 0:
+      return intervals
+    cells = _coverage_cells(intervals)
+    # find longest run with coverage <= omega-1
+    best_L = None
+    best_R = None
+    acc_L = None
+    acc_R = None
+    acc_ok = False
+    longest = -1.0
+    prev_r = None
+    for (a, b, m) in cells:
+      if m <= omega - 1:
+        if acc_L is None:
+          acc_L, acc_R = a, b
+        else:
+          # contiguous?
+          if prev_r is not None and abs(a - prev_r) < 1e-12:
+            acc_R = b
+          else:
+            # gap; finalize previous
+            if acc_L is not None and acc_R - acc_L > longest:
+              best_L, best_R = acc_L, acc_R
+              longest = acc_R - acc_L
+            acc_L, acc_R = a, b
+      else:
+        if acc_L is not None and acc_R - acc_L > longest:
+          best_L, best_R = acc_L, acc_R
+          longest = acc_R - acc_L
+        acc_L = acc_R = None
+      prev_r = b
+    if acc_L is not None and acc_R - acc_L > longest:
+      best_L, best_R = acc_L, acc_R
+      longest = acc_R - acc_L
+
+    if best_L is None or best_R - best_L <= 0:
+      return intervals
+
+    # define tiny core around the middle
+    L, R = best_L, best_R
+    span = R - L
+    eps = max(1.0, span / 200.0)
+    mid = (L + R) / 2.0
+    core_lo = mid - eps
+    core_hi = mid + eps
+    # candidate wings
+    left_wave = (L + eps, core_hi)
+    right_wave = (core_lo, R - eps)
+
+    base_cols = _firstfit_colors(intervals)
+    base_omega = omega
+
+    # try adding left then right
+    T1 = intervals + [left_wave]
+    if _clique_number(T1) == base_omega and _firstfit_colors(T1) > base_cols:
+      # try to add the second as well
+      T2 = T1 + [right_wave]
+      if _clique_number(T2) == base_omega and _firstfit_colors(T2) > _firstfit_colors(T1):
+        return T2
+      return T1
+
+    # try adding right then left
+    T1 = intervals + [right_wave]
+    if _clique_number(T1) == base_omega and _firstfit_colors(T1) > base_cols:
+      T2 = T1 + [left_wave]
+      if _clique_number(T2) == base_omega and _firstfit_colors(T2) > _firstfit_colors(T1):
+        return T2
+      return T1
+
+    return intervals
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  depths = [max(2, iterations - 1), iterations]
+=======
+  depths = [max(2, iterations - 1), iterations]
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  # Normalize and return
+  return _normalize_grid(best_T)
+=======
+  # Attempt corridor-waves augmentation on the best template
+  aug_T = _augment_corridor(best_T)
+  # Prefer augmented if it improves ratio without increasing omega
+  base_cols = _firstfit_colors(best_T)
+  base_om = _clique_number(best_T)
+  aug_cols = _firstfit_colors(aug_T)
+  aug_om = _clique_number(aug_T)
+  if aug_om == base_om and aug_cols > base_cols:
+    best_T = aug_T
+
+  # Normalize and return
+  return _normalize_grid(best_T)
+>>>>>>> REPLACE

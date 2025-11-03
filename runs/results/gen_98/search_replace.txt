@@ -1,0 +1,27 @@
+<NAME>add_blocker_template_d</NAME>
+<DESCRIPTION>
+Augment the search space by introducing a new aggressive blocker template (Template D) that has more staggered, overlapping blocker intervals. This provides additional adversarial geometry that may force FirstFit to use more colors without increasing omega, potentially improving the FF/OPT ratio.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+    ]
+=======
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: aggressive staggered blocker pattern
+        ((3, 8), (7, 12), (11, 16), (15, 20)),
+    ]
+>>>>>>> REPLACE
+</DIFF>

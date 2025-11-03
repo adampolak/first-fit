@@ -1,0 +1,27 @@
+<NAME>
+deepen_recursion_to_push_ratio_towards_3
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Keep clique number ω small (≈ 3–6) while increasing FirstFit colors significantly.
+- Use recursive “Figure 4” cap/tower gadget to distribute conflicts without raising ω.
+- Scale levels to magnify the number of colors while preserving structure.
+- Balance n to stay computationally tractable.
+
+Rationale:
+The Figure 4 construction (as implemented) is a well-known recursive gadget where, at each level ℓ, FirstFit colors increase roughly by ≈ 3 per level while ω increases by ≈ 1, driving the ratio toward 3 from below: FF ≈ 3ℓ + 1 and ω ≈ ℓ + 1, so FF/ω ≈ 3 − 2/(ℓ + 1). The current code uses two levels (ratio ≈ 7/3 ≈ 2.33). Increasing levels to 5 should yield ≈ 16/6 ≈ 2.67 with manageable size (≈ 2388 intervals), improving the combined score substantially without changing the gadget’s correctness.
+
+Post-action validation:
+- Expect num_intervals ≈ 2388; FF/OPT ≈ 2.66–2.70. If runtime remains acceptable, future runs can try ℓ=6; otherwise stay at 5.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(2):
+=======
+  levels = 5
+  for _ in range(levels):
+>>>>>>> REPLACE
+
+</DIFF>

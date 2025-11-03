@@ -1,0 +1,24 @@
+<NAME>
+add_dense_offset_pattern
+</NAME>
+
+<DESCRIPTION>
+Introduce an additional offsets pattern (0,4,8,12) in `offsets_options` to provide a denser, more overlapping stagger. This new pattern may increase the coupling between copies and push FirstFit to use more colors without raising the clique number, potentially improving the competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  offsets_options = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted pattern
+    (3, 7, 11, 15),  # alternate stagger
+  ]
+=======
+  offsets_options = [
+    (2, 6, 10, 14),    # baseline
+    (1, 5, 9, 13),     # shifted pattern
+    (3, 7, 11, 15),    # alternate stagger
+    (0, 4, 8, 12),     # dense stagger pattern to increase overlap
+  ]
+>>>>>>> REPLACE
+</DIFF>

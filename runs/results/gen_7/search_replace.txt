@@ -1,0 +1,113 @@
+<NAME>
+deepen_and_extend_ff_gadget
+</NAME>
+
+<DESCRIPTION>
+Propose a sequence of targeted edits to (i) deepen the recursion to explore higher FF/omega ratios, (ii) extend the tiling by adding a fifth tile position, and (iii) insert a fifth blocking interval to pressure FirstFit further while keeping the implementation deterministic. The idea is to test whether deeper recursion combined with a denser tiling and an extra blocker can push the FF color usage higher without a proportional increase in the clique size. Edits are designed to be incremental and composable so the changes can be applied sequentially.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+    """
+    Build a sequence of open intervals that forces FirstFit
+    to use ~13 colors while the maximum clique size is 5,
+    achieving a ratio ≈2.6.
+    """
+    # key parameter: recursion depth
+    k = 4
+
+    # base case: one small interval
+    T = [(0.0, 1.0)]
+
+    # each iteration makes 4 scaled copies + 4 blockers
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+
+        S = []
+        # 4 tiled copies at positions 2,6,10,14
+        for start in (2, 6, 10, 14):
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+
+        T = S
+
+    return T
+=======
+def construct_intervals():
+    """
+    Build a sequence of open intervals that forces FirstFit
+    to use ~13 colors while the maximum clique size is 5,
+    achieving a ratio ≈2.6.
+    """
+    # key parameter: recursion depth
+    k = 5
+
+    # base case: one small interval
+    T = [(0.0, 1.0)]
+
+    # each iteration makes 4 scaled copies + 4 blockers
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+
+        S = []
+        # 4 tiled copies at positions 2,6,10,14
+        for start in (2, 6, 10, 14):
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+
+        T = S
+
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        for start in (2, 6, 10, 14):
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+=======
+        for start in (2, 6, 10, 14, 18):
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+=======
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+        # additional blocker to pressure FF further
+        S.append((delta * 18, delta * 22))
+>>>>>>> REPLACE
+</DIFF>

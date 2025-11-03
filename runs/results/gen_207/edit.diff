@@ -1,0 +1,594 @@
+--- a/original.py
++++ b/original.py
+@@ -1,285 +1,318 @@
+ # EVOLVE-BLOCK-START
+ 
+-def construct_intervals(iterations=4):
+-  """
+-  Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+-  Strategy:
+-    - 4-copy recursive expansion + 4 blockers per level (Figure-4 style)
+-    - Parameter sweep over offsets, blocker templates, translation anchors, and depth
+-    - Evaluate each candidate via an internal FirstFit simulation and clique sweep
+-    - Normalize endpoints to a compact integer grid before returning
+-
+-  Arguments:
+-    iterations: optional hint; included in the depth sweep if in {3,4,5}
+-
+-  Returns:
+-    intervals: list[(l,r)] of open intervals with integer endpoints
+-  """
+-
+-  # ------------ helpers ------------
+-  def overlaps(a, b):
+-    (l1, r1), (l2, r2) = a, b
+-    # open-interval overlap:
+-    return max(l1, l2) < min(r1, r2)
+-
+-  def firstfit_colors(intervals):
++import math
++from collections import OrderedDict
++
++def construct_intervals(iterations=4, budget=300):
+     """
+-    Simulate FirstFit on the given arrival order.
+-    Colors are independent sets w.r.t. open-interval overlap.
++    Deterministic hill-climb over backbone blueprints to maximize FirstFit/omega ratio.
++    - iterations: nominal recursion depth (we try depths around it)
++    - budget: number of mutation attempts (keeps runtime bounded)
++    Returns: list of integer-quantized open intervals (l, r) in arrival order.
+     """
+-    colors = []  # list of color classes
+-    for iv in intervals:
+-      placed = False
+-      for c in colors:
+-        conflict = False
+-        for u in c:
+-          if overlaps(u, iv):
+-            conflict = True
+-            break
+-        if not conflict:
+-          c.append(iv)
+-          placed = True
+-          break
+-      if not placed:
+-        colors.append([iv])
+-    return len(colors)
+-
+-  def clique_number(intervals):
+-    """
+-    Max number of intervals covering a single point (omega) using sweep.
+-    For open intervals, at equal coordinates process right(-1) before left(+1).
+-    """
+-    events = []  # (x, type) type=-1 for right, +1 for left
+-    for (l, r) in intervals:
+-      if l < r:
+-        events.append((l, +1))
+-        events.append((r, -1))
+-    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+-    cur = best = 0
+-    for _, t in events:
+-      cur += t
+-      if cur > best:
+-        best = cur
+-    return best
+-
+-  def normalize_grid(intervals):
+-    """
+-    Map each unique endpoint to an increasing integer grid (even spacing).
+-    Preserves open-interval overlap and arrival order.
+-    """
+-    if not intervals:
+-      return []
+-    pts = sorted(set([x for seg in intervals for x in seg]))
+-    coord = {e: 2*i for i, e in enumerate(pts)}
+-    return [(coord[l], coord[r]) for (l, r) in intervals]
+-
+-  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left',
+-                    schedule='after', interleave='block', reverse_alt=False):
+-    """
+-    Recursively expand base_seed k times with multiple copies and blockers.
+-    - translation in {'left','center'} controls copy offsets
+-    - blocker_anchor in {'left','center'} controls blocker placement
+-    - schedule in {'after','before','split'} decides the order of copies vs blockers per level
+-    - interleave in {'block','zip'} controls how copies are interleaved
+-    - reverse_alt: if True and interleave='block', every other copy is presented in reverse order
+-    """
+-    T = list(base_seed)
+-    for _ in range(k):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-      center = (lo + hi) / 2.0
+-
+-      # Build per-copy sequences
+-      copy_lists = []
+-      for idx, start in enumerate(offsets):
+-        if translation == 'left':
+-          off = delta * start - lo
+-        else:  # center-based
+-          off = delta * start - center
+-        seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+-        copy_lists.append([(l + off, r + off) for (l, r) in seq])
+-
+-      # Interleave copies
+-      if interleave == 'block':
+-        S_copies = []
+-        for lst in copy_lists:
+-          S_copies.extend(lst)
+-      else:  # 'zip': emit one item from each copy in round-robin order
+-        S_copies = []
+-        if copy_lists:
+-          m = len(copy_lists[0])
+-          for j in range(m):
+-            for lst in copy_lists:
+-              S_copies.append(lst[j])
+-
+-      # Build blockers for this level
+-      S_blockers = []
+-      for (a, b) in blockers:
+-        if blocker_anchor == 'left':
+-          S_blockers.append((delta * a, delta * b))
++
++    # ---------------- Utility evaluations (robust & cached) ----------------
++
++    def _omega_open(intervals):
++        """Sweep-line for open intervals (right endpoints before left at ties)."""
++        events = []
++        for (l, r) in intervals:
++            if l < r:
++                events.append((l, +1))
++                events.append((r, -1))
++        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++        cur = best = 0
++        for _, t in events:
++            cur += t
++            if cur > best:
++                best = cur
++        return best
++
++    def _firstfit_count(intervals):
++        """FirstFit simulation using per-color last endpoint tracking (fast)."""
++        last_end = []
++        for (l, r) in intervals:
++            placed = False
++            for i in range(len(last_end)):
++                if l >= last_end[i]:
++                    last_end[i] = r
++                    placed = True
++                    break
++            if not placed:
++                last_end.append(r)
++        return len(last_end)
++
++    # Deterministic canonical normalization: map unique endpoints to even integers
++    def _normalize_grid(intervals):
++        if not intervals:
++            return []
++        endpoints = sorted(set([x for seg in intervals for x in seg]))
++        coord = {e: 2 * i for i, e in enumerate(endpoints)}
++        return [(coord[l], coord[r]) for (l, r) in intervals]
++
++    # Pattern-aware memoization keyed by a structural signature
++    eval_cache = {}
++
++    def _signature(intervals):
++        # compact signature: relative order of endpoints and counts (deterministic)
++        eps = 1e-9
++        pts = []
++        for l, r in intervals:
++            pts.append((round(l,6), round(r,6)))
++        # use first/last 20 to keep signature small if huge
++        if len(pts) > 200:
++            pts_s = tuple(pts[:100] + pts[-100:])
+         else:
+-          S_blockers.append((delta * a - center, delta * b - center))
+-
+-      # Compose level by schedule
+-      if schedule == 'before':
+-        S = S_blockers + S_copies
+-      elif schedule == 'split' and interleave == 'block':
+-        h = max(1, len(copy_lists) // 2)
+-        first_half = []
+-        for i in range(h):
+-          first_half.extend(copy_lists[i])
+-        second_half = []
+-        for i in range(h, len(copy_lists)):
+-          second_half.extend(copy_lists[i])
+-        S = first_half + S_blockers + second_half
+-      elif schedule == 'mix':  # alternate copy then blocker intervals
+-        S = []
+-        max_len = max(len(S_copies), len(S_blockers))
+-        for j in range(max_len):
+-          if j < len(S_copies):
+-            S.append(S_copies[j])
+-          if j < len(S_blockers):
+-            S.append(S_blockers[j])
+-      else:
+-        # default 'after' or 'split' with interleave='zip'
+-        S = S_copies + S_blockers
+-
+-      T = S
+-    return T
+-
+-  def evaluate(intervals):
+-    """Return (score, omega, colors, n)."""
+-    if not intervals:
+-      return (-1.0, 0, 0, 0)
+-    om = clique_number(intervals)
+-    if om <= 0:
+-      return (-1.0, 0, 0, len(intervals))
+-    cols = firstfit_colors(intervals)
+-    # Slight penalty for larger instances to break ties
+-    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+-    return (score, om, cols, len(intervals))
+-
+-  # ------------ parameter sweep ------------
+-  offsets_set = [
+-    (2, 6, 10, 14),      # canonical
+-    (1, 5, 9, 13),
+-    (3, 7, 11, 15),
+-    (0, 4, 8, 12),
+-    (2, 6, 9, 14),       # slight skew to tighten mid overlap
+-    (2, 7, 11, 14),      # shifted second copy
+-    (1.5, 5.5, 9.5, 13.5),  # half-step stagger
+-    (2, 6, 10, 14, 18)   # extra-copy offsets (explore 5-copy variants)
+-  ]
+-  blockers_templates = [
+-    # A: baseline as in Figure 4
+-    ((1, 5), (12, 16), (4, 9), (8, 13)),
+-    # B: variant geometry
+-    ((0, 4), (6, 10), (8, 12), (14, 18)),
+-    # C: tighter mid coupling
+-    ((2, 6), (4, 8), (10, 14), (12, 16)),
+-    # D: asymmetric early/late pushers
+-    ((1, 5), (12, 16), (3, 7), (9, 13)),
+-    # E: lengthened extremes
+-    ((1, 6), (11, 16), (4, 8), (10, 14)),
+-    # F: six-blocker couplers (two extra caps)
+-    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+-    # G: dense 5-blocker coupler (extra cap to more tightly couple copies)
+-    ((1, 5), (3, 9), (6, 10), (11, 15), (8, 13))
+-  ]
+-  translations = ['left', 'center']
+-  blocker_anchors = ['left', 'center']
+-  depths = [d for d in {3, 4, 5, iterations} if d in (3, 4, 5)]
+-  base_seeds = [
+-    [(0.0, 1.0)],
+-    [(0.0, 1.0), (2.0, 3.0)],
+-    [(0.0, 1.0), (0.5, 1.5)],  # new overlapping base seed to increase initial FF pressure
+-  ]
+-
+-  best = None  # (score, om, cols, n, intervals)
+-
+-  schedules = ['after', 'before', 'split', 'mix']
+-  interleaves = ['block', 'zip']
+-  rev_flags = [False, True]
+-
+-  for base in base_seeds:
+-    for k in depths:
+-      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+-      if (4 ** k) * (len(base) + 2) > 3000:
+-        continue
+-      for offsets in offsets_set:
+-        for blockers in blockers_templates:
+-          for tr in translations:
+-            for ba in blocker_anchors:
+-              for sch in schedules:
+-                for inter in interleaves:
+-                  for rev in rev_flags:
+-                    T = build_pattern(base_seed=base, k=k, offsets=offsets,
+-                                      blockers=blockers, translation=tr, blocker_anchor=ba,
+-                                      schedule=sch, interleave=inter, reverse_alt=rev)
+-                    score, om, cols, n = evaluate(T)
+-                    cand = (score, om, cols, n, T)
+-                    if best is None:
+-                      best = cand
++            pts_s = tuple(pts)
++        return pts_s
++
++    def evaluate(intervals):
++        """
++        Returns tuple (ratio, omega, firstfit_colors, n) and caches results.
++        ratio = firstfit / omega (omega >= 1)
++        """
++        sig = _signature(intervals)
++        if sig in eval_cache:
++            return eval_cache[sig]
++        om = _omega_open(intervals)
++        if om <= 0:
++            res = ( -1.0, 0, 0, len(intervals) )
++            eval_cache[sig] = res
++            return res
++        cols = _firstfit_count(intervals)
++        ratio = cols / float(om)
++        res = (ratio, om, cols, len(intervals))
++        eval_cache[sig] = res
++        return res
++
++    # ---------------- Blueprint/backbone builders ----------------
++
++    # Four-copy canonical offsets and four canonical blocker templates
++    canonical_offsets = (2.0, 6.0, 10.0, 14.0)
++    backbone_templates = {
++        'A': canonical_offsets,
++        'B': (1.0, 5.0, 9.0, 13.0),
++        'C': (3.0, 7.0, 11.0, 15.0),
++        'D': (0.0, 4.0, 8.0, 12.0),
++    }
++
++    blocker_templates = {
++        'std': [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)],
++        'shift1': [(1.0, 5.0), (11.0, 15.0), (4.0, 9.0), (8.0, 13.0)],
++        'cap_extra': [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0), (2.0, 14.0), (6.0, 10.0)],
++    }
++
++    def build_recursive(seed, depth, offsets, blockers, schedule='after', translation='left'):
++        """
++        Build recursive pattern:
++        - seed: list of (l,r) floats
++        - depth: recursion depth
++        - offsets: tuple of start multipliers
++        - blockers: list of (a,b) multiplier pairs
++        - schedule: 'after' or 'split'
++        - translation: 'left' or 'center'
++        """
++        T = list(seed)
++        for lvl in range(depth):
++            lo = min(l for l, r in T)
++            hi = max(r for l, r in T)
++            delta = hi - lo
++            center = (lo + hi) / 2.0
++
++            # produce copies
++            copies = []
++            for start in offsets:
++                if translation == 'left':
++                    offset = delta * start - lo
++                else:
++                    offset = delta * start - center
++                for (l, r) in T:
++                    copies.append((l + offset, r + offset))
++
++            # produce scaled blockers
++            blks = []
++            for (a, b) in blockers:
++                if translation == 'left':
++                    blks.append((delta * a, delta * b))
++                else:
++                    blks.append((delta * a - center, delta * b - center))
++
++            if schedule == 'after':
++                T = copies + blks
++            else:  # split: half copies, then blockers, then remaining copies
++                h = max(1, len(offsets) // 2)
++                # find number of items per copy (size of T)
++                # but we are working at the flat copy level - we approximate split using offsets
++                first = []
++                second = []
++                # reconstruct per-offset blocks from copies
++                per_copy = len(T)
++                # safer: slice copies evenly by index using count offsets
++                k = len(offsets)
++                chunk = len(copies) // k if k > 0 else len(copies)
++                for i in range(k):
++                    start_idx = i * chunk
++                    end_idx = start_idx + chunk
++                    if i < h:
++                        first.extend(copies[start_idx:end_idx])
+                     else:
+-                      if cand[0] > best[0] + 1e-9:
+-                        best = cand
+-                      elif abs(cand[0] - best[0]) <= 1e-9:
+-                        # tie-break by fewer intervals, then more colors
+-                        if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+-                          best = cand
+-
+-  # Fallback to the known-safe baseline if sweep failed (should not happen)
+-  if best is None:
+-    T = [(0.0, 1.0)]
+-    for _ in range(4):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-      S = []
+-      for start in (2, 6, 10, 14):
+-        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-      S += [
+-        (delta * 1,  delta * 5),
+-        (delta * 12, delta * 16),
+-        (delta * 4,  delta * 9),
+-        (delta * 8,  delta * 13)
+-      ]
+-      T = S
+-    return normalize_grid(T)
+-
+-  # Attempt deterministic pruning: try removing single intervals (in arrival order)
+-  # if both the clique number and FirstFit color count remain unchanged.
+-  # This is conservative (single removals only) and preserves the adversarial effect.
+-  final_T = list(best[4])
+-  try:
+-    base_om = clique_number(final_T)
+-    base_cols = firstfit_colors(final_T)
+-    i = 0
+-    # single pass deterministic shrink: iterate once left-to-right
+-    while i < len(final_T):
+-      cand = final_T[:i] + final_T[i+1:]
+-      if not cand:
+-        i += 1
+-        continue
+-      om_c = clique_number(cand)
+-      cols_c = firstfit_colors(cand)
+-      # only accept removal if both metrics unchanged
+-      if om_c == base_om and cols_c == base_cols:
+-        # accept removal (do not increment i because list shifted left)
+-        final_T = cand
+-        # do not change base_om/base_cols
+-      else:
+-        i += 1
+-  except Exception:
+-    # If anything goes wrong in pruning, fall back to the unpruned best
+-    final_T = list(best[4])
+-
+-  # Normalize endpoints to compact integer grid and return
+-  return normalize_grid(final_T)
++                        second.extend(copies[start_idx:end_idx])
++                T = first + blks + second
++        return T
++
++    # ---------------- Deterministic mutation schedule (backbone-cycling) ----------------
++
++    # backbone four-cycle skeletons (A,B,C,D)
++    backbones = ['A', 'B', 'C', 'D']
++    # small fractional perturbations explored in-turn
++    perturbations = [0.15, 0.25, -0.15, -0.25, 0.0]
++
++    # deterministic mutation generator yields a sequence of candidate blueprints
++    def mutation_generator(max_iters):
++        """
++        Yields deterministic blueprint parameter tuples:
++        (depth, offsets, blockers_name, schedule, translation, extra_copy_first)
++        """
++        # seed set of blocker templates to cycle
++        bnames = list(blocker_templates.keys())
++        # deterministic mixing: cycle through depths [iterations-1, iterations]
++        depths = [max(2, iterations - 1), max(2, iterations)]
++        it = 0
++        # base seed offsets as the chosen backbone offset pattern
++        # For each mutation, pick backbone blueprint cycling through A,B,C,D
++        for cycle in range(max_iters):
++            bidx = cycle % len(backbones)
++            backbone_name = backbones[bidx]
++            base_offsets = list(backbone_templates[backbone_name])
++            # apply tiny perturbation to one copy index based on cycle to explore neighborhood
++            pert = perturbations[(cycle // len(backbones)) % len(perturbations)]
++            # determine which copy index to perturb (cycled)
++            idx = cycle % len(base_offsets)
++            pert_offsets = list(base_offsets)
++            pert_offsets[idx] = pert_offsets[idx] + pert
++            # clamp sensible values to avoid degenerate offsets
++            pert_offsets = tuple(max(-4.0, min(20.0, x)) for x in pert_offsets)
++
++            blockers_name = bnames[(cycle // len(backbones)) % len(bnames)]
++            blockers = blocker_templates[blockers_name]
++            schedule = 'after' if (cycle % 3) != 0 else 'split'
++            translation = 'left' if (cycle % 2) == 0 else 'center'
++            depth = depths[(cycle // 5) % len(depths)]
++            extra_first = (cycle % 7) == 0  # occasionally add extra copy at top
++            yield (depth, pert_offsets, blockers_name, schedule, translation, extra_first)
++            it += 1
++            if it >= max_iters:
++                break
++
++    # ---------------- Conservative pruning (deterministic witness-preserving) ----------------
++
++    def prune_intervals(T):
++        """
++        Deterministic single-pass pruning:
++        Remove intervals that when removed do not change both omega and FirstFit count.
++        We only do one left-to-right pass to keep runtime bounded and deterministic.
++        """
++        if not T:
++            return T
++        base_ratio, base_om, base_cols, _ = evaluate(T)
++        # single-pass left-to-right
++        i = 0
++        final = list(T)
++        # limit number of removals to avoid degenerate shrink loops
++        removals = 0
++        max_removals = max(1, len(final) // 50)  # modest pruning
++        while i < len(final) and removals < max_removals:
++            cand = final[:i] + final[i+1:]
++            _, om_c, cols_c, _ = evaluate(cand)
++            if om_c == base_om and cols_c == base_cols:
++                final = cand
++                removals += 1
++                # do not increment i, because list shifted left
++            else:
++                i += 1
++        return final
++
++    # ---------------- Main hill-climb loop (deterministic) ----------------
++
++    # initial seed patterns to try (a few deterministic blueprints)
++    seed_patterns = []
++    base_seed = [(0.0, 1.0)]
++    # canonical baseline
++    seed_patterns.append( (max(2, iterations), canonical_offsets, 'std', 'after', 'left', False) )
++    # a few alternates to start from
++    seed_patterns.append( (max(2, iterations), backbone_templates['B'], 'std', 'after', 'left', False) )
++    seed_patterns.append( (max(2, iterations), backbone_templates['C'], 'shift1', 'split', 'center', True) )
++
++    best_global = None  # tuple: (ratio, om, cols, n, intervals, blueprint)
++    # Evaluate initial seeds
++    for depth, offs, bname, sch, tr, extra in seed_patterns:
++        blockers = blocker_templates[bname]
++        # optionally inject an extra offset at first level
++        offsets = offs
++        if extra:
++            offsets = tuple(list(offs) + [max(offs) + 4.0])
++        T = build_recursive(base_seed, depth, offsets, blockers, schedule=sch, translation=tr)
++        # deterministic deterministic pruning
++        Tp = prune_intervals(_normalize_grid(T))
++        ratio, om, cols, n = evaluate(Tp)
++        cand = (ratio, om, cols, n, Tp, (depth, offsets, bname, sch, tr))
++        if best_global is None or cand[0] > best_global[0] + 1e-12 or (abs(cand[0] - best_global[0]) <= 1e-12 and (cand[3] < best_global[3])):
++            best_global = cand
++
++    # run deterministic mutation generator for a bounded budget
++    gen = mutation_generator(budget)
++    attempts = 0
++    for (depth, offsets, bname, sch, tr, extra_first) in gen:
++        attempts += 1
++        # occasionally try a 5-copy variant by appending an extra offset
++        offsets_used = offsets
++        if extra_first:
++            if len(offsets_used) < 6:
++                offsets_used = tuple(list(offsets_used) + [max(offsets_used) + 4.0])
++
++        blockers = blocker_templates[bname]
++        T = build_recursive(base_seed, depth, offsets_used, blockers, schedule=sch, translation=tr)
++        # normalize before evaluating to keep cache keys stable across similar transforms
++        Tn = _normalize_grid(T)
++        # conservative deterministic pruning
++        Tpr = prune_intervals(Tn)
++        ratio, om, cols, n = evaluate(Tpr)
++        cand = (ratio, om, cols, n, Tpr, (depth, offsets_used, bname, sch, tr))
++        # deterministic acceptance: accept if strictly better ratio, or equal ratio but fewer intervals
++        if best_global is None:
++            best_global = cand
++        else:
++            if cand[0] > best_global[0] + 1e-12:
++                best_global = cand
++            elif abs(cand[0] - best_global[0]) <= 1e-12:
++                if cand[3] < best_global[3] or (cand[3] == best_global[3] and cand[2] > best_global[2]):
++                    best_global = cand
++        # small deterministic refinement: if candidate is near-best, try a local deterministic micro-perturb
++        if best_global and ratio >= best_global[0] - 1e-12:
++            # micro-perturb: toggle translation and re-evaluate
++            alt_tr = 'center' if tr == 'left' else 'left'
++            T2 = build_recursive(base_seed, depth, offsets_used, blockers, schedule=sch, translation=alt_tr)
++            T2n = _normalize_grid(T2)
++            T2pr = prune_intervals(T2n)
++            r2, o2, c2, n2 = evaluate(T2pr)
++            cand2 = (r2, o2, c2, n2, T2pr, (depth, offsets_used, bname, sch, alt_tr))
++            if cand2[0] > best_global[0] + 1e-12 or (abs(cand2[0] - best_global[0]) <= 1e-12 and cand2[3] < best_global[3]):
++                best_global = cand2
++
++    # If nothing found, fall back to canonical 4-depth construction
++    if best_global is None:
++        T = build_recursive(base_seed, max(2, iterations), canonical_offsets, blocker_templates['std'], schedule='after', translation='left')
++        return _normalize_grid(T)
++
++    # Final deterministic pruning and normalization for output
++    final_intervals = list(best_global[4])
++    final_intervals = prune_intervals(final_intervals)
++    final_intervals = _normalize_grid(final_intervals)
++
++    return final_intervals
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

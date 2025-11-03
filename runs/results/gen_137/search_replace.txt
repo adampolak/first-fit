@@ -1,0 +1,18 @@
+<DIFF>
+<<<<<<< SEARCH
+    return _normalize_grid(best_T) if normalize else best_T
+=======
+    # Augment: inject up to 5 short wave intervals of length 2 in largest gaps
+    Tn = _normalize_grid(best_T) if normalize else list(best_T)
+    om = _omega_open(Tn)
+    pts = sorted(set(x for iv in Tn for x in iv))
+    gaps = sorted(((pts[i+1] - pts[i], pts[i]) for i in range(len(pts)-1)), reverse=True)
+    wave_len = 2
+    for gap, a in gaps[:5]:
+        if gap > wave_len * 2:
+            new_iv = (a + wave_len, a + 2 * wave_len)
+            if _omega_open(Tn + [new_iv]) <= om:
+                Tn.append(new_iv)
+    return _normalize_grid(Tn) if normalize else Tn
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,49 @@
+<NAME>
+interleaved_caps_first
+</NAME>
+
+<DESCRIPTION>
+Enhance cross-block interference and pre-block low-numbered colors by placing cap intervals before interleaved block copies at each fractal level. This maintains the same total interval count while strengthening the adversarial arrival order against FirstFit.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+=======
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # place caps first to occupy low colors early
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    # interleaved block copies for cross-block interference
+    for i in range(len(T)):
+      li, ri = T[i]
+      for start in (2, 6, 10, 14):
+        S.append((delta * start + li - lo, delta * start + ri - lo))
+    T = S
+  return T
+>>>>>>> REPLACE
+</DIFF>

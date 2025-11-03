@@ -1,0 +1,71 @@
+<NAME>increase_iterations</NAME>
+<DESCRIPTION>Raise the default number of recursive expansions to 5 to strengthen the adversary, increasing FirstFit color usage linearly without raising the clique number.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(iterations=4, extra_first=True):
+=======
+def construct_intervals(iterations=5, extra_first=True):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>expand_offset_patterns</NAME>
+<DESCRIPTION>Add a third offsets pattern (3,7,11,15) to the rotation to create more interleaved copy structures and amplify FirstFit misplacements.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  offsets_patterns = [
+    (2, 6, 10, 14),   # canonical
+    (1, 5, 9, 13)     # shifted (interleaved) alternative
+  ]
+=======
+  offsets_patterns = [
+    (2, 6, 10, 14),   # canonical
+    (1, 5, 9, 13),    # shifted (interleaved) alternative
+    (3, 7, 11, 15)    # additional pattern for deeper coupling
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>multi_level_extra_copy</NAME>
+<DESCRIPTION>Enable the extra fifth copy on the first two iterations (lvl<2) to occupy small colors early and cascade color fragmentation.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    if extra_first and lvl == 0:
+=======
+    if extra_first and lvl < 2:
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>interleave_connectors</NAME>
+<DESCRIPTION>Interleave connector intervals before copied intervals on odd levels so connectors occupy low-color slots and force copies to open new colors.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Place translated copies (left-anchored)
+    for start in offs:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+=======
+    # Build copies and connectors separately
+    copies = [(delta * start + l - lo, delta * start + r - lo)
+              for start in offs for l, r in T]
+    connectors = [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    # schedule connectors before copies on odd levels to block small colors early
+    if lvl % 2 == 1:
+      S = connectors + copies
+    else:
+      S = copies + connectors
+    T = S
+>>>>>>> REPLACE
+</DIFF>

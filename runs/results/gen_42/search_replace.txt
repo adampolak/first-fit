@@ -1,0 +1,28 @@
+<NAME>increase_default_iterations</NAME>
+<DESCRIPTION>
+Increase the default number of recursive expansion iterations from 4 to 5 to deepen the adversary, boosting FirstFit’s color count (approx. 16 vs OPT=5) for a higher ratio, at a modest interval‐count cost.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(iterations=4):
+=======
+def construct_intervals(iterations=5):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_extra_copy_first_iteration</NAME>
+<DESCRIPTION>
+On the very first iteration, inject a 5th translated copy at offset 18 to weave in additional short intervals, forcing FirstFit to open more colors without raising the overall clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Alternate offset patterns to break regularity
+    starts = (2, 6, 10, 14) if i % 2 == 0 else (1, 5, 9, 13)
+=======
+    # Alternate offset patterns to break regularity, with an extra copy on first iteration
+    if i == 0:
+      starts = (2, 6, 10, 14, 18)
+    else:
+      starts = (2, 6, 10, 14) if i % 2 == 0 else (1, 5, 9, 13)
+>>>>>>> REPLACE
+</DIFF>

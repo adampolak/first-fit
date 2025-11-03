@@ -1,0 +1,56 @@
+<NAME>
+alternate_offsets_blockers
+</NAME>
+
+<DESCRIPTION>
+Introduce alternating offset patterns and blocker templates to break the regular symmetry of the recursive copies, which tends to force FirstFit into less optimal packing. We define two different blocker templates (one shifted by 0.5) and alternate between them each iteration. We also alternate copy offsets between (2,6,10,14) and (1,5,9,13) each level, and retain the extra far copy on the first iteration to diversify the branching structure further. This irregularity should increase the FirstFit color count without raising the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+=======
+  T = [(0, 1)]
+  # Prepare two blocker templates to alternate and break symmetry
+  blocker_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],
+    [(1.5, 5.5), (12.5, 16.5), (4.5, 9.5), (8.5, 13.5)]
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # dynamic offsets: extra copy on first iteration to diversify branching
+    if i == 0:
+      offsets = (2, 6, 10, 14, 18)
+    else:
+      offsets = (2, 6, 10, 14)
+=======
+    # dynamic offsets: alternate patterns and add extra copy on first iteration
+    if i % 2 == 0:
+      offsets = (2, 6, 10, 14)
+    else:
+      offsets = (1, 5, 9, 13)
+    if i == 0:
+      # add an extra far copy to diversify first iteration
+      offsets = offsets + (18,)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+=======
+    # Add connecting intervals: alternate templates to break alignment
+    template = blocker_templates[i % len(blocker_templates)]
+    for (a, b) in template:
+      S.append((delta * a, delta * b))
+>>>>>>> REPLACE
+</DIFF>

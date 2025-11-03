@@ -1,0 +1,325 @@
+--- a/original.py
++++ b/original.py
+@@ -1,200 +1,181 @@
+ # EVOLVE-BLOCK-START
+ 
+ def _normalize_grid(intervals):
+     """
+     Normalize endpoints to a compact integer grid while preserving order.
+     Each unique endpoint is mapped to an increasing even integer.
+     Returns a new list of (l, r) with integer coordinates.
+     """
+     endpoints = sorted(set([x for seg in intervals for x in seg]))
+     coord = {}
+     cur = 0
+     for e in endpoints:
+         coord[e] = cur
+         cur += 2  # spacing by 2 to keep even gaps
+     return [(coord[l], coord[r]) for (l, r) in intervals]
+ 
+ 
+-def firstfit_colors(intervals):
++def _ff_count(intervals):
+     """
+-    Simulate online FirstFit coloring for given intervals presented in order.
+-    Returns number of colors used and the color assignment list (0-based colors).
++    Fast FirstFit color count using per-color last end tracking.
++    For open intervals, a color c is compatible if l >= last_end[c].
+     """
+-    # intervals are (l,r) in arrival order
+-    colors = []  # list of assigned colors per interval
+-    # maintain for each color the current active interval end (we need to check overlap)
+-    color_active_intervals = []  # list of lists of intervals assigned to that color (we'll check overlaps)
++    last_end = []
+     for (l, r) in intervals:
+-        # find smallest color c such that no interval in that color overlaps (l,r)
+-        assigned = False
+-        for c, assigned_list in enumerate(color_active_intervals):
+-            # check overlap with any interval in assigned_list
+-            conflict = False
+-            for (al, ar) in assigned_list:
+-                # open intervals overlap iff not (ar <= l or r <= al)
+-                if not (ar <= l or r <= al):
+-                    conflict = True
+-                    break
+-            if not conflict:
+-                assigned_list.append((l, r))
+-                colors.append(c)
+-                assigned = True
+-                break
+-        if not assigned:
+-            # new color
+-            color_active_intervals.append([(l, r)])
+-            colors.append(len(color_active_intervals) - 1)
+-    return len(color_active_intervals), colors
++      placed = False
++      for i, le in enumerate(last_end):
++        if l >= le:
++          last_end[i] = r
++          placed = True
++          break
++      if not placed:
++        last_end.append(r)
++    return len(last_end)
+ 
+ 
+-def offline_optimum_clique(intervals):
++def _omega_open(intervals):
+     """
+-    Compute offline optimum (maximum number of intervals covering a single point).
+-    We'll do an exact sweep-line: count overlaps at endpoints (open intervals).
+-    For open intervals (l,r) we treat them as events: +1 at l, -1 at r but since open,
+-    an interval with endpoint equal to a point does not include that endpoint. Using strict ordering,
+-    counting +1 at l and -1 at r works for non-degenerate endpoints.
++    Compute omega (max number of intervals covering a single point) for open intervals
++    via sweep. Process right endpoints before left endpoints on ties.
+     """
+     events = []
+     for (l, r) in intervals:
+-        events.append((l, 1))
+-        events.append((r, -1))
+-    # sort by coordinate, break ties: -1 before +1 so open intervals handled correctly
+-    events.sort(key=lambda x: (x[0], x[1]))
+-    cur = 0
+-    best = 0
+-    for _, delta in events:
+-        cur += delta
++        if l < r:
++            events.append((l, +1))
++            events.append((r, -1))
++    # right (-1) before left (+1) at the same coordinate
++    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++    cur = best = 0
++    for _, t in events:
++        cur += t
+         if cur > best:
+             best = cur
+     return best
+ 
+ 
+-def make_recursive_template(base_T, starts=(2, 6, 10, 14), blockers=None, depth=4):
++def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left'):
+     """
+-    Build a recursive expansion starting from base_T (list of intervals).
+-    starts: offsets per copy (multipliers)
+-    blockers: list of 4 blocker tuples given as multipliers of delta: [(a,b), ...] with four entries.
+-    depth: number of recursive iterations
+-    Returns list of intervals in arrival order.
++    Build a depth-level recursive pattern using four scaled copies per level and four long connectors.
++    - starts: tuple of offsets (multipliers) for the copies
++    - blockers: list of 4 pairs (a,b) as multipliers of delta
++    - schedule: 'after' | 'before' | 'split' controls the order within a level
++    - extra_first: adds a 5th copy (start=18) at the first level to enhance coupling
++    - translation: 'left' | 'center' anchor for positioning copies/blockers
+     """
+-    if blockers is None:
+-        # default blockers similar to original Figure-4
+-        blockers = [(1, 5), (12, 16), (4, 9), (8, 13)]
+-
+-    T = list(base_T)
+-    for _ in range(depth):
++    T = [(0.0, 1.0)]
++    for i in range(depth):
+         lo = min(l for l, r in T)
+         hi = max(r for l, r in T)
+         delta = hi - lo
+-        S = []
+-        # four copies placed in order (this order affects FirstFit)
+-        for start in starts:
+-            offset = delta * start - lo
+-            for (l, r) in T:
+-                S.append((offset + l, offset + r))
+-        # append blockers in a carefully chosen order (we'll keep given order)
+-        for (a, b) in blockers:
+-            S.append((delta * a, delta * b))
++        center = (lo + hi) / 2.0
++
++        offs = tuple(starts)
++        if extra_first and i == 0 and 18 not in offs:
++            offs = offs + (18,)
++
++        def make_copies(from_T, offsets):
++            S = []
++            for start in offsets:
++                if translation == 'left':
++                    offset = delta * start - lo
++                else:
++                    offset = delta * start - center
++                for (l, r) in from_T:
++                    S.append((l + offset, r + offset))
++            return S
++
++        # scale blockers
++        if translation == 'left':
++            blk = [(delta * a, delta * b) for (a, b) in blockers]
++        else:
++            blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
++
++        if schedule == 'after':
++            S = make_copies(T, offs) + blk
++        elif schedule == 'before':
++            S = list(blk) + make_copies(T, offs)
++        else:  # split
++            h = len(offs) // 2
++            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
++
+         T = S
+     return T
+ 
+ 
+-def shrink_prune(intervals, target_ratio):
+-    """
+-    Conservative pruning: try removing intervals one-by-one (prefer blockers and long intervals)
+-    If removal does not reduce the observed FirstFit/OPT ratio below target_ratio, accept removal.
+-    This attempts to shrink redundant intervals while preserving power.
+-    """
+-    cur = list(intervals)
+-    # attempt removals in order of decreasing length (prefer removing long blockers)
+-    lengths = [(i, cur[i][1] - cur[i][0]) for i in range(len(cur))]
+-    order = [i for i, _ in sorted(lengths, key=lambda x: (-x[1], x[0]))]
+-    changed = True
+-    while changed:
+-        changed = False
+-        for idx in order:
+-            if idx >= len(cur):
+-                continue
+-            cand = cur[:idx] + cur[idx + 1 :]
+-            alg, _ = firstfit_colors(cand)
+-            opt = offline_optimum_clique(cand)
+-            ratio = alg / opt if opt > 0 else 0
+-            if ratio >= target_ratio:
+-                # accept removal
+-                cur = cand
+-                # recompute order (lengths changed)
+-                lengths = [(i, cur[i][1] - cur[i][0]) for i in range(len(cur))]
+-                order = [i for i, _ in sorted(lengths, key=lambda x: (-x[1], x[0]))]
+-                changed = True
+-                break
+-        # loop until no more removals accepted
+-    return cur
+-
+-
+ def construct_intervals(iterations=4, normalize=True):
+     """
+-    Adaptive search-driven construction. Sweep a small space of parameters and pick best.
++    Adaptive search-driven construction. Sweep a modest parameter space (offsets, blockers,
++    schedule, translation, extra-first, depth) and return the instance maximizing FirstFit/omega.
+     Arguments:
+-      iterations: maximum recursion depth to try (we will try depths from 2..iterations)
+-      normalize: whether to normalize endpoints to integer grid at the end
+-    Returns:
+-      list of intervals (l,r) in arrival order (normalized if requested)
++      iterations: maximum recursion depth considered (we try iterations-1 and iterations, min 2)
++      normalize: normalize endpoints to a compact integer grid (recommended)
++    Returns: list of intervals (l, r) in arrival order.
+     """
+-    # base gadget: single small interval (keeps clique small)
+-    base_T = [(0.0, 1.0)]
++    depths = sorted(set([max(2, iterations - 1), max(2, iterations)]))
+ 
+-    # candidate start geometries to test (small variations around the canonical)
+     start_sets = [
+-        (2, 6, 10, 14),  # canonical
+-        (1, 5, 9, 13),
+-        (3, 7, 11, 15),
+-        (0.5, 4.5, 8.5, 12.5)
++        (2, 6, 10, 14),   # canonical
++        (1, 5, 9, 13),    # shift left
++        (3, 7, 11, 15),   # shift right
++        (0, 4, 8, 12),    # leftmost
+     ]
++    blocker_templates = [
++        [(1, 5), (12, 16), (4, 9), (8, 13)],             # canonical
++        [(1, 5), (11, 15), (4, 9), (8, 13)],             # slight shift
++        [(2, 6), (12, 16), (4, 9), (8, 13)],             # shift first
++        [(1, 6), (11, 16), (3, 9), (7, 13)],             # lengthened
++    ]
++    schedules = ['after', 'before', 'split']
++    translations = ['left', 'center']
++    extras = [False, True]
+ 
+-    # candidate blocker templates (each is 4 blockers, as multipliers of delta)
+-    blocker_templates = [
+-        [(1, 5), (12, 16), (4, 9), (8, 13)],  # canonical
+-        [(1, 5), (11, 15), (4, 9), (8, 13)],  # shifted one blocker
+-        [(2, 6), (12, 16), (4, 9), (8, 13)],  # shift first
+-        [(1, 6), (11, 16), (3, 9), (7, 13)],  # slightly lengthened blockers
+-    ]
++    best_T = None
++    best_ratio = -1.0
++    best_n = None
++    best_cols = 0
++    best_om = 0
+ 
+-    best_inst = None
+-    best_score = -1.0
+-    best_meta = None
+-
+-    # iterate over small depths to keep size manageable
+-    for depth in range(2, iterations + 1):
++    for d in depths:
++        # guard explosion: rough size ~ (4^d)*8; keep manageable
++        if (4 ** d) * 8 > 4000:
++            continue
+         for starts in start_sets:
+             for blockers in blocker_templates:
+-                inst = make_recursive_template(base_T, starts=starts, blockers=blockers, depth=depth)
+-                # compute alg and opt
+-                alg, _ = firstfit_colors(inst)
+-                opt = offline_optimum_clique(inst)
+-                if opt == 0:
+-                    continue
+-                score = alg / opt
+-                # prefer higher ratio, tie-breaker: smaller number of intervals (more concise witness)
+-                if (score > best_score) or (abs(score - best_score) < 1e-12 and (best_inst is None or len(inst) < len(best_inst))):
+-                    best_score = score
+-                    best_inst = inst
+-                    best_meta = dict(depth=depth, starts=starts, blockers=blockers, alg=alg, opt=opt)
++                for sch in schedules:
++                    for tr in translations:
++                        for ex in extras:
++                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=ex, translation=tr)
++                            om = _omega_open(T)
++                            if om == 0:
++                                continue
++                            cols = _ff_count(T)
++                            ratio = cols / om
++                            n = len(T)
++                            better = False
++                            if ratio > best_ratio + 1e-12:
++                                better = True
++                            elif abs(ratio - best_ratio) <= 1e-12:
++                                if best_n is None or n < best_n:
++                                    better = True
++                                elif n == best_n and cols > best_cols:
++                                    better = True
++                            if better:
++                                best_ratio = ratio
++                                best_T = T
++                                best_n = n
++                                best_cols = cols
++                                best_om = om
+ 
+-    # If none found (shouldn't happen), fall back to canonical
+-    if best_inst is None:
+-        best_inst = make_recursive_template(base_T, depth=4)
++    # Fallback to canonical if search failed
++    if best_T is None:
++        best_T = _build_candidate(depth=max(2, iterations), starts=(2, 6, 10, 14),
++                                  blockers=[(1, 5), (12, 16), (4, 9), (8, 13)],
++                                  schedule='after', extra_first=False, translation='left')
+ 
+-    # apply conservative pruning: don't allow ratio to drop below found best_score
+-    pruned = shrink_prune(best_inst, best_score)
+-
+-    final = pruned
+-    if normalize:
+-        final = _normalize_grid(final)
+-    return final
++    return _normalize_grid(best_T) if normalize else best_T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

@@ -1,0 +1,48 @@
+<NAME>
+interleave_blockers_by_parity
+</NAME>
+
+<DESCRIPTION>
+Alternate the insertion schedule of blockers and copies based on iteration parity. On even iterations, prepend the four blocking intervals before the scaled copies; on odd iterations, append them after. This interleaving breaks the regular tiling pattern, increasing FirstFit’s color usage without enlarging the maximum clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+=======
+  for i in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    # define blockers
+    blockers = [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    # generate copies
+    copies = []
+    for start in (2, 6, 10, 14):
+      copies += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # interleave blockers and copies based on iteration parity
+    if i % 2 == 0:
+      S = blockers + copies
+    else:
+      S = copies + blockers
+    T = S
+>>>>>>> REPLACE
+</DIFF>

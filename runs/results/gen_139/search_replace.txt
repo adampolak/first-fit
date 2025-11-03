@@ -1,0 +1,50 @@
+<NAME>
+ff_lastend_optimizer
+</NAME>
+
+<DESCRIPTION>
+Replace the naive per-color overlap checks in the FirstFit simulation with a faster last-end based implementation. The updated approach maintains, for each color, the end coordinate of the last interval assigned to that color. A new interval can be placed in the first color whose last_end <= its left endpoint. This is equivalent to FirstFit for open intervals, but significantly reduces the inner work from checking overlap against all intervals in a color to a simple comparison against a per-color end marker. This should dramatically reduce runtime for large adversary constructions without changing the produced color counts, enabling deeper or broader exploration within the same time budget.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def firstfit_colors(intervals):
+    """
+    Simulate FirstFit on the given arrival order.
+    Colors are independent sets w.r.t. open-interval overlap.
+    """
+    colors = []  # list of color classes
+    for iv in intervals:
+      placed = False
+      for c in colors:
+        conflict = False
+        for u in c:
+          if overlaps(u, iv):
+            conflict = True
+            break
+        if not conflict:
+          c.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+=======
+  def firstfit_colors(intervals):
+    """
+    Fast FirstFit: maintain last_end per color; place interval in first color with last_end <= l.
+    This is correct for open-interval graphs under arrival order.
+    """
+    ends = []  # end (r) of the last interval in each color
+    for (l, r) in intervals:
+      placed = False
+      for i in range(len(ends)):
+        if l >= ends[i]:
+          ends[i] = r
+          placed = True
+          break
+      if not placed:
+        ends.append(r)
+    return len(ends)
+>>>>>>> REPLACE
+</DIFF>

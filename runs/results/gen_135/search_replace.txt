@@ -1,0 +1,33 @@
+<NAME>
+add_before_schedule
+</NAME>
+
+<DESCRIPTION>
+Introduce a new scheduling mode 'before' to place blockers before copies in each recursion level. This expands the pattern space, allowing exploration of layouts where long connectors preoccupy small colors early, potentially forcing FirstFit to use more colors without increasing the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  schedules = ['after', 'split']             # two effective orders
+=======
+  schedules = ['after', 'split', 'before']   # include before schedule
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+              if sch == 'after':
+                T = copies(T, offs) + blks
+              else:  # 'split'
+                h = len(offs) // 2
+                T = copies(T, offs[:h]) + blks + copies(T, offs[h:])
+=======
+              if sch == 'after':
+                T = copies(T, offs) + blks
+              elif sch == 'before':
+                T = blks + copies(T, offs)
+              else:  # 'split'
+                h = len(offs) // 2
+                T = copies(T, offs[:h]) + blks + copies(T, offs[h:])
+>>>>>>> REPLACE
+</DIFF>

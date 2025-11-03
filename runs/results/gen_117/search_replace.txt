@@ -1,0 +1,47 @@
+<NAME>
+add_dense_blocker_template_H
+</NAME>
+
+<DESCRIPTION>
+Introduce a new, denser blocker template H into the parameter sweep. This template uses five overlapping blockers (including one spanning a mid-range coupling) to further couple the four copies and potentially force more FirstFit colors without increasing the clique size. It augments the existing list of blocker_templates in the sweep.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # D: asymmetric early/late pushers
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # F: six-blocker couplers (two extra caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+    # G: dense 5-blocker coupler (extra cap to more tightly couple copies)
+    ((1, 5), (3, 9), (6, 10), (11, 15), (8, 13))
+  ]
+=======
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # D: asymmetric early/late pushers
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # F: six-blocker couplers (two extra caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+    # G: dense 5-blocker coupler (extra cap to more tightly couple copies)
+    ((1, 5), (3, 9), (6, 10), (11, 15), (8, 13)),
+    # H: ultra-dense mid-span couplers to maximize color pressure
+    ((1, 5), (3, 12), (6, 11), (8, 13), (10, 14))
+  ]
+>>>>>>> REPLACE
+</DIFF>

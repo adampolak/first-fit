@@ -1,0 +1,109 @@
+<NAME>expand_offset_templates</NAME>
+<DESCRIPTION>
+Extend the set of copy-offset templates to include all four canonical rotor patterns: (3,7,11,15) and (0,4,8,12). This enlarges the search space with rotated tilings that can induce more cross‐cluster overlaps, potentially forcing FirstFit to use more colors without increasing the clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+    ]
+=======
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+        (3,7,11,15),    # rotated variant
+        (0,4,8,12),     # rotated variant
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_blocker_template</NAME>
+<DESCRIPTION>
+Introduce a third blocker-template variant with shifted connectors, to explore additional coupling patterns between copies. This variation may increase FirstFit’s forced new colors by creating novel overlap structures while still bounding ω.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    blocker_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),  # canonical
+        ((0,4),(11,15),(3,8),(7,12)),  # variant
+    ]
+=======
+    blocker_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),   # canonical
+        ((0,4),(11,15),(3,8),(7,12)),   # variant
+        ((2,6),(10,14),(3,9),(7,13)),   # shifted variant
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>multiple_wave_lengths</NAME>
+<DESCRIPTION>
+Enhance the wave‐addition loop to try multiple wave lengths (small, medium) each iteration. By sampling different wave sizes, we increase the opportunity to find augmentations that raise FirstFit’s color count without inflating ω.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    # Augmentation loop: try to add up to max_waves that improve colors while preserving omega
+    max_waves = 60  # keep moderate
+    wave_length = max(1, max(1, max((r-l) for l,r in current)) // 30)  # choose a small wave length relative to scale
+    # ensure wave_length at least 2 for stability if space allows
+    wave_length = max(1, min(3, wave_length))
+    added_any = True
+    waves_added = 0
+    # We'll accept only additions that strictly increase FF colors and keep omega unchanged (or <= original)
+    target_omega = current_om
+    while waves_added < max_waves and added_any:
+        added_any = False
+        cand, newT = try_add_wave(current, target_omega, wave_length=wave_length, candidates_limit=800)
+        if cand is not None:
+            # Update current
+            current = normalize_to_grid(newT)
+            new_om = clique_number(current)
+            new_cols = firstfit_colors(current)
+            if new_om <= target_omega and new_cols > current_cols:
+                current_cols = new_cols
+                current_om = new_om
+                best_ratio = current_cols / current_om if current_om > 0 else best_ratio
+                waves_added += 1
+                added_any = True
+            else:
+                # revert (shouldn't happen given try_add_wave guard) but keep safe
+                # if candidate didn't help, stop to keep deterministic behavior
+                break
+=======
+    # Augmentation loop: try to add up to max_waves that improve colors while preserving omega
+    max_waves = 60  # keep moderate
+    wave_length = max(1, max(1, max((r-l) for l,r in current)) // 30)  # choose a small wave length relative to scale
+    # ensure wave_length at least 2 for stability if space allows
+    wave_length = max(1, min(3, wave_length))
+    # prepare multiple wave lengths (small, medium, large within [1,5])
+    wave_lengths = sorted({wave_length, min(wave_length+1,5), max(wave_length-1,1)})
+    added_any = True
+    waves_added = 0
+    # We'll accept only additions that strictly increase FF colors and keep omega unchanged (or <= original)
+    target_omega = current_om
+    while waves_added < max_waves and added_any:
+        added_any = False
+        cand = None
+        newT = None
+        # try each candidate wave length
+        for wl in wave_lengths:
+            cand, newT = try_add_wave(current, target_omega, wave_length=wl, candidates_limit=800)
+            if cand is not None:
+                break
+        if cand is not None:
+            # Update current
+            current = normalize_to_grid(newT)
+            new_om = clique_number(current)
+            new_cols = firstfit_colors(current)
+            if new_om <= target_omega and new_cols > current_cols:
+                current_cols = new_cols
+                current_om = new_om
+                best_ratio = current_cols / current_om if current_om > 0 else best_ratio
+                waves_added += 1
+                added_any = True
+            else:
+                # revert (shouldn't happen) but stop for determinism
+                break
+>>>>>>> REPLACE
+</DIFF>

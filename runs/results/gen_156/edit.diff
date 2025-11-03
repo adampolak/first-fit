@@ -1,0 +1,318 @@
+--- a/original.py
++++ b/original.py
+@@ -1,273 +1,69 @@
+ # EVOLVE-BLOCK-START
+ 
+ from math import gcd
+ 
+-# ---------- Core utilities (fast, integer-friendly) ----------
+-
+-def overlaps(a, b):
+-    """Open-interval overlap test: True iff intervals overlap."""
+-    (l1, r1), (l2, r2) = a, b
+-    return max(l1, l2) < min(r1, r2)
+-
+ def normalize_to_grid(intervals):
+     """
+-    Normalize a list of intervals to a compact integer grid.
+-    - Map unique endpoints to 0, 2, 4, ...
+-    - Optionally shrink by gcd of all coordinates.
+-    Returns a list of (l, r) with integer coordinates.
++    Map unique endpoints to 0,2,4,... and shrink by gcd.
+     """
+     if not intervals:
+         return []
+-    # collect endpoints
+-    endpoints = sorted({x for seg in intervals for x in seg})
+-    coord = {v: i*2 for i, v in enumerate(endpoints)}
+-    norm = [(coord[l], coord[r]) for (l, r) in intervals]
+-    # optional gcd-based shrinking
++    pts = sorted({x for seg in intervals for x in seg})
++    coord = {v: i*2 for i,v in enumerate(pts)}
++    norm = [(coord[l], coord[r]) for (l,r) in intervals]
+     g = 0
+-    for (l, r) in norm:
+-        g = gcd(g, abs(l))
+-        g = gcd(g, abs(r))
+-    if g > 1:
+-        norm = [(l//g, r//g) for (l, r) in norm]
++    for l,r in norm:
++        g = gcd(g, abs(l)); g = gcd(g, abs(r))
++    if g>1:
++        norm = [(l//g,r//g) for l,r in norm]
+     return norm
+ 
+-def firstfit_colors(intervals):
++def construct_intervals():
+     """
+-    FirstFit coloring with a fast per-color test.
+-    Each color keeps intervals sorted by left endpoint for quick neighbor checks.
+-    Returns the number of colors used.
++    Build a k‐level recursive tiling with cycle patterns and wave augmentation.
+     """
+-    colors = []  # list of color records: {'ivals': [(l,r)], 'lefts': [l]}
+-    for iv in intervals:
+-        l, r = iv
+-        placed = False
+-        for color in colors:
+-            lefts = color['lefts']
+-            # binary search position to insert by left endpoint
+-            # simple linear is fine because color sizes stay small; use bisect for clarity
+-            from bisect import bisect_left
+-            pos = bisect_left(lefts, l)
+-            conflict = False
+-            # check predecessor (may overlap)
+-            if pos > 0:
+-                pl, pr = color['ivals'][pos - 1]
+-                if pr > l:
+-                    conflict = True
+-            # check successor
+-            if not conflict and pos < len(color['ivals']):
+-                nl, nr = color['ivals'][pos]
+-                if nl < r:
+-                    conflict = True
+-            if not conflict:
+-                color['ivals'].insert(pos, (l, r))
+-                color['lefts'].insert(pos, l)
+-                placed = True
+-                break
+-        if not placed:
+-            colors.append({'ivals': [(l, r)], 'lefts': [l]})
+-    return len(colors)
+-
+-def clique_number(intervals):
+-    """
+-    Omega: maximum number of intervals covering a single point.
+-    Efficient sweep-line on endpoints.
+-    """
+-    events = []
+-    for (l, r) in intervals:
+-        if l >= r:
+-            continue
+-        events.append((l, +1))
+-        events.append((r, -1))
+-    # -1 before +1 at the same coordinate for open intervals
+-    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+-    cur = 0
+-    best = 0
+-    for _, t in events:
+-        cur += t
+-        if cur > best:
+-            best = cur
+-    return best
+-
+-# ---------- Pattern builder (Figure-4 style) ----------
+-
+-def build_recursive_pattern(base_seed, depth, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), extra_first=False):
+-    """
+-    Recursively expand: 4 copies per level + 4 long blockers.
+-    - base_seed: list of (l,r) pairs (floats)
+-    - depth: number of recursion levels
+-    - offsets: positions for the 4 copies at each level
+-    - blockers: 4 long connector intervals as multipliers by delta
+-    - extra_first: if True, add an extra copy at level 0 to diversify geometry
+-    """
+-    T = [tuple(iv) for iv in base_seed]
+-    for lvl in range(depth):
++    # base seed
++    T = [(0.0, 1.0)]
++    k = 4
++    # cycle among four copy‐offset patterns
++    copy_patterns = [
++        (2, 6, 10, 14),
++        (1, 5, 9, 13),
++        (3, 7, 11, 15),
++        (0, 4, 8, 12),
++    ]
++    # cycle among three blocker templates
++    blocker_templates = [
++        [(1,5), (12,16), (4,9), (8,13)],
++        [(0,4), (6,10), (8,12), (14,18)],
++        [(2,6), (4,8), (10,14), (12,16)],
++    ]
++    for lvl in range(k):
+         lo = min(l for l,r in T)
+         hi = max(r for l,r in T)
+         delta = hi - lo
++        pat = copy_patterns[lvl % 4]
++        blks = blocker_templates[lvl % 3]
+         S = []
+-        offs = list(offsets)
+-        if extra_first:
+-            offs = offs + [offs[-1] + 4]
+-        for start in offs:
++        # produce copies according to this level's pattern
++        for start in pat:
+             off = delta * start - lo
+-            for (l, r) in T:
+-                S.append((l + off, r + off))
+-        for (a, b) in blockers:
++            for (l,r) in T:
++                S.append((l+off, r+off))
++        # deterministic wave of short intervals to block many active colors
++        eps = delta * 0.08
++        for w in (3.5, 7.5, 11.5, 15.5):
++            st = delta * w - lo
++            S.append((st, st + eps))
++        # add blockers to couple across copies
++        for (a,b) in blks:
+             S.append((delta * a, delta * b))
+         T = S
+-    return T
+-
+-# ---------- Core evaluation and optimization helpers ----------
+-
+-def evaluate(intervals):
+-    """
+-    Compute (score, omega, colors, n) for a given interval sequence.
+-    Score = colors/omega with a tiny penalty for large n to prefer compact witnesses.
+-    Returns (score, omega, colors, n, normalized_intervals)
+-    """
+-    Tn = normalize_to_grid(intervals)
+-    n = len(Tn)
+-    if n == 0:
+-        return (-1.0, 0, 0, n, Tn)
+-    om = clique_number(Tn)
+-    if om == 0:
+-        return (-1.0, 0, 0, n, Tn)
+-    cols = firstfit_colors(Tn)
+-    ratio = cols / om
+-    score = ratio - 1e-6 * (n / 10000.0)
+-    return (score, om, cols, n, Tn)
+-
+-def prune_by_ratio(intervals, target_ratio):
+-    """
+-    Deterministic greedy pruning: remove long intervals if the ratio colors/omega
+-    does not drop below target_ratio.
+-    """
+-    cur = list(intervals)
+-    if not cur:
+-        return cur
+-    # current ratio on compressed grid
+-    norm = normalize_to_grid(cur)
+-    if not norm:
+-        return cur
+-    base_cols = firstfit_colors(norm)
+-    base_om = clique_number(norm) or 1
+-    current_ratio = base_cols / base_om
+-    if target_ratio is None:
+-        target_ratio = current_ratio
+-
+-    def length(iv):
+-        return iv[1] - iv[0]
+-
+-    changed = True
+-    while changed:
+-        changed = False
+-        order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+-        for idx in order:
+-            cand = cur[:idx] + cur[idx+1:]
+-            cand_norm = normalize_to_grid(cand)
+-            if not cand_norm:
+-                continue
+-            c = firstfit_colors(cand_norm)
+-            o = clique_number(cand_norm) or 1
+-            if (c / o) >= target_ratio - 1e-12:
+-                cur = cand
+-                changed = True
+-                break
+-    return cur
+-
+-# ---------- High-level construction with a deterministic search ----------
+-
+-def construct_intervals():
+-    """
+-    Deterministic parametric search over a compact blueprint space.
+-    Tries several seeds, depths, copy-offset sets, and blocker templates.
+-    Returns a final normalized interval list.
+-    """
+-    # Search-space definitions (compact but diverse)
+-    base_seeds = [
+-        [(0.0, 1.0)],                      # canonical
+-        [(0.0, 1.0), (2.0, 3.0)],          # richer base
+-    ]
+-    depths = [3, 4]
+-    offset_sets = [
+-        (2, 6, 10, 14),
+-        (1, 5, 9, 13),
+-        (3, 7, 11, 15),
+-    ]
+-    blockers_templates = [
+-        ((1,5),(12,16),(4,9),(8,13)),      # canonical
+-        ((0,4),(6,10),(8,12),(14,18)),     # variant
+-        ((2,6),(4,8),(10,14),(12,16)),      # variant2
+-    ]
+-    extra_first_opts = [False, True]  # diversify early-stage tilings
+-
+-    best = None  # (ratio, cols, om, raw_intervals)
+-    best_raw = None
+-
+-    # Deterministic exploration
+-    for base in base_seeds:
+-        for depth in depths:
+-            for offs in offset_sets:
+-                for blks in blockers_templates:
+-                    for extra in extra_first_opts:
+-                        T = build_recursive_pattern(
+-                            base_seed=base,
+-                            depth=depth,
+-                            offsets=offs,
+-                            blockers=blks,
+-                            extra_first=extra
+-                        )
+-                        Tn = normalize_to_grid(T)
+-                        if not Tn:
+-                            continue
+-                        om = clique_number(Tn)
+-                        if om == 0:
+-                            continue
+-                        cols = firstfit_colors(Tn)
+-                        ratio = cols / om
+-                        cand = (ratio, cols, om, T)
+-                        if best is None or cand[0] > best[0] + 1e-12 or (abs(cand[0]-best[0])<=1e-12 and len(T) < len(best_raw or cand[3])):
+-                            best = cand
+-                            best_raw = T
+-
+-    # Fallback to baseline if search failed
+-    if best is None:
+-        depth = 4
+-        T = [(0.0, 1.0)]
+-        for _ in range(depth):
+-            lo = min(l for l, r in T)
+-            hi = max(r for l, r in T)
+-            delta = hi - lo
+-            S = []
+-            for start in (2, 6, 10, 14):
+-                offset = delta * start - lo
+-                for (l, r) in T:
+-                    S.append((l + offset, r + offset))
+-            S += [
+-                (delta * 1,  delta * 5),
+-                (delta * 12, delta * 16),
+-                (delta * 4,  delta * 9),
+-                (delta * 8,  delta * 13),
+-            ]
+-            T = S
+-        return normalize_to_grid(T)
+-
+-    # Optional pruning after best blueprint
+-    current = normalize_to_grid(best_raw)
+-    if not current:
+-        return best[3]  # fallback to raw
+-
+-    # Prune while preserving the observed ratio
+-    observed_ratio = best[0] if best else None
+-    pruned = prune_by_ratio(current, observed_ratio)
+-    final = normalize_to_grid(pruned)
+-    if final:
+-        return final
+-    else:
+-        return current
++    # normalize to small integer grid
++    return normalize_to_grid(T)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

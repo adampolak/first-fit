@@ -1,0 +1,53 @@
+<NAME>
+add_half_step_pattern_and_six_blocker
+</NAME>
+
+<DESCRIPTION>
+Introduce a new half‐step offset pattern (`alt_c = (1.5,5.5,9.5,13.5)`) to diversify interval placements and enrich the adversary’s geometry. Extend the `pattern_cycles` list to include the new pattern both in isolation and alternating with the canonical pattern. Also add a six-blocker template to `blockers_templates`, coupling six intervals to obstruct more color reuse without raising the clique number. These changes aim to force FirstFit to create more colors while keeping ω unchanged.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  alt_b     = (3, 7, 11, 15)
+
+  pattern_cycles = [
+=======
+  alt_b     = (3, 7, 11, 15)
+
+  pattern_cycles = [
+>>>>>>> REPLACE
+  alt_b     = (3, 7, 11, 15)
+  alt_c     = (1.5, 5.5, 9.5, 13.5)
+
+  pattern_cycles = [
+<<<<<<< SEARCH
+    (canonical,),                 # canonical only
+    (canonical, alt_a),           # alternate canonical/alt_a
+    (canonical, alt_b),           # alternate canonical/alt_b
+  ]
+=======
+    (canonical,),                 # canonical only
+    (canonical, alt_a),           # alternate canonical/alt_a
+    (canonical, alt_b),           # alternate canonical/alt_b
+    (canonical, alt_c),           # alternate canonical/alt_c
+    (alt_c,),                     # half-step pattern only
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  blockers_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],   # shifted
+    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+  ]
+=======
+  blockers_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],   # shifted
+    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+    [(1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)],   # six-blocker coupler
+  ]
+>>>>>>> REPLACE
+</DIFF>

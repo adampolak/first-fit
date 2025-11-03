@@ -1,0 +1,44 @@
+<NAME>
+enhanced_recursion_and_coupling
+</NAME>
+
+<DESCRIPTION>
+Introduce stronger recursion and branch coupling: default depth increased to 5 to push FirstFit color growth, add a third initial seed interval for more inter-branch overlap, shrink the scaling at the third layer to tighten coupling without increasing the clique, and append two global cap intervals after recursion to force extra FirstFit colors across the first two translation patterns.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  if depth is None:
+    depth = 4
+=======
+  if depth is None:
+    depth = 5
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  SCALING_LIST = [1.0, 1.2, 0.8, 1.15, 1.05]
+=======
+  SCALING_LIST = [1.0, 1.2, 0.6, 1.15, 1.05]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  # initial seeds: two disjoint spine intervals to diversify recursive growth
+  T = [(0, 1), (2, 3)]
+=======
+  # initial seeds: three disjoint spine intervals to diversify recursive growth
+  T = [(0, 1), (2, 3), (4, 5)]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+  return T
+=======
+  # Add two global caps to couple branches across the gadget
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  span = hi - lo
+  # caps spanning first and last translations of the first two start patterns
+  T.append((lo + span * START_SETS[0][0], lo + span * START_SETS[0][-1]))
+  T.append((lo + span * START_SETS[1][0], lo + span * START_SETS[1][-1]))
+  return T
+>>>>>>> REPLACE
+</DIFF>

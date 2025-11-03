@@ -1,0 +1,69 @@
+<NAME>
+translation_and_blocker_right_support
+</NAME>
+
+<DESCRIPTION>
+Expand the search space by adding a new 'right' alignment option for both copy translations and blocker anchoring.
+In the orchestrator, include 'right' in the `translations` and `blocker_anchors` lists.
+In `build_pattern`, extend the translation logic to handle `translation=='right'` by aligning copies relative to the right (hi) boundary.
+Similarly, add `blocker_anchor=='right'` support so blockers can be placed relative to the right boundary.
+This deterministic variation can reveal new adversarial geometries that pressure FirstFit without increasing omega.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+=======
+    translations = ['left', 'center', 'right']  # how copies are positioned
+    blocker_anchors = ['left', 'center', 'right']  # how blockers are positioned
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        for idx, start in enumerate(offsets):
+            if translation == 'left':
+                off = delta * start - lo
+            else:
+                off = delta * start - center
+            seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+            copy_lists.append([(l + off, r + off) for (l, r) in seq])
+=======
+        for idx, start in enumerate(offsets):
+            if translation == 'left':
+                off = delta * start - lo
+            elif translation == 'center':
+                off = delta * start - center
+            elif translation == 'right':
+                off = delta * start - hi
+            else:
+                off = delta * start - lo
+            seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+            copy_lists.append([(l + off, r + off) for (l, r) in seq])
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        # Build blockers for this level
+        S_blockers = []
+        for (a, b) in blockers:
+            if blocker_anchor == 'left':
+                S_blockers.append((delta * a, delta * b))
+            else:
+                S_blockers.append((delta * a - center, delta * b - center))
+=======
+        # Build blockers for this level
+        S_blockers = []
+        for (a, b) in blockers:
+            if blocker_anchor == 'left':
+                S_blockers.append((delta * a, delta * b))
+            elif blocker_anchor == 'center':
+                S_blockers.append((delta * a - center, delta * b - center))
+            elif blocker_anchor == 'right':
+                S_blockers.append((delta * a - hi, delta * b - hi))
+            else:
+                S_blockers.append((delta * a, delta * b))
+>>>>>>> REPLACE
+</DIFF>

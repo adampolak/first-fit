@@ -1,0 +1,86 @@
+<NAME>
+interleave_and_bridge_split
+</NAME>
+
+<DESCRIPTION>
+I modify the gadget construction to use arrival‑order engineering without changing the underlying geometry, hence preserving the clique number while pushing FirstFit to use more colors.
+
+Key changes:
+- Within each expansion layer, I build each shifted copy as before but introduce controlled interleaving across copies on even‑indexed layers, and occasionally reverse the per-copy order. This breaks strong symmetry and forces FirstFit to commit early colors that will be inconvenient for later intervals, increasing the color count.
+- I split the bridge intervals: on even layers, two bridges are placed before the interleaved replication and the remaining two after. Bridges serve as early blockers to occupy small colors sooner, so later interleaved arrivals are more likely to require new colors. On odd layers we keep the baseline “all bridges after” to avoid over‑aggressive effects that could harm stability.
+
+These changes only affect the ordering of presented intervals; the interval set itself is unchanged, so the clique number remains that of the Figure‑4 backbone (empirically 5 at depth 4). The targeted extension phase remains intact. Overall, this tends to raise FF while keeping omega fixed, improving the combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # --- Gadget construction (Figure 4 style) ------------------------------
+    def make_gadget(depth=3, alternate=False):
+        # base seed
+        T = [(0.0, 1.0)]
+        bridge_factors = [(1, 5), (12, 16), (4, 9), (8, 13)]
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+        ]
+        for i in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            span = hi - lo
+            S = []
+            starts = patterns[i % 2] if alternate else patterns[0]
+            for s in starts:
+                offset = span * s - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            for a, b in bridge_factors:
+                S.append((span * a, span * b))
+            T = S
+        return T
+=======
+    # --- Gadget construction (Figure 4 style) ------------------------------
+    def make_gadget(depth=3, alternate=False):
+        # base seed
+        T = [(0.0, 1.0)]
+        bridge_factors = [(1, 5), (12, 16), (4, 9), (8, 13)]
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+        ]
+        for i in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            span = hi - lo
+            starts = patterns[i % 2] if alternate else patterns[0]
+
+            # Build shifted copies for each start; occasionally reverse order per copy
+            copies = []
+            for idx, s in enumerate(starts):
+                offset = span * s - lo
+                seq = T if ((i + idx) % 2 == 0) else list(reversed(T))
+                shifted = [(l + offset, r + offset) for (l, r) in seq]
+                copies.append(shifted)
+
+            S = []
+            if i % 2 == 0:
+                # Even layers: place some bridges early, interleave copies, then remaining bridges.
+                for a, b in bridge_factors[:2]:
+                    S.append((span * a, span * b))
+                # Interleave across copies by position index to break large contiguous blocks.
+                for k in range(len(T)):
+                    for copy in copies:
+                        S.append(copy[k])
+                for a, b in bridge_factors[2:]:
+                    S.append((span * a, span * b))
+            else:
+                # Odd layers: baseline block order for stability; all bridges after.
+                for copy in copies:
+                    S.extend(copy)
+                for a, b in bridge_factors:
+                    S.append((span * a, span * b))
+
+            T = S
+        return T
+>>>>>>> REPLACE
+
+</DIFF>

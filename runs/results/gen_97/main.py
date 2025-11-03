@@ -1,0 +1,210 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+  """
+  Normalize endpoints to a compact integer grid while preserving order.
+  Each unique endpoint is mapped to an increasing even integer.
+  Returns a new list of (l, r) with integer coordinates.
+  """
+  endpoints = sorted(set([x for seg in intervals for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2  # spacing by 2 to keep even gaps
+
+  return [(coord[l], coord[r]) for (l, r) in intervals]
+
+
+def construct_intervals(iterations=4, normalize=True):
+  """
+  Build a sequence of open intervals that aims to maximize FirstFit/omega
+  using a small parameter sweep around the canonical 4-copy/4-blocker recursion,
+  with additional blocker templates, independent blocker anchoring, and a
+  conservative pruning pass. The final output is normalized to a compact grid.
+  """
+  # Local helpers to evaluate candidates (open intervals)
+  def _ff_count(intervals):
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def _omega_open(intervals):
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    # right (-1) before left (+1) on ties (open intervals)
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def _compute_ratio(intervals):
+    """Compute FirstFit/omega on a compact, order-preserving normalization."""
+    Tn = _normalize_grid(intervals)
+    om = _omega_open(Tn)
+    if om <= 0:
+      return -1.0
+    cols = _ff_count(Tn)
+    return cols / om
+
+  def _shrink_prune(intervals, target_ratio, max_passes=2):
+    """
+    Deterministic, conservative pruning: try removing intervals in several fixed orders.
+    Accept a removal only if the normalized FirstFit/omega ratio stays >= target_ratio.
+    """
+    cur = list(intervals)
+    if target_ratio <= 0:
+      return cur
+    for _ in range(max_passes):
+      changed = False
+      orders = []
+      # 1) by decreasing length (favor removing long blockers)
+      orders.append(sorted(range(len(cur)), key=lambda i: (-(cur[i][1] - cur[i][0]), i)))
+      # 2) earliest arrival
+      orders.append(list(range(len(cur))))
+      # 3) latest arrival
+      orders.append(list(range(len(cur) - 1, -1, -1)))
+      for order in orders:
+        for idx in order:
+          if idx < 0 or idx >= len(cur):
+            continue
+          cand = cur[:idx] + cur[idx + 1:]
+          ratio = _compute_ratio(cand)
+          if ratio >= target_ratio - 1e-12:
+            cur = cand
+            changed = True
+            break
+        if changed:
+          break
+      if not changed:
+        break
+    return cur
+
+  # Parameterized builder
+  def _build(depth, starts, blockers, schedule='after', translation='left', blocker_anchor='left', extra_first=False):
+    T = [(0.0, 1.0)]
+    for lvl in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      def place_copies(from_T, offs):
+        U = []
+        for start in offs:
+          offset = delta * start - (lo if translation == 'left' else center)
+          for (l, r) in from_T:
+            U.append((l + offset, r + offset))
+        return U
+
+      # optionally add a fifth copy only on the first level to diversify geometry
+      offs = list(starts)
+      if extra_first and lvl == 0 and len(offs) > 0:
+        offs.append(offs[-1] + 4)
+
+      # scale blockers according to chosen anchor (independent of translation)
+      if blocker_anchor == 'left':
+        blk = [(delta * a, delta * b) for (a, b) in blockers]
+      else:
+        blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+
+      if schedule == 'before':
+        S = list(blk) + place_copies(T, offs)
+      elif schedule == 'split':
+        h = max(1, len(offs) // 2)
+        S = place_copies(T, offs[:h]) + list(blk) + place_copies(T, offs[h:])
+      else:  # 'after'
+        S = place_copies(T, offs) + list(blk)
+      T = S
+    return T
+
+  # Sweep a modest space of blueprints
+  depths = sorted(set([max(2, iterations - 1), max(2, iterations), min(5, iterations + 1)]))
+  start_sets = [
+    (2, 6, 10, 14),  # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+  ]
+  blocker_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+    [(1, 5), (11, 15), (4, 9), (8, 13)],   # slight shift
+    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+    [(0, 4), (6, 10), (8, 12), (14, 18)],  # Template B
+    [(1, 5), (9, 13), (5, 9), (12, 16)],   # Template C
+  ]
+  schedules = ['after', 'before', 'split']
+  translations = ['left', 'center']
+  blocker_anchors = ['left', 'center']
+  extra_first_choices = [False, True]
+
+  best_T = None
+  best_ratio = -1.0
+  best_n = None
+  best_cols = 0
+  best_om = 0
+
+  for d in depths:
+    for starts in start_sets:
+      for blockers in blocker_templates:
+        for sch in schedules:
+          for tr in translations:
+            for anch in blocker_anchors:
+              for extra in extra_first_choices:
+                T = _build(d, starts, blockers, schedule=sch, translation=tr, blocker_anchor=anch, extra_first=extra)
+                n = len(T)
+                # guard against explosion (keep search modest; depth=5 yields 2388 and will be skipped)
+                if n > 2000:
+                  continue
+                om = _omega_open(T)
+                if om <= 0:
+                  continue
+                cols = _ff_count(T)
+                ratio = cols / om
+                better = False
+                if ratio > best_ratio + 1e-12:
+                  better = True
+                elif abs(ratio - best_ratio) <= 1e-12:
+                  if best_n is None or n < best_n:
+                    better = True
+                  elif n == best_n and cols > best_cols:
+                    better = True
+                if better:
+                  best_ratio = ratio
+                  best_T = T
+                  best_n = n
+                  best_cols = cols
+                  best_om = om
+
+  # Fallback to canonical if search didn't produce anything
+  if best_T is None:
+    T = _build(max(2, iterations), (2, 6, 10, 14), [(1, 5), (12, 16), (4, 9), (8, 13)],
+               schedule='after', translation='left', blocker_anchor='left', extra_first=False)
+  else:
+    T = best_T
+
+  # Conservative pruning while preserving the discovered ratio
+  target_ratio = _compute_ratio(T)
+  T_pruned = _shrink_prune(T, target_ratio)
+
+  return _normalize_grid(T_pruned) if normalize else T_pruned
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

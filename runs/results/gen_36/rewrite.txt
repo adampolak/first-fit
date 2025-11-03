@@ -1,0 +1,170 @@
+# EVOLVE-BLOCK-START
+
+import random
+from math import gcd
+from copy import deepcopy
+
+def firstfit_colors(intervals):
+    """
+    Fast FirstFit: track for each color the rightmost end of its last
+    interval; assign to the first color where l >= last_end, else new color.
+    """
+    last_end = []
+    for (l, r) in intervals:
+        placed = False
+        for i, le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def clique_number(intervals):
+    """
+    Sweep-line for open intervals; count max simultaneous coverage.
+    Right endpoints (-1) processed before left (+1) at ties.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda x: (x[0], x[1]))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        best = max(best, cur)
+    return best
+
+def normalize_intervals(intervals):
+    """
+    Map all distinct endpoints to a compact even integer grid,
+    shift so min=0, then divide by GCD to shrink further.
+    """
+    if not intervals:
+        return []
+    pts = sorted({x for seg in intervals for x in seg})
+    mp = {v: i*2 for i, v in enumerate(pts)}
+    T = [(mp[l], mp[r]) for (l, r) in intervals]
+    # shift
+    base = min(l for l, _ in T)
+    T = [(l-base, r-base) for (l, r) in T]
+    # shrink by gcd
+    vals = [abs(x) for seg in T for x in seg]
+    g = 0
+    for v in vals:
+        g = gcd(g, v)
+    if g > 1:
+        T = [(l//g, r//g) for (l, r) in T]
+    return T
+
+def figure4_pattern(depth):
+    """
+    Classic Figure-4 recursive adversary (Kierstead & Trotter).
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        d = hi - lo
+        S = []
+        for s in (2, 6, 10, 14):
+            for (l, r) in T:
+                S.append((d*s + l - lo, d*s + r - lo))
+        # four long connectors
+        S += [(d*1, d*5), (d*12, d*16), (d*4, d*9), (d*8, d*13)]
+        T = S
+    return T
+
+def random_individual(n, span):
+    """
+    Build a random sequence of n intervals in [0, span].
+    """
+    T = []
+    for _ in range(n):
+        a = random.uniform(0, span-1)
+        b = random.uniform(a+0.1, span)
+        T.append((a, b))
+    return T
+
+def mutate(ind, span):
+    """
+    Slightly adjust one interval and occasionally add or remove one.
+    """
+    T = deepcopy(ind)
+    if not T:
+        return random_individual(5, span)
+    i = random.randrange(len(T))
+    l, r = T[i]
+    dl = (random.random()-0.5)*span*0.1
+    dr = (random.random()-0.5)*span*0.1
+    nl = max(0, l + dl)
+    nr = max(nl+0.1, min(span, r + dr))
+    T[i] = (nl, nr)
+    # randomly delete
+    if random.random() < 0.1 and len(T) > 4:
+        del T[random.randrange(len(T))]
+    # randomly insert
+    if random.random() < 0.1 and len(T) < 2000:
+        a = random.uniform(0, span-1)
+        b = random.uniform(a+0.1, span)
+        T.append((a, b))
+    return T
+
+def crossover(a, b):
+    """
+    Single-point crossover of two interval lists.
+    """
+    la, lb = len(a), len(b)
+    if la == 0 or lb == 0:
+        return deepcopy(a if la>lb else b)
+    cut = random.randrange(min(la, lb))
+    return deepcopy(a[:cut] + b[cut:])
+
+def run_experiment(**kwargs):
+    random.seed(12345)
+    # 1) Initialize population with a mix of Figure-4 and random sets
+    pop = []
+    for d in (3, 4, 5):
+        pop.append(figure4_pattern(d))
+    for _ in range(7):
+        pop.append(random_individual(30, 100.0))
+    # 2) Evaluate initial fitness
+    def fitness(T):
+        om = clique_number(T)
+        if om == 0: return 0.0
+        return firstfit_colors(T) / om
+    scored = [(fitness(ind), ind) for ind in pop]
+    # 3) Genetic evolution
+    best = max(scored, key=lambda x: x[0])
+    for gen in range(200):
+        # select top 10
+        scored.sort(key=lambda x: -x[0])
+        pool = [ind for _, ind in scored[:10]]
+        newpop = []
+        span = max((r for ind in pool for _,r in ind), default=100.0)
+        # generate offsprings
+        for _ in range(20):
+            a, b = random.sample(pool, 2)
+            child = crossover(a, b)
+            child = mutate(child, span)
+            newpop.append(child)
+        # re-evaluate
+        scored = [(fitness(ind), ind) for ind in newpop + pool]
+        cand = max(scored, key=lambda x: x[0])
+        if cand[0] > best[0]:
+            best = cand
+    # 4) Return normalized best individual
+    _, Tbest = best
+    return normalize_intervals(Tbest)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    return ga_adversary_run(**kwargs)
+
+# helper alias
+def ga_adversary_run(**kwargs):
+    return run_experiment(**kwargs)

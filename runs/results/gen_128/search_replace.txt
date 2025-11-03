@@ -1,0 +1,56 @@
+<NAME>
+allow_two_extra_copies
+</NAME>
+
+<DESCRIPTION>
+Extend the extra_copies_opts to allow up to two extra translated copies on the first level, and update the offset-building logic to handle both one and two extra copies. This provides greater geometric variation and coupling, potentially forcing FirstFit to use more colors without increasing ω.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    extra_copies_opts = [0, 1]  # allow a single extra translated copy on first level
+=======
+    extra_copies_opts = [0, 1, 2]  # allow up to two extra translated copies on first level
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by one extra copy (small geometry variation)
+                                offs = tuple(offsets)
+                                if extra == 1:
+                                    last = offs[-1] if len(offs) > 0 else 0
+                                    offs = tuple(list(offs) + [last + 4])
+                                # Build raw pattern using these offsets
+                                T = build_pattern(
+                                    k=k,
+                                    base_seed=base,
+                                    offsets=offs,
+                                    blockers=blockers,
+                                    translation=translation,
+                                    blocker_anchor=anchor,
+                                )
+=======
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by one or two extra copies (small geometry variation)
+                                offs = list(offsets)
+                                if extra >= 1:
+                                    last = offs[-1] if offs else 0
+                                    offs.append(last + 4)
+                                    if extra >= 2:
+                                        # add second extra copy for more coupling
+                                        last2 = offs[-2] if len(offs) >= 2 else last
+                                        offs.append(last2 + 4)
+                                offs = tuple(offs)
+                                # Build raw pattern using these offsets
+                                T = build_pattern(
+                                    k=k,
+                                    base_seed=base,
+                                    offsets=offs,
+                                    blockers=blockers,
+                                    translation=translation,
+                                    blocker_anchor=anchor,
+                                )
+>>>>>>> REPLACE
+</DIFF>

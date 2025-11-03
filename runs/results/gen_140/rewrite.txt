@@ -1,0 +1,124 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+
+# ---------- Fast utilities ----------
+
+def _normalize_grid(intervals):
+    """
+    Map each unique endpoint to an increasing even integer grid.
+    """
+    pts = sorted({x for seg in intervals for x in seg})
+    coord = {x: 2*i for i, x in enumerate(pts)}
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+def _ff_count(intervals):
+    """
+    FirstFit color count: per-color last end tracking.
+    """
+    last_end = []
+    for l, r in intervals:
+        for i, le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                break
+        else:
+            last_end.append(r)
+    return len(last_end)
+
+def _omega_open(intervals):
+    """
+    Sweep-line for omega of open intervals. Right endpoints first on ties.
+    """
+    events = []
+    for l, r in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+# ---------- Recursive pattern builder ----------
+
+def _build_pattern(depth, offsets, blockers, translation):
+    """
+    Build the classic 4-copy + 4-blocker recursion.
+    translation='left' or 'center'.
+    """
+    T = [(0.0, 1.0)]
+    for lvl in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+        # copies
+        S = []
+        for start in offsets:
+            off = (delta*start - (lo if translation=='left' else center))
+            for l, r in T:
+                S.append((l+off, r+off))
+        # blockers
+        for a, b in blockers:
+            if translation=='left':
+                S.append((delta*a, delta*b))
+            else:
+                S.append((delta*a-center, delta*b-center))
+        T = S
+    return T
+
+# ---------- Main construction ----------
+
+def construct_intervals():
+    """
+    Search small template space for the pattern maximizing FirstFit/omega,
+    then normalize to integer grid.
+    """
+    offset_sets = [
+        (2,6,10,14),
+        (1,5,9,13),
+        (3,7,11,15),
+        (0,4,8,12),
+    ]
+    blocker_sets = [
+        ((1,5),(12,16),(4,9),(8,13)),
+        ((0,4),(6,10),(8,12),(14,18)),
+        ((2,6),(4,8),(10,14),(12,16)),
+    ]
+    translations = ['left','center']
+    depths = [3,4,5]
+
+    best = None  # (ratio, size, cols, T_raw)
+    for d in depths:
+        if (4**d)*8 > 4000: continue
+        for offs in offset_sets:
+            for blks in blocker_sets:
+                for tr in translations:
+                    T = _build_pattern(d, offs, blks, tr)
+                    Tn = _normalize_grid(T)
+                    om = _omega_open(Tn)
+                    if om<=0: continue
+                    cols = _ff_count(Tn)
+                    ratio = cols/om
+                    cand = (ratio, len(Tn), cols, T)
+                    if best is None or \
+                       (cand[0]>best[0]+1e-12) or \
+                       (abs(cand[0]-best[0])<=1e-12 and (cand[1]<best[1] or (cand[1]==best[1] and cand[2]>best[2]))):
+                        best = cand
+
+    if best is None:
+        # fallback to depth=4 canonical
+        T = _build_pattern(4, offset_sets[0], blocker_sets[0], 'left')
+    else:
+        T = best[3]
+
+    return _normalize_grid(T)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    return construct_intervals()

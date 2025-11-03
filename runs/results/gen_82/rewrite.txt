@@ -1,0 +1,267 @@
+# EVOLVE-BLOCK-START
+
+# quadstack_pipeline: modular generator + evaluator + selector for online interval FF adversaries.
+# Inputs/outputs preserved: construct_intervals() returns a list of (l, r) integer endpoints (open intervals),
+# in arrival order.
+
+# ---------- Core evaluation utilities ----------
+
+def firstfit_colors(intervals):
+    """
+    FirstFit coloring for open intervals using per-color last end tracking.
+    For a color c to accept (l, r), we need l >= last_end[c].
+    """
+    last_end = []  # rightmost end used by each color
+    for (l, r) in intervals:
+        placed = False
+        for i, le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+
+def clique_number(intervals):
+    """
+    Sweep-line computation of omega for open intervals.
+    Process right endpoints before left endpoints at ties.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    # right(-1) before left(+1) at ties
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+
+def normalize_to_grid(intervals):
+    """
+    Map unique endpoints to an even-integer grid in increasing order.
+    Maintains arrival order of intervals.
+    """
+    if not intervals:
+        return []
+    pts = sorted(set(x for l, r in intervals for x in (l, r)))
+    remap = {p: 2 * i for i, p in enumerate(pts)}
+    return [(remap[l], remap[r]) for (l, r) in intervals]
+
+
+# ---------- Production rules (copy-stack + blockers) ----------
+
+OFFSET_FAMILIES = [
+    (2, 6, 10, 14),  # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+]
+
+# Three blocker templates; A is canonical, B and C are shifted/symmetric variants.
+BLOCKER_TEMPLATES = [
+    ((1, 5), (12, 16), (4, 9), (8, 13)),          # A: canonical Figure-4 style
+    ((0, 4), (11, 15), (3, 8), (7, 12)),          # B: left-shifted
+    ((2, 6), (13, 17), (5, 10), (9, 14)),         # C: right-shifted
+]
+
+ARRIVAL_ORDERS = [
+    'after',   # copies then blockers
+    'split',   # half copies, blockers, remaining copies
+]
+
+NORM_SCHEDULES = [
+    'final',      # normalize only at the end
+    'per_level',  # normalize after each level
+]
+
+def _assemble_level(base_T, lo, hi, offsets, blockers, order):
+    """
+    Assemble one production level:
+      - replicate base_T at translated offsets
+      - add long 'blocker' intervals
+      - choose arrival order
+    """
+    delta = hi - lo
+    # Copies
+    copy_groups = []
+    for start in offsets:
+        off = delta * start - lo
+        group = [(l + off, r + off) for (l, r) in base_T]
+        copy_groups.append(group)
+
+    # Blockers (scaled, left-anchored at 0)
+    blk = [(delta * a, delta * b) for (a, b) in blockers]
+
+    if order == 'after':
+        S = []
+        for g in copy_groups:
+            S.extend(g)
+        S.extend(blk)
+        return S
+    else:  # 'split'
+        h = max(1, len(copy_groups) // 2)
+        first = []
+        second = []
+        for i, g in enumerate(copy_groups):
+            (first if i < h else second).extend(g)
+        return first + blk + second
+
+
+def build_recursive_pattern(depth, offsets, blockers, arrival_order='after', norm_schedule='final'):
+    """
+    Build the recursive adversarial pattern starting from a single unit seed.
+    depth: recursion levels
+    offsets: tuple of start multipliers (size 4)
+    blockers: list of 4 (a,b) pairs
+    arrival_order: 'after' | 'split'
+    norm_schedule: 'final' | 'per_level'
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        S = _assemble_level(T, lo, hi, offsets, blockers, arrival_order)
+        # Optionally normalize at each level (stabilizes spans across variants)
+        if norm_schedule == 'per_level':
+            T = normalize_to_grid(S)
+        else:
+            T = S
+    # Final normalization for evaluator
+    return normalize_to_grid(T) if norm_schedule == 'final' else T
+
+
+# ---------- Deterministic pruning (certificate-preserving) ----------
+
+def prune_preserving_certificate(intervals, passes=2):
+    """
+    Deterministic pruning that removes intervals while preserving both omega and FirstFit colors.
+    Scans end->start, then start->end, for a few passes.
+    """
+    if not intervals:
+        return intervals
+    T = list(intervals)
+    base_om = clique_number(T)
+    base_cols = firstfit_colors(T)
+    for _ in range(max(1, passes)):
+        changed = False
+        # backward pass
+        i = len(T) - 1
+        while i >= 0:
+            cand = T[:i] + T[i+1:]
+            if cand:
+                om = clique_number(cand)
+                cols = firstfit_colors(cand)
+                if om == base_om and cols == base_cols:
+                    T = cand
+                    changed = True
+                    i = len(T) - 1
+                    continue
+            i -= 1
+        # forward pass
+        i = 0
+        while i < len(T):
+            cand = T[:i] + T[i+1:]
+            if cand:
+                om = clique_number(cand)
+                cols = firstfit_colors(cand)
+                if om == base_om and cols == base_cols:
+                    T = cand
+                    changed = True
+                    # do not advance i; new element occupies this index
+                    continue
+            i += 1
+        if not changed:
+            break
+    return T
+
+
+# ---------- Candidate search and selection ----------
+
+def construct_intervals():
+    """
+    Main entry. Enumerates a modest, deterministic set of configurations and
+    selects the best FirstFit/omega ratio. Always includes the canonical
+    (depth=4, offsets=(2,6,10,14), blockers A, order='after', norm='final') and
+    also explores depth 5 to push beyond 2.60 when feasible.
+    Returns integer endpoints as open intervals in arrival order.
+    """
+    depths = [3, 4, 5]                    # Recommendation: vary around k ∈ {3,4,5}
+    offsets_pool = OFFSET_FAMILIES        # Several symmetric 4-copy tilings
+    blockers_pool = BLOCKER_TEMPLATES[:2] # Canonical + one alternate (keep search compact)
+    orders = ARRIVAL_ORDERS               # 'after' and 'split'
+    norms = NORM_SCHEDULES                # 'final' and 'per_level'
+
+    best = None  # (ratio, colors, omega, -len(T), T_norm)
+    tested = 0
+    MAX_CANDIDATES = 128  # deterministic cap
+
+    # Enumerate deterministic product but break if over cap
+    for k in depths:
+        for offs in offsets_pool:
+            for blks in blockers_pool:
+                for ord_name in orders:
+                    for norm in norms:
+                        T = build_recursive_pattern(
+                            depth=k,
+                            offsets=offs,
+                            blockers=blks,
+                            arrival_order=ord_name,
+                            norm_schedule=norm
+                        )
+                        # Ensure normalization for fair evaluation
+                        Tn = normalize_to_grid(T)
+                        if not Tn:
+                            continue
+                        om = clique_number(Tn)
+                        if om <= 0:
+                            continue
+                        cols = firstfit_colors(Tn)
+                        ratio = cols / om
+                        # Optional deterministic pruning
+                        Tp = prune_preserving_certificate(Tn, passes=1)
+                        # Re-evaluate after pruning (should preserve metrics)
+                        om_p = clique_number(Tp)
+                        cols_p = firstfit_colors(Tp)
+                        if om_p == om and cols_p == cols:
+                            Tn = Tp
+                        cand = (ratio, cols, om, -len(Tn), Tn)
+                        if best is None or cand > best:
+                            best = cand
+                        tested += 1
+                        if tested >= MAX_CANDIDATES:
+                            break
+                    if tested >= MAX_CANDIDATES:
+                        break
+                if tested >= MAX_CANDIDATES:
+                    break
+            if tested >= MAX_CANDIDATES:
+                break
+        if tested >= MAX_CANDIDATES:
+            break
+
+    # Fallback to canonical if something went wrong
+    if best is None:
+        T = build_recursive_pattern(
+            depth=4,
+            offsets=(2, 6, 10, 14),
+            blockers=BLOCKER_TEMPLATES[0],
+            arrival_order='after',
+            norm_schedule='final'
+        )
+        return T
+
+    return best[4]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

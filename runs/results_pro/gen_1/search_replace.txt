@@ -1,0 +1,103 @@
+<NAME>
+deepen_recursive_cap
+</NAME>
+
+<DESCRIPTION>
+I increase the number of recursive expansion levels in the cap construction from the referenced paper’s Figure 4. Each expansion level tends to increase FirstFit’s color usage by a roughly constant amount while increasing the clique number by only 1, causing the ratio FF/omega to climb toward a higher constant (empirically above 7/3). By deepening the recursion, we leverage the same adversarial pattern but amplify its effect, improving the combined score without introducing a large clique. I set depth=4, which keeps the instance size reasonable (about 596 intervals) and should improve the ratio compared to the previous depth of 2.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(2):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+=======
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This implementation follows the recursive "cap" construction
+  inspired by Figure 4 in https://arxiv.org/abs/1506.00192 and
+  increases the recursion depth to amplify the FF/omega ratio.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Increase recursion depth to grow FF faster than omega (empirically).
+  depth = 4
+
+  T = [(0, 1)]
+  for _ in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+>>>>>>> REPLACE
+
+</DIFF>

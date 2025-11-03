@@ -1,0 +1,501 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    Diversified fractal + adversarial ordering pipeline.
+    Returns: list of (l, r) tuples representing open intervals (integer endpoints).
+    """
+    import math
+    import random
+    from dataclasses import dataclass
+
+    # Deterministic RNG for exploration
+    RNG = random.Random(0)
+
+    # ------------------ Basic utilities ------------------
+    def overlaps(a, b):
+        return (a[0] < b[1]) and (b[0] < a[1])  # open intervals
+
+    def firstfit_color_count(intervals):
+        """Safe FirstFit simulation using explicit color buckets (works with any order)."""
+        colors = []  # list of lists of intervals in that color
+        for (l, r) in intervals:
+            placed = False
+            for col in colors:
+                conflict = False
+                for (cl, cr) in col:
+                    if cl < r and l < cr:
+                        conflict = True
+                        break
+                if not conflict:
+                    col.append((l, r))
+                    placed = True
+                    break
+            if not placed:
+                colors.append([(l, r)])
+        return len(colors)
+
+    def clique_number(intervals):
+        """Sweep-line clique number for open intervals (ends before starts on ties)."""
+        events = []
+        for (l, r) in intervals:
+            events.append((l, 1))
+            events.append((r, -1))
+        events.sort(key=lambda x: (x[0], x[1]))
+        cur = best = 0
+        for _, delta in events:
+            cur += delta
+            if cur > best:
+                best = cur
+        return best
+
+    # ------------------ Fractal builder ------------------
+    def build_fractal(base, depth, starts, caps, interleave=False, caps_before=False, max_allowed=2000):
+        """
+        Build recursive fractal-like family.
+        - base: list of (l,r) floats
+        - starts: tuple of integer offsets
+        - caps: list of (a,b) base cap intervals (integers)
+        - interleave: if True, copy by iterating elements then starts (increases cross-block interference)
+        - caps_before: if True, insert caps before copy blocks at a level
+        """
+        T = [tuple(map(float, iv)) for iv in base]
+        for _ in range(depth):
+            lo = min(l for l, _ in T)
+            hi = max(r for _, r in T)
+            delta = hi - lo
+            S = []
+            if caps_before:
+                for a, b in caps:
+                    S.append((delta * a, delta * b))
+            if interleave:
+                for (li, ri) in T:
+                    for s in starts:
+                        off = delta * s
+                        S.append((off + li - lo, off + ri - lo))
+            else:
+                for s in starts:
+                    off = delta * s
+                    for (l, r) in T:
+                        S.append((off + l - lo, off + r - lo))
+            if not caps_before:
+                for a, b in caps:
+                    S.append((delta * a, delta * b))
+            T = S
+            if len(T) > max_allowed:
+                break
+        # normalize leftmost to 0.0
+        lo = min(l for l, r in T)
+        T = [(l - lo, r - lo) for l, r in T]
+        return T
+
+    # ------------------ Caps templates ------------------
+    def cap_templates_for_starts(starts):
+        s = starts
+        templates = []
+        if len(s) >= 4:
+            templates.append([(s[0] - 1, s[0] + 3),
+                              (s[1] + 2, s[2] + 2),
+                              (s[2] - 1, s[3] + 1),
+                              (s[1] - 2, s[2] + 3)])
+            templates.append([(s[0], s[1] + 2),
+                              (s[1] + 1, s[2] + 3),
+                              (s[2], s[3] + 2),
+                              (s[0] + 2, s[2] + 1)])
+            templates.append([(s[0] - 1, s[1] + 3),
+                              (s[1] - 1, s[2] + 3),
+                              (s[2] - 1, s[3] + 3),
+                              (s[0] + 1, s[3] + 1)])
+            templates.append([(s[0] - 1, s[1] + 1),
+                              (s[2] - 1, s[3] + 1),
+                              (s[1], s[2] + 2),
+                              (s[0] + 2, s[3])])
+        else:
+            # fallback: simple bridging caps
+            if len(s) >= 2:
+                for i in range(len(s) - 1):
+                    templates.append([(s[i], s[i + 1] + 2)] * 4)
+        # Add jittered variants to explore local neighborhood
+        jittered = []
+        jitter_rng = random.Random(7)
+        for tpl in templates:
+            for _ in range(2):
+                cp = []
+                for (a, b) in tpl:
+                    da = jitter_rng.choice([-2, -1, 0, 1, 2])
+                    db = jitter_rng.choice([-1, 0, 1, 2, 3])
+                    aa = a + da
+                    bb = b + db
+                    if bb - aa < 3:
+                        bb = aa + 3
+                    cp.append((aa, bb))
+                jittered.append(cp)
+        return templates + jittered
+
+    # ------------------ Ordering heuristics ------------------
+    def order_identity(seq):
+        return list(seq)
+
+    def order_reversed(seq):
+        return list(reversed(seq))
+
+    def order_left_first(seq):
+        return sorted(seq, key=lambda iv: (iv[0], iv[1]))
+
+    def order_right_first(seq):
+        return sorted(seq, key=lambda iv: (-iv[0], -iv[1]))
+
+    def order_short_first(seq):
+        return sorted(seq, key=lambda iv: (iv[1] - iv[0], iv[0]))
+
+    def order_long_first(seq):
+        return sorted(seq, key=lambda iv: (-(iv[1] - iv[0]), iv[0]))
+
+    def order_alt_short_long(seq):
+        s = sorted(seq, key=lambda iv: (iv[1] - iv[0], iv[0]))
+        out = []
+        left, right = 0, len(s) - 1
+        take_small = True
+        while left <= right:
+            if take_small:
+                out.append(s[left]); left += 1
+            else:
+                out.append(s[right]); right -= 1
+            take_small = not take_small
+        return out
+
+    def block_hybrid_order(seq):
+        n = len(seq)
+        if n == 0:
+            return []
+        bs = max(1, n // 4)
+        blocks = [list(seq[i*bs:(i+1)*bs]) for i in range(4)]
+        # any remainder
+        rem = seq[4*bs:]
+        if rem:
+            blocks[-1].extend(rem)
+        b0 = blocks[0]
+        b1 = list(reversed(blocks[1])) if len(blocks) > 1 else []
+        b2 = sorted(blocks[2], key=lambda iv: (iv[1] - iv[0], iv[0])) if len(blocks) > 2 else []
+        b3 = sorted(blocks[3], key=lambda iv: (-(iv[1] - iv[0]), iv[0])) if len(blocks) > 3 else []
+        return b0 + b1 + b2 + b3
+
+    def greedy_max_assigned_color(seq, sample_size=60, seed=0):
+        """Sampled greedy: pick an interval (from sample) that would get the largest FF color index."""
+        rng = random.Random(seed)
+        remaining = list(seq)
+        order = []
+        colors_endpoints = []  # for FirstFit, store intervals per color (list)
+        while remaining:
+            k = min(sample_size, len(remaining))
+            if k == len(remaining):
+                cand_idxs = list(range(len(remaining)))
+            else:
+                cand_idxs = rng.sample(range(len(remaining)), k)
+            best_idx = cand_idxs[0]; best_color = -1
+            for idx in cand_idxs:
+                l, r = remaining[idx]
+                # simulate assigned color index (FirstFit)
+                assigned = None
+                for i, col in enumerate(colors_endpoints):
+                    conflict = False
+                    for (cl, cr) in col:
+                        if cl < r and l < cr:
+                            conflict = True
+                            break
+                    if not conflict:
+                        assigned = i
+                        break
+                if assigned is None:
+                    assigned = len(colors_endpoints)
+                if assigned > best_color:
+                    best_color = assigned
+                    best_idx = idx
+            # append chosen
+            l, r = remaining.pop(best_idx)
+            # actually place it into colors_endpoints
+            placed = False
+            for col in colors_endpoints:
+                conflict = False
+                for (cl, cr) in col:
+                    if cl < r and l < cr:
+                        conflict = True
+                        break
+                if not conflict:
+                    col.append((l, r))
+                    placed = True
+                    break
+            if not placed:
+                colors_endpoints.append([(l, r)])
+            order.append((l, r))
+        return order
+
+    def greedy_max_overlap(seq, sample_size=60, seed=1):
+        """Sampled greedy: pick interval overlapping most currently-active colors (by checking color buckets)."""
+        rng = random.Random(seed)
+        remaining = list(seq)
+        order = []
+        colors_endpoints = []
+        while remaining:
+            k = min(sample_size, len(remaining))
+            if k == len(remaining):
+                cand_idxs = list(range(len(remaining)))
+            else:
+                cand_idxs = rng.sample(range(len(remaining)), k)
+            best_idx = cand_idxs[0]; best_ov = -1
+            for idx in cand_idxs:
+                l, r = remaining[idx]
+                # compute overlap count with current colors
+                ov = 0
+                for col in colors_endpoints:
+                    # if it intersects any member of the color, it blocks reuse of that color
+                    if any((cl < r and l < cr) for (cl, cr) in col):
+                        ov += 1
+                if ov > best_ov:
+                    best_ov = ov
+                    best_idx = idx
+            l, r = remaining.pop(best_idx)
+            # place it
+            placed = False
+            for col in colors_endpoints:
+                conflict = False
+                for (cl, cr) in col:
+                    if cl < r and l < cr:
+                        conflict = True
+                        break
+                if not conflict:
+                    col.append((l, r))
+                    placed = True
+                    break
+            if not placed:
+                colors_endpoints.append([(l, r)])
+            order.append((l, r))
+        return order
+
+    # ------------------ Bitset adversarial order (heavy but powerful) ------------------
+    def adversarial_order(seq):
+        """
+        Adaptive adversary: at each step pick interval that either forces a new color now
+        (i.e., intersects every existing color) or maximizes (blocked_colors, future_coverage, length_preference).
+        Uses Python ints as bitsets for fast intersection counts.
+        """
+        n = len(seq)
+        if n <= 1:
+            return list(seq)
+        # neighbors bitset: j-th bit set if seq[i] intersects seq[j]
+        neighbors = [0] * n
+        for i in range(n):
+            li, ri = seq[i]
+            mask = 0
+            for j in range(i + 1, n):
+                lj, rj = seq[j]
+                if li < rj and lj < ri:
+                    mask |= (1 << j)
+                    neighbors[j] |= (1 << i)
+            neighbors[i] |= mask
+
+        unplaced = set(range(n))
+        color_sets = []  # list[int] bitmask of indices assigned to that color
+        assigned_color = [-1] * n
+        order_indices = []
+
+        # Precompute mask of all indices to speed-up coverage calc
+        while unplaced:
+            best_i = None
+            best_key = None
+            used_colors = len(color_sets)
+            mask_unplaced = 0
+            for j in unplaced:
+                mask_unplaced |= (1 << j)
+            for i in list(unplaced):
+                ni = neighbors[i]
+                # number of existing colors this interval intersects (blocks)
+                block_cnt = 0
+                for cmask in color_sets:
+                    if (ni & cmask) != 0:
+                        block_cnt += 1
+                # will it force a new color now?
+                forces_new = (block_cnt == used_colors)
+                # future coverage among unplaced (excluding self)
+                future_cov = ((ni & mask_unplaced) & ~(1 << i)).bit_count()
+                # prefer shorter intervals when tie (to keep spans narrow)
+                length = seq[i][1] - seq[i][0]
+                key = (1 if forces_new else 0, block_cnt, future_cov, -length)
+                if best_key is None or key > best_key:
+                    best_key = key
+                    best_i = i
+            # assign best_i to a color (FirstFit style)
+            ni = neighbors[best_i]
+            placed_color = None
+            for cidx, cmask in enumerate(color_sets):
+                if (ni & cmask) == 0:
+                    # can reuse this color
+                    color_sets[cidx] |= (1 << best_i)
+                    placed_color = cidx
+                    break
+            if placed_color is None:
+                color_sets.append(1 << best_i)
+                placed_color = len(color_sets) - 1
+            assigned_color[best_i] = placed_color
+            order_indices.append(best_i)
+            unplaced.remove(best_i)
+        return [seq[i] for i in order_indices]
+
+    # ------------------ Candidate generation ------------------
+    @dataclass
+    class Candidate:
+        intervals: list
+        omega: int
+        meta: dict
+
+    max_intervals = 1200  # safety budget
+    base = [(0.0, 1.0)]
+
+    starts_pool = [
+        (2, 6, 10, 14),
+        (3, 7, 11, 15),
+        (4, 8, 12, 16),
+        (2, 5, 9, 13),
+        (3, 6, 9, 12),
+    ]
+
+    depth_options = [3, 4]  # depth=4 is known-good; depth=3 offers smaller sequences
+    bool_flags = [(False, False), (True, False), (False, True), (True, True)]
+
+    candidates = []
+    # include canonical baseline from literature
+    baseline_caps = [(1, 5), (12, 16), (4, 9), (8, 13)]
+    baseline_seq = build_fractal(base, 4, (2, 6, 10, 14), baseline_caps, interleave=False, caps_before=False, max_allowed=max_intervals)
+    baseline_omega = clique_number(baseline_seq)
+    if 1 <= len(baseline_seq) <= max_intervals and baseline_omega > 0:
+        candidates.append(Candidate(baseline_seq, baseline_omega, {'starts': (2,6,10,14), 'caps': baseline_caps, 'depth': 4, 'interleave': False, 'caps_before': False}))
+
+    # explore pool
+    for starts in starts_pool:
+        cap_templates = cap_templates_for_starts(starts)
+        for caps in cap_templates:
+            for depth in depth_options:
+                for interleave, caps_before in bool_flags:
+                    # quick explosion estimate: len(T) roughly len(starts)^depth (plus caps)
+                    est = 1
+                    for _ in range(depth):
+                        est = est * max(1, len(starts)) + len(caps)
+                        if est > max_intervals:
+                            break
+                    if est > max_intervals:
+                        continue
+                    seq = build_fractal(base, depth, starts, caps, interleave=interleave, caps_before=caps_before, max_allowed=max_intervals)
+                    if not (1 <= len(seq) <= max_intervals):
+                        continue
+                    omega = clique_number(seq)
+                    if omega <= 0:
+                        continue
+                    candidates.append(Candidate(seq, omega, {'starts': starts, 'caps': caps, 'depth': depth, 'interleave': interleave, 'caps_before': caps_before}))
+
+    if not candidates:
+        # fallback trivial interval
+        return [(0, 1)]
+
+    # ------------------ Screening (fast) ------------------
+    # lightweight orderers for quick screening
+    initial_orderers = [
+        ('identity', order_identity),
+        ('reversed', order_reversed),
+        ('block_hybrid', block_hybrid_order),
+        ('short_first', order_short_first),
+        ('greedy_assigned_s60', lambda s: greedy_max_assigned_color(s, sample_size=60, seed=0)),
+        ('greedy_assigned_s80', lambda s: greedy_max_assigned_color(s, sample_size=80, seed=1)),
+    ]
+
+    screened = []
+    for cand in candidates:
+        best_colors = -1
+        best_seq_ordered = None
+        for name, ord_fn in initial_orderers:
+            seq_ord = ord_fn(cand.intervals)
+            # compute FF colors for this ordered presentation
+            cols = firstfit_color_count(seq_ord)
+            if cols > best_colors:
+                best_colors = cols
+                best_seq_ordered = seq_ord
+        ratio = best_colors / cand.omega if cand.omega > 0 else 0.0
+        screened.append((ratio, best_colors, cand.omega, len(cand.intervals), cand, best_seq_ordered))
+
+    # sort and pick top-K for heavy refinement
+    screened.sort(key=lambda x: (-x[0], x[3]))
+    top_k = min(8, len(screened))
+    top_candidates = screened[:top_k]
+
+    # ------------------ Heavy refinement (adversarial + more samplers) ------------------
+    best_seq = None
+    best_ratio = -1.0
+    best_stats = None
+
+    for ratio0, colors0, omega, n_intervals, cand, best_seq_ord in top_candidates:
+        # generate a pool of adversarial orderings to test
+        pool_orders = []
+        # original best discovered by screening
+        if best_seq_ord is not None:
+            pool_orders.append(('screened_best', best_seq_ord))
+        # adversarial on raw candidate
+        try:
+            adv1 = adversarial_order(cand.intervals)
+            pool_orders.append(('adv_raw', adv1))
+        except Exception:
+            pass
+        # adversarial seeded from screened best
+        try:
+            adv2 = adversarial_order(best_seq_ord) if best_seq_ord is not None else None
+            if adv2 is not None:
+                pool_orders.append(('adv_seeded', adv2))
+        except Exception:
+            pass
+        # greedy samplers with larger samples/seeds
+        pool_orders.append(('greedy_assigned_s120', greedy_max_assigned_color(cand.intervals, sample_size=120, seed=2)))
+        pool_orders.append(('greedy_overlap_s80', greedy_max_overlap(cand.intervals, sample_size=80, seed=3)))
+        pool_orders.append(('alt_short_long', order_alt_short_long(cand.intervals)))
+        pool_orders.append(('block_hybrid', block_hybrid_order(cand.intervals)))
+        # remove duplicates (by tuple-string) to avoid redundant computation
+        seen = set()
+        unique_pool = []
+        for name, seq in pool_orders:
+            key = tuple((float(l), float(r)) for l, r in seq)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_pool.append((name, seq))
+
+        # evaluate pool
+        for name, seq in unique_pool:
+            cols = firstfit_color_count(seq)
+            ratio = cols / omega if omega > 0 else 0.0
+            # prefer higher ratio; break ties by fewer intervals (compactness)
+            if ratio > best_ratio or (abs(ratio - best_ratio) < 1e-12 and (best_seq is None or len(seq) < len(best_seq))):
+                best_ratio = ratio
+                best_seq = seq
+                best_stats = (cand.meta, name, cols, omega, len(seq))
+
+    # If refinement found nothing better, pick the best from screening
+    if best_seq is None:
+        best_entry = max(screened, key=lambda x: (x[0], -x[3]))
+        best_seq = best_entry[5]
+
+    # ------------------ Final verification and coordinate compression ------------------
+    final_ff = firstfit_color_count(best_seq)
+    final_opt = clique_number(best_seq)
+    # compress coordinates deterministically to integers while preserving order
+    coords = sorted({coord for (l, r) in best_seq for coord in (l, r)})
+    # map to increasing integers (spaced by 1)
+    coord_index = {v: i for i, v in enumerate(coords)}
+    final_seq_int = [(coord_index[l], coord_index[r]) for (l, r) in best_seq]
+
+    # Safety: ensure intervals are open and have l < r
+    final_seq_int = [(int(l), int(r)) for (l, r) in final_seq_int if l < r]
+
+    if not final_seq_int:
+        # fallback to baseline integerized
+        base_seq = [(int(l), int(r)) for (l, r) in baseline_seq]
+        return base_seq if base_seq else [(0, 1)]
+    return final_seq_int
+
+# EVOLVE-BLOCK-END

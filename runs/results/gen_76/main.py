@@ -1,0 +1,216 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+    """
+    Construct a sequence of open intervals (l, r) presented in order to FirstFit.
+    Improved deterministic builder:
+      - per-level schedule search among a few arrival-order templates
+      - greedy shrink pass preserving (omega, FirstFit colors)
+    Returns list of integer-encoded intervals (l, r).
+    """
+
+    # --- Helpers ---
+    def firstfit_colors(intervals):
+        """FirstFit greedy using last-end per color (open intervals)."""
+        last_end = []
+        for (l, r) in intervals:
+            placed = False
+            for i in range(len(last_end)):
+                if l >= last_end[i]:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    def clique_number(intervals):
+        """Sweep-line for open intervals; right endpoint before left at ties."""
+        events = []
+        for (l, r) in intervals:
+            if l < r:
+                events.append((l, +1))
+                events.append((r, -1))
+        # sort with right(-1) before left(+1) on same coordinate
+        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+        cur = best = 0
+        for _, t in events:
+            cur += t
+            if cur > best:
+                best = cur
+        return best
+
+    def normalize_intervals(intervals):
+        """Map unique endpoints to even integers preserving order and arrival order."""
+        if not intervals:
+            return []
+        pts = sorted(set(x for l, r in intervals for x in (l, r)))
+        coord = {p: 2 * i for i, p in enumerate(pts)}
+        return [(coord[l], coord[r]) for (l, r) in intervals]
+
+    # Level-wise small deterministic schedule templates
+    def build_level(from_T, delta, lo, starts, schedule):
+        """
+        Build a single level given a base T, scale delta and left anchor lo.
+        schedule options: 'after', 'before', 'split', 'interleave'
+        Returns ordered list S.
+        """
+        # build copies (left-anchored)
+        copies = []
+        for start in starts:
+            off = delta * start - lo
+            for (l, r) in from_T:
+                copies.append((l + off, r + off))
+
+        # connectors (blockers) — classical Figure 4 style scaled by delta
+        blockers = [
+            (delta * 1,  delta * 5),
+            (delta * 12, delta * 16),
+            (delta * 4,  delta * 9),
+            (delta * 8,  delta * 13),
+        ]
+        # left-anchor the blockers to the same origin as copies (subtract lo)
+        blockers = [(a - lo, b - lo) for (a, b) in blockers]
+
+        # assemble in several arrival orders
+        if schedule == 'after':
+            S = copies + blockers
+        elif schedule == 'before':
+            S = blockers + copies
+        elif schedule == 'split':
+            # half copies, blockers, remaining copies
+            h = max(1, len(starts) // 2)
+            first = []
+            second = []
+            idx = 0
+            for start in starts:
+                off = delta * start - lo
+                block = [(l + off, r + off) for (l, r) in from_T]
+                if idx < h:
+                    first.extend(block)
+                else:
+                    second.extend(block)
+                idx += 1
+            S = first + blockers + second
+        else:  # 'interleave' - alternate small copy group and single blocker
+            S = []
+            # split each copy group into one chunk per start and weave with blockers
+            block_cycle = list(blockers)
+            # simple weaving: copy, one blocker, copy, next blocker, ...
+            copy_groups = []
+            for start in starts:
+                off = delta * start - lo
+                copy_groups.append([(l + off, r + off) for (l, r) in from_T])
+            bidx = 0
+            for cg in copy_groups:
+                S.extend(cg)
+                if bidx < len(block_cycle):
+                    S.append(block_cycle[bidx])
+                    bidx += 1
+            # append any remaining blockers
+            while bidx < len(block_cycle):
+                S.append(block_cycle[bidx])
+                bidx += 1
+        return S
+
+    def evaluate_intervals_float(intervals):
+        """Normalize to grid then compute (omega, FirstFit colors)."""
+        norm = normalize_intervals(intervals)
+        om = clique_number(norm)
+        cols = firstfit_colors(norm)
+        return om, cols, norm
+
+    def greedy_shrink(intervals, max_passes=4):
+        """
+        Greedily remove intervals while preserving omega and FirstFit colors.
+        Deterministic: scan from end to start, accept removal if (om,cols) unchanged.
+        Repeat up to max_passes times to cascade removals.
+        """
+        T = list(intervals)
+        if not T:
+            return T
+        # compute baseline
+        base_om, base_cols, _ = evaluate_intervals_float(T)
+        if base_om <= 0:
+            return T
+        for _pass in range(max_passes):
+            changed = False
+            # iterate deterministic index order (end->start)
+            i = len(T) - 1
+            while i >= 0:
+                cand = T[:i] + T[i+1:]
+                om, cols, _ = evaluate_intervals_float(cand)
+                # accept removal only if both omega and FirstFit colors preserved
+                if om == base_om and cols == base_cols:
+                    T = cand
+                    changed = True
+                    # continue scanning from end after removal
+                    i = len(T) - 1
+                    continue
+                i -= 1
+            if not changed:
+                break
+        return T
+
+    # --- Construction procedure (greedy per-level schedule selection) ---
+    # Start with a simple base gadget (single short interval), deterministic
+    T = [(0.0, 1.0)]
+
+    # offsets baseline (4 copies)
+    base_starts = (2, 6, 10, 14)
+
+    # available schedules to try at each level (small deterministic set)
+    schedules = ['after', 'before', 'split', 'interleave']
+
+    # cap total intervals to prevent explosion in the evaluator
+    MAX_INTERVALS = 2500
+
+    for level in range(iterations):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        best_S = None
+        best_score = None
+        best_metrics = None
+        # try each schedule and select best by local metric
+        for sch in schedules:
+            S = build_level(T, delta, lo, base_starts, sch)
+            # quick size guard
+            if len(S) > MAX_INTERVALS:
+                continue
+            om, cols, _ = evaluate_intervals_float(S)
+            if om <= 0:
+                continue
+            # score aims to maximize FirstFit pressure while penalizing omega
+            # prefer higher cols/om then higher cols then smaller omega
+            score = (cols / om) + (cols * 1e-6) - (om * 1e-7)
+            if best_score is None or score > best_score + 1e-12:
+                best_score = score
+                best_S = S
+                best_metrics = (om, cols)
+            # tie-break deterministically by schedule name
+            elif abs(score - best_score) <= 1e-12:
+                # prefer the schedule earlier in our listed order (deterministic)
+                # so do nothing here
+                pass
+        # fallback: if none selected (shouldn't happen), use 'after'
+        if best_S is None:
+            best_S = build_level(T, delta, lo, base_starts, 'after')
+        T = best_S
+
+    # After building all levels, attempt greedy shrink to reduce witness size while preserving the ratio
+    T_shrunk = greedy_shrink(T, max_passes=8)
+
+    # Final normalization to integer grid for evaluator
+    final = normalize_intervals(T_shrunk)
+
+    # safety: ensure nonempty output (should never be empty)
+    if not final:
+        return normalize_intervals(T)
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

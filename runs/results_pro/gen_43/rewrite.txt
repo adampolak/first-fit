@@ -1,0 +1,75 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=None):
+    """
+    Build an interval arrival sequence that maximizes FirstFit/omega.
+    We recursively expand a seed gadget with rotated start‐shifts,
+    bridge intervals, and varying scale factors.
+    Returns a list of (l, r) tuples on an integer grid.
+    """
+    # allow overriding recursion depth
+    if depth is None:
+        depth = 5
+
+    # four rotated copy‐shifts
+    START_SETS = [
+        [2, 6, 10, 14],
+        [3, 7, 11, 15],
+        [4, 8, 12, 16],
+        [5, 9, 13, 17],
+    ]
+    # four rotated bridge‐link patterns
+    BRIDGE_SETS = [
+        [(1, 5),  (12, 16), (4, 9),  (8, 13)],
+        [(2, 6),  (13, 17), (5, 10), (9, 14)],
+        [(3, 7),  (14, 18), (6, 11), (10, 15)],
+        [(4, 8),  (15, 19), (7, 12), (11, 16)],
+    ]
+    # small variety of scale multipliers
+    SCALING_LIST = [1.0, 1.2, 0.8, 1.15, 1.05]
+
+    # initial dual‐spine seed intervals
+    T = [(0.0, 1.0), (5.0, 6.0)]
+
+    def expand_layer(template, starts, bridges, gamma):
+        lo = min(l for l, r in template)
+        hi = max(r for l, r in template)
+        span = (hi - lo) * gamma
+        out = []
+        # replicate template at each start‐shift
+        for s in starts:
+            offset = span * s - lo
+            for l, r in template:
+                out.append((l + offset, r + offset))
+        # add bridge intervals
+        for a, b in bridges:
+            out.append((span * a, span * b))
+        return out
+
+    # recursive expansion
+    for i in range(depth):
+        S = expand_layer(
+            T,
+            START_SETS[i % len(START_SETS)],
+            BRIDGE_SETS[i % len(BRIDGE_SETS)],
+            SCALING_LIST[i % len(SCALING_LIST)]
+        )
+        T = S
+
+    # normalize to positive integer grid (scale×10)
+    min_l = min(l for l, r in T)
+    shift = -min_l + 1.0 if min_l < 1.0 else 0.0
+    normalized = []
+    for l, r in T:
+        L = int((l + shift) * 10)
+        R = int((r + shift) * 10 + 0.9999)
+        if R <= L:
+            R = L + 1
+        normalized.append((L, R))
+    return normalized
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

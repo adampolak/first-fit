@@ -1,0 +1,231 @@
+<NAME>
+eval_seq_multiorder_adversary
+</NAME>
+
+<DESCRIPTION>
+Replace the single-order eval_seq_cached with a stronger evaluator that:
+- computes the offline omega as before,
+- evaluates FirstFit under multiple canonical orderings (identity, reversed, left-first, right-first, short-first, long-first, right-endpoint, and a hybrid blockwise partition),
+- runs a bitset-based adversarial ordering heuristic that attempts to force new colors (used where feasible),
+- returns the maximum FirstFit color count found across these orders together with omega.
+
+Rationale: the search loop selects candidates using eval_seq_cached(tuple(seq)). By making eval_seq_cached return the worst-case (maximum) FirstFit color over a set of strong orderings (including an adversarial heuristic), the search will prefer sequences that lead to larger FirstFit/OPT ratios under adversarial arrival orders. This is a targeted improvement that reuses existing generation logic and remains computationally practical for our candidate sizes.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  @lru_cache(maxsize=None)
+  def eval_seq_cached(seq_tuple):
+    """Return (colors_used, omega) for a given sequence tuple representation."""
+    seq = list(seq_tuple)
+
+    # FirstFit coloring
+    colors = []
+    for (l, r) in seq:
+      placed = False
+      for col in colors:
+        conflict = False
+        for (cl, cr) in col:
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    colors_used = len(colors)
+
+    # Clique number (omega) via sweep-line for open intervals
+    events = []
+    for (l, r) in seq:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    omega = best
+    return (colors_used, omega)
+=======
+  @lru_cache(maxsize=None)
+  def eval_seq_cached(seq_tuple):
+    """Return (colors_used, omega) for a given sequence tuple representation.
+
+    Improvement: evaluate multiple canonical orderings and an adversarial
+    ordering heuristic; return the maximum FirstFit color count found and the
+    clique-number (omega). This steers the search toward sequences that are
+    strong against adversarial arrival orders.
+    """
+    seq = list(seq_tuple)
+
+    # Compute clique number (omega) via sweep-line for open intervals
+    events = []
+    for (l, r) in seq:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    omega = best
+
+    # Local FirstFit implementation (order-sensitive)
+    def local_firstfit(sequence):
+      colors = []
+      for (l, r) in sequence:
+        placed = False
+        for col in colors:
+          conflict = False
+          for (cl, cr) in col:
+            if cl < r and l < cr:
+              conflict = True
+              break
+          if not conflict:
+            col.append((l, r))
+            placed = True
+            break
+        if not placed:
+          colors.append([(l, r)])
+      return len(colors)
+
+    # Canonical orderers to probe
+    def order_identity(s): return list(s)
+    def order_reversed(s): return list(reversed(s))
+    def order_left_first(s): return sorted(s, key=lambda x: (x[0], x[1]))
+    def order_right_first(s): return sorted(s, key=lambda x: (-x[0], -x[1]))
+    def order_short_first(s): return sorted(s, key=lambda x: (x[1] - x[0], x[0]))
+    def order_long_first(s): return sorted(s, key=lambda x: (-(x[1] - x[0]), x[0]))
+    def order_right_endpoint(s): return sorted(s, key=lambda x: (x[1], x[0]))
+
+    def order_hybrid_blockwise(s):
+      n = len(s)
+      if n < 12:
+        return list(s)
+      k = 4
+      bsize = n // k
+      parts = [list(s[i * bsize:(i + 1) * bsize]) for i in range(k - 1)]
+      parts.append(list(s[(k - 1) * bsize:]))
+      out = []
+      out += parts[0]
+      if len(parts) > 1:
+        out += order_left_first(parts[1])
+      if len(parts) > 2:
+        out += list(reversed(parts[2]))
+      if len(parts) > 3:
+        out += order_short_first(parts[3])
+      return out
+
+    ORDERERS = [
+      ("identity", order_identity),
+      ("reversed", order_reversed),
+      ("left_first", order_left_first),
+      ("right_first", order_right_first),
+      ("short_first", order_short_first),
+      ("long_first", order_long_first),
+      ("right_endpoint", order_right_endpoint),
+      ("hybrid_blockwise", order_hybrid_blockwise),
+    ]
+
+    # Evaluate canonical orders and keep the maximum FirstFit color count
+    best_colors = -1
+    best_order_name = None
+    for name, ord_fn in ORDERERS:
+      try:
+        seq_ord = ord_fn(seq)
+        colors = local_firstfit(seq_ord)
+        if colors > best_colors:
+          best_colors = colors
+          best_order_name = name
+      except Exception:
+        # be robust to any unexpected ordering failure
+        continue
+
+    # Adversarial ordering heuristic (bitset-based). Tries to choose the next
+    # arriving interval that forces a new color (if possible) or otherwise
+    # maximizes blocked colors / future coverage.
+    def adversarial_order_local(sequence):
+      n = len(sequence)
+      if n == 0:
+        return []
+      # Precompute neighbor bitsets (Python int used as bitset)
+      neighbors = [0] * n
+      for i in range(n):
+        li, ri = sequence[i]
+        mask = 0
+        for j in range(i + 1, n):
+          lj, rj = sequence[j]
+          if li < rj and lj < ri:
+            mask |= (1 << j)
+            neighbors[j] |= (1 << i)
+        neighbors[i] |= mask
+
+      unplaced = set(range(n))
+      color_sets = []  # list of bitmasks of indices per color
+      order_indices = []
+
+      while unplaced:
+        best_i = None
+        best_key = None
+        # compose mask of unplaced
+        mask_unplaced = 0
+        for j in unplaced:
+          mask_unplaced |= (1 << j)
+        used_colors = len(color_sets)
+
+        for i in list(unplaced):
+          ni = neighbors[i]
+          # count how many current colors are blocked by i
+          block_cnt = 0
+          for cmask in color_sets:
+            if (ni & cmask) != 0:
+              block_cnt += 1
+          new_color = (block_cnt == used_colors)
+          coverage = ((ni & mask_unplaced) & ~(1 << i)).bit_count()
+          length = sequence[i][1] - sequence[i][0]
+          # lexicographic preference: force new_color, more blocks, more coverage, then shorter
+          key = (1 if new_color else 0, block_cnt, coverage, -length)
+          if best_key is None or key > best_key:
+            best_key = key
+            best_i = i
+
+        # assign best_i to a FirstFit color in our simulated state
+        ni = neighbors[best_i]
+        placed = False
+        for c, cmask in enumerate(color_sets):
+          if (ni & cmask) == 0:
+            color_sets[c] |= (1 << best_i)
+            placed = True
+            break
+        if not placed:
+          color_sets.append(1 << best_i)
+        order_indices.append(best_i)
+        unplaced.remove(best_i)
+
+      return [sequence[i] for i in order_indices]
+
+    # Try adversarial ordering if sequence isn't huge (safeguard)
+    try:
+      seq_adv = adversarial_order_local(seq)
+      colors_adv = local_firstfit(seq_adv)
+      if colors_adv > best_colors:
+        best_colors = colors_adv
+        best_order_name = "adversarial"
+    except Exception:
+      # ignore adversarial failures; fall back to canonical best
+      pass
+
+    # If nothing found (shouldn't happen), fall back to trivial values
+    if best_colors < 0:
+      best_colors = local_firstfit(seq)
+
+    return (best_colors, omega)
+>>>>>>> REPLACE
+</DIFF>

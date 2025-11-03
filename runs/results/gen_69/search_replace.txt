@@ -1,0 +1,43 @@
+<NAME>
+expand_pattern_and_schedules_and_depths</NAME>
+
+<DESCRIPTION>
+To increase the adversarial pressure on FirstFit and potentially raise the FF/ω ratio above 2.60, we:
+- Add a full three-pattern cycle (canonical, alt_a, alt_b) to the pattern space so offsets can rotate through all three over levels.
+- Introduce a 'before' scheduling mode so blockers can arrive prior to copies (in addition to 'after' and 'split').
+- Explore an extra deeper recursion level (iterations+1) alongside the existing depths (iterations-1 and iterations) to test if greater depth yields improved ratios.
+These changes broaden the search space in targeted ways that may uncover constructions with higher competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  pattern_cycles = [
+    (canonical,),                 # canonical only
+    (canonical, alt_a),           # alternate canonical/alt_a
+    (canonical, alt_b),           # alternate canonical/alt_b
+  ]
+=======
+  pattern_cycles = [
+    (canonical,),                 # canonical only
+    (canonical, alt_a),           # alternate canonical/alt_a
+    (canonical, alt_b),           # alternate canonical/alt_b
+    (canonical, alt_a, alt_b),    # full cycle through three patterns
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  schedules = ['after', 'split']             # two effective orders
+=======
+  schedules = ['after', 'before', 'split']   # three effective orders: before, after, split
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  depths = [max(2, iterations - 1), iterations]
+=======
+  depths = [max(2, iterations - 1), iterations, iterations + 1]  # explore one deeper level
+>>>>>>> REPLACE
+</DIFF>

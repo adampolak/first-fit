@@ -1,0 +1,48 @@
+<NAME>
+depth_cycle_env
+</NAME>
+
+<DESCRIPTION>
+Introduce environment-driven depth cycling within the cap-construction. When depth is not provided, choose between depth=4 and depth=5 based on an environment seed (EVO_DEPTH_SEED) to explore deeper expansions deterministically. Falls back safely to depth=4 if the env var is absent or invalid.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Allow explicit depth control to explore smarter configurations.
+  # If depth is not provided, fall back to the traditional depth=4.
+  if depth is None:
+    depth = 4
+=======
+  # Allow explicit depth control to explore smarter configurations.
+  # If depth is not provided, alternate between depth=4 and depth=5 via an env var.
+  if depth is None:
+    try:
+      import os
+      seed = int(os.environ.get("EVO_DEPTH_SEED", "0"))
+      depth = 4 if seed % 2 == 0 else 5
+    except Exception:
+      depth = 4
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+three_seed_expansion
+</NAME>
+
+<DESCRIPTION>
+Increase the number of spine (seed) intervals from two to three to boost layout diversity and provide more independent growth paths for the recursive cap-construction. This aims to create more opportunities for FirstFit to be forced into new colors while keeping omega bounded.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  # Introduce a second spine interval to diversify the recursive growth
+  T.append((5, 6))
+=======
+  T = [(0, 1)]
+  # Introduce a second spine interval to diversify the recursive growth
+  T.append((5, 6))
+  # Introduce a third spine interval to further diversify growth
+  T.append((9, 10))
+>>>>>>> REPLACE
+</DIFF>

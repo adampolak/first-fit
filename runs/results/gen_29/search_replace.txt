@@ -1,0 +1,91 @@
+<NAME>extra_last_param</NAME>
+<DESCRIPTION>Introduce an `extra_last` boolean parameter to `_build_candidate` to allow insertion of an extra copy at the last recursion level, mirroring the existing `extra_first` behavior and enriching the search space.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left'):
+=======
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, extra_last=False, translation='left'):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>extra_last_implementation</NAME>
+<DESCRIPTION>When building offsets in `_build_candidate`, if `extra_last` is true and we're at the final level, append the extra offset (18) to `offs` so that an extra copy is placed at the last recursion step.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        offs = tuple(starts)
+        if extra_first and i == 0 and 18 not in offs:
+            offs = offs + (18,)
+=======
+        offs = tuple(starts)
+        if extra_first and i == 0 and 18 not in offs:
+            offs = offs + (18,)
+        if extra_last and i == depth - 1 and 18 not in offs:
+            offs = offs + (18,)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_interleaved_schedule</NAME>
+<DESCRIPTION>Extend the scheduling strategies by adding a new `'interleaved'` option to `schedules`, enabling interleaved placement of copies and blockers for potentially stronger coupling.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    schedules = ['after', 'before', 'split']
+=======
+    schedules = ['after', 'before', 'split', 'interleaved']
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>implement_interleaved_behavior</NAME>
+<DESCRIPTION>Implement the behavior for the new `'interleaved'` schedule in `_build_candidate`, interleaving each copy's intervals with its corresponding blocker to create tighter overlap patterns without increasing the clique excessively.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+        if schedule == 'after':
+            S = make_copies(T, offs) + blk
+        elif schedule == 'before':
+            S = list(blk) + make_copies(T, offs)
+        else:  # split
+            h = len(offs) // 2
+            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
+=======
+        if schedule == 'after':
+            S = make_copies(T, offs) + blk
+        elif schedule == 'before':
+            S = list(blk) + make_copies(T, offs)
+        elif schedule == 'split':
+            h = len(offs) // 2
+            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
+        elif schedule == 'interleaved':
+            S = []
+            for idx, start in enumerate(offs):
+                # copy for this offset
+                offset = delta * start - lo if translation == 'left' else delta * start - center
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+                # then add the corresponding blocker if available
+                if idx < len(blk):
+                    S.append(blk[idx])
+        else:
+            S = make_copies(T, offs) + blk
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>expand_extra_options</NAME>
+<DESCRIPTION>Replace the boolean `extras` list with an `extra_options` list of `(extra_first, extra_last)` tuples so we can search combinations of adding extra copies at the first, last, or both recursion levels.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    extras = [False, True]
+=======
+    extra_options = [(False, False), (True, False), (False, True), (True, True)]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>loop_extra_options</NAME>
+<DESCRIPTION>Update the nested loops in `construct_intervals` to iterate over `extra_options`, unpacking into `extra_first` and `extra_last`, and pass both flags into `_build_candidate`.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+                        for ex in extras:
+                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=ex, translation=tr)
+=======
+                        for extra_first, extra_last in extra_options:
+                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=extra_first, extra_last=extra_last, translation=tr)
+>>>>>>> REPLACE
+</DIFF>

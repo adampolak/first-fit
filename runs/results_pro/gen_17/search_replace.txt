@@ -1,0 +1,71 @@
+<NAME>
+inflate_ff_with_multi_stage_gadget
+</NAME>
+
+<DESCRIPTION>
+Proposed targeted improvements to push FirstFit (FF) color usage higher while keeping the offline optimum (omega) controlled. The idea combines (i) increasing gadget depth to create a richer interaction pattern, (ii) introducing a second, translated copy of the gadget to force additional color usage through partial overlap, and (iii) widening the coordinate scaling to spread intervals and reduce accidental duplicates that could dampen FF growth. All changes are designed to be self-contained and deterministic, so they can be iterated safely.
+
+Specific changes:
+- Increase gadget depth from 4 to 5 to amplify pressure on FF without exploding omega.
+- Append a second gadget translated by a fixed gap relative to the first gadget to create cross-layer overlap and push FF to use more colors.
+- Increase the normalization scale from 12 to 15 to better separate intervals after combination, reducing accidental interval merges and maintaining robust growth of FF.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def normalize(intervals, scale=12):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+=======
+def normalize(intervals, scale=15):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+# Build with 4 recursive layers to push FF >> opt=4
+raw = build(depth=4)
+# Map to integer grid and clean up
+return normalize(raw)
+=======
+# Build with 5 recursive layers to push FF further while keeping omega modest
+raw = build(depth=5)
+# Map to integer grid and clean up
+# Also append a secondary gadget translated by a fixed gap to increase interaction
+min_l = min(l for l, r in raw)
+max_r = max(r for l, r in raw)
+span = max_r - min_l if max_r > min_l else 1.0
+gap = span * 0.4
+second = [(l + gap, r + gap) for (l, r) in raw]
+combined = raw + second
+return normalize(combined, scale=15)
+>>>>>>> REPLACE
+</DIFF>

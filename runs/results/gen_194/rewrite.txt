@@ -1,0 +1,94 @@
+# EVOLVE-BLOCK-START
+
+def normalize(intervals):
+    pts = sorted(set(x for l,r in intervals for x in (l,r)))
+    coord = {x:2*i for i,x in enumerate(pts)}
+    return [(coord[l],coord[r]) for (l,r) in intervals]
+
+def firstfit(intervals):
+    # fast open-interval FirstFit via last_end per color
+    last_end = []
+    for l,r in intervals:
+        placed=False
+        for i,le in enumerate(last_end):
+            if l>=le:
+                last_end[i]=r
+                placed=True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def omega(intervals):
+    # open-interval clique via sweep; -1 before +1 at ties
+    ev=[]
+    for l,r in intervals:
+        if l<r:
+            ev.append((l,1)); ev.append((r,-1))
+    ev.sort(key=lambda e:(e[0], 0 if e[1]<0 else 1))
+    cur=best=0
+    for _,d in ev:
+        cur+=d
+        if cur>best: best=cur
+    return best
+
+def prune(intervals, target):
+    # remove longest intervals first if ratio stays >= target
+    cur = list(intervals)
+    def length(iv): return iv[1]-iv[0]
+    changed=True
+    while changed:
+        changed=False
+        # sort by descending length, then index
+        order = sorted(range(len(cur)), key=lambda i:(-length(cur[i]),i))
+        for i in order:
+            cand = cur[:i]+cur[i+1:]
+            if not cand: continue
+            nf = firstfit(cand); no = omega(cand)
+            if no>0 and nf/no >= target - 1e-12:
+                cur=cand
+                changed=True
+                break
+    return cur
+
+def build_cycling(base, depth):
+    # 4 patterns A,B,C,D; alternate ε=0.15,0.25
+    patterns = [
+        (2,6,10,14),
+        (1,5,9,13),
+        (3,7,11,15),
+        (0,4,8,12),
+    ]
+    blockers = ((1,5),(12,16),(4,9),(8,13))
+    eps = (0.15,0.25)
+    T = [tuple(iv) for iv in base]
+    for lvl in range(depth):
+        lo = min(l for l,_ in T)
+        hi = max(r for _,r in T)
+        delta = hi-lo
+        pat = patterns[lvl % 4]
+        e = eps[lvl % 2]
+        S=[]
+        for s in pat:
+            off = delta*(s + e) - lo
+            for (l,r) in T:
+                S.append((l+off, r+off))
+        for (a,b) in blockers:
+            S.append((delta*a, delta*b))
+        T = S
+    return T
+
+def construct_intervals():
+    # build depth-5 cycling pattern
+    raw = build_cycling([(0.0,1.0)], depth=5)
+    norm = normalize(raw)
+    om = omega(norm); ff = firstfit(norm)
+    if om==0: return norm
+    ratio = ff/om
+    pr = prune(norm, ratio)
+    return pr
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    return construct_intervals()

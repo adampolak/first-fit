@@ -1,0 +1,290 @@
+<NAME>
+multiwave_order_search
+</NAME>
+
+<DESCRIPTION>
+I introduce three targeted improvements to push FirstFit beyond the entrenched ~2.6 frontier while keeping omega constrained:
+
+1) Arrival-order control in the recursive builder:
+   - Generalize the canonical 4-copy/4-blocker recursion with two knobs:
+     a) schedule ∈ {before, after, split} controls whether blockers are presented before copies, after copies, or interleaved at each level.
+     b) translation ∈ {left, center} determines whether copies are placed relative to the left endpoint or the center of the current gadget.
+   This realizes the “arrival-order engineering” heuristic and allows structurally different interaction patterns without changing omega.
+
+2) Iterated corridor-wave augmentation:
+   - Apply up to a fixed number of augmentation rounds (multi_augment), each attempting to insert one or two “waves” that overlap every active color while staying within a coverage corridor (<= omega-1), as previously designed. Iterating can chain opportunities: the first successful wave often reshapes color classes in a way that makes subsequent waves feasible. We guard against increasing omega and require that colors strictly increase.
+
+3) Post-build arrival-order search:
+   - After augmentation, evaluate a small, fixed family of alternative orderings (as-built, reversed, right-endpoint order, long-first, left-endpoint order, and a zigzag interleaving). This lightweight deterministic search frequently stresses FirstFit more than the raw recursive order by front-loading long blockers or tightly coupled pieces.
+
+The orchestrator now sweeps a modest grid over offsets, blocker templates, schedules, and translations (k is kept at 4 to keep the instance manageable), runs multi-round augmentation, then picks the best arrival order and the overall best candidate by ratio. These changes are consistent with the literature’s adversarial order strategies and the provided heuristics, while remaining computationally tractable.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def make_copies(T, offsets, delta, lo):
+    S = []
+    for start in offsets:
+        offset = delta * start - lo
+        for (l, r) in T:
+            S.append((l + offset, r + offset))
+    return S
+=======
+def make_copies(T, offsets, delta, lo, center=None, translation='left'):
+    """
+    Create translated copies of T using either left-anchored or center-anchored translation.
+    """
+    S = []
+    for start in offsets:
+        if translation == 'left':
+            offset = delta * start - lo
+        else:
+            # center-anchored placement
+            if center is None:
+                center = (lo + (lo + delta)) / 2.0
+            offset = delta * start - center
+        for (l, r) in T:
+            S.append((l + offset, r + offset))
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def build_baseline(k=4, offsets=(2, 6, 10, 14), blockers=((1, 5), (12, 16), (4, 9), (8, 13))):
+    """
+    Canonical 4-copy/4-blocker recursion (Figure 4 style).
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        S = []
+        S.extend(make_copies(T, offsets, delta, lo))
+        for (a, b) in blockers:
+            S.append((delta * a, delta * b))
+        T = S
+    return normalize_intervals(T)
+=======
+def build_baseline(k=4, offsets=(2, 6, 10, 14), blockers=((1, 5), (12, 16), (4, 9), (8, 13)),
+                   schedule='after', translation='left'):
+    """
+    Canonical 4-copy/4-blocker recursion (Figure 4 style) with controllable arrival order:
+      - schedule in {'after','before','split'} controls whether blockers are placed
+        after copies, before copies, or between halves of the copies at each level.
+      - translation in {'left','center'} controls how copies are positioned.
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+        S = []
+        if schedule == 'before':
+            for (a, b) in blockers:
+                S.append((delta * a, delta * b))
+            S.extend(make_copies(T, offsets, delta, lo, center, translation))
+        elif schedule == 'split':
+            half = max(1, len(offsets) // 2)
+            first = tuple(offsets[:half])
+            second = tuple(offsets[half:])
+            S.extend(make_copies(T, first, delta, lo, center, translation))
+            for (a, b) in blockers:
+                S.append((delta * a, delta * b))
+            S.extend(make_copies(T, second, delta, lo, center, translation))
+        else:  # 'after'
+            S.extend(make_copies(T, offsets, delta, lo, center, translation))
+            for (a, b) in blockers:
+                S.append((delta * a, delta * b))
+        T = S
+    return normalize_intervals(T)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    return T2 if ok2 else T1
+=======
+    return T2 if ok2 else T1
+
+
+# ------------------------------
+# Iterated augmentation and arrival-order engineering
+# ------------------------------
+
+def multi_augment(intervals, rounds=3):
+    """
+    Apply corridor-wave augmentation up to 'rounds' times, stopping early if no
+    new colors are obtained or if omega would increase.
+    """
+    base = list(intervals)
+    target_omega = clique_number(base)
+    prev_cols = firstfit_colors(base)
+    T = base
+    for _ in range(max(1, rounds)):
+        T_next = augment_with_corridor_waves(T)
+        if len(T_next) == len(T):
+            break
+        # accept only if colors strictly increase and omega stays within cap
+        new_cols = firstfit_colors(T_next)
+        if new_cols <= prev_cols or clique_number(T_next) > target_omega:
+            break
+        T = T_next
+        prev_cols = new_cols
+    return T
+
+def _generate_arrangements(intervals):
+    """
+    Produce a small family of alternative arrival orders that often stress FirstFit:
+      - as built,
+      - reversed,
+      - sorted by right endpoint,
+      - long-first (by length),
+      - sorted by left endpoint,
+      - left-right interleaving (zigzag).
+    """
+    A = list(intervals)
+    seqs = []
+    seqs.append(A)
+    seqs.append(list(reversed(A)))
+    seqs.append(sorted(A, key=lambda iv: (iv[1], iv[0])))
+    seqs.append(sorted(A, key=lambda iv: (-(iv[1] - iv[0]), iv[0], iv[1])))
+    seqs.append(sorted(A, key=lambda iv: (iv[0], iv[1])))
+    B = sorted(A, key=lambda iv: iv[0])
+    inter = []
+    i, j = 0, len(B) - 1
+    while i <= j:
+        inter.append(B[i])
+        if i != j:
+            inter.append(B[j])
+        i += 1
+        j -= 1
+    seqs.append(inter)
+    # deduplicate by tuple fingerprint
+    unique = []
+    seen = set()
+    for s in seqs:
+        key = tuple(s)
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    return unique
+
+def best_arrangement(intervals):
+    """
+    Pick the arrival order among a small fixed set that maximizes FirstFit colors,
+    tie-breaking by fewer intervals (identical) and then by more colors.
+    """
+    candidates = _generate_arrangements(intervals)
+    best_seq = None
+    best_ratio = -1.0
+    best_cols = -1
+    om = clique_number(intervals)
+    for seq in candidates:
+        cols = firstfit_colors(seq)
+        ratio = cols / max(1, om)
+        if ratio > best_ratio + 1e-12 or (abs(ratio - best_ratio) <= 1e-12 and cols > best_cols):
+            best_ratio = ratio
+            best_cols = cols
+            best_seq = seq
+    return best_seq
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+    """
+    Build a strong baseline using the 4-copy/4-blocker recursion,
+    then augment it with up to two corridor waves that raise FirstFit colors
+    while preserving the clique number.
+    """
+    # Candidate baselines: vary offsets slightly to improve chance
+    offsets_set = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    blockers = ((1, 5), (12, 16), (4, 9), (8, 13))
+    k = 4
+
+    best = None  # (score, omega, cols, n, intervals)
+    for offs in offsets_set:
+        base = build_baseline(k=k, offsets=offs, blockers=blockers)
+        # augment
+        aug = augment_with_corridor_waves(base)
+        # Evaluate
+        om = clique_number(aug)
+        cols = firstfit_colors(aug)
+        ratio = cols / max(1, om)
+        score = ratio - 1e-6 * (len(aug) / 10000.0)
+        cand = (score, om, cols, len(aug), aug)
+        if best is None:
+            best = cand
+        else:
+            if cand[0] > best[0] + 1e-9:
+                best = cand
+            elif abs(cand[0] - best[0]) <= 1e-9:
+                # smaller n preferred, then more colors
+                if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                    best = cand
+
+    return best[4] if best is not None else build_baseline(k=4)
+=======
+def construct_intervals():
+    """
+    Build a strong baseline using the 4-copy/4-blocker recursion (with schedule/translation variants),
+    then iteratively augment it with corridor waves, and finally pick the best arrival order
+    to stress FirstFit. Return the best candidate found.
+    """
+    # Explore modest, fixed blueprints
+    offsets_set = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+        (2, 7, 10, 15),
+        (1, 6, 9, 14),
+    ]
+    blockers_templates = [
+        ((1, 5), (12, 16), (4, 9), (8, 13)),   # Template A (baseline)
+        ((0, 4), (6, 10), (8, 12), (14, 18)),  # Template B
+        ((2, 6), (4, 8), (10, 14), (12, 16)),  # Template C
+    ]
+    schedules = ['after', 'before']
+    translations = ['left', 'center']
+    k = 4  # keep footprint manageable
+
+    best = None  # (score, omega, cols, n, intervals)
+    for offs in offsets_set:
+        for blk in blockers_templates:
+            for sched in schedules:
+                for trans in translations:
+                    base = build_baseline(k=k, offsets=offs, blockers=blk, schedule=sched, translation=trans)
+                    # iterative augmentation (up to 3 rounds)
+                    aug = multi_augment(base, rounds=3)
+                    # try several arrival orders
+                    arr = best_arrangement(aug)
+                    # Evaluate
+                    om = clique_number(arr)
+                    cols = firstfit_colors(arr)
+                    ratio = cols / max(1, om)
+                    score = ratio - 1e-6 * (len(arr) / 10000.0)
+                    cand = (score, om, cols, len(arr), arr)
+                    if best is None:
+                        best = cand
+                    else:
+                        if cand[0] > best[0] + 1e-9:
+                            best = cand
+                        elif abs(cand[0] - best[0]) <= 1e-9:
+                            # prefer fewer intervals, then more colors
+                            if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                                best = cand
+
+    # Fallback in the unlikely event nothing was produced
+    return best[4] if best is not None else build_baseline(k=4)
+>>>>>>> REPLACE
+</DIFF>

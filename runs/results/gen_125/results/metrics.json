@@ -1,0 +1,14 @@
+{
+    "combined_score": 1.5,
+    "public": {
+        "num_intervals": 6,
+        "intervals": "[(9, 10), (7, 11), (4, 6), (5, 8), (0, 2), (1, 3)]",
+        "alg": 3,
+        "opt": 2
+    },
+    "execution_time_mean": 1.8122462881729007,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 1,
+    "num_invalid_runs": 0,
+    "all_validation_errors": []
+}

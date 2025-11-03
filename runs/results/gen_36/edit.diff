@@ -1,0 +1,348 @@
+--- a/original.py
++++ b/original.py
+@@ -1,206 +1,167 @@
+ # EVOLVE-BLOCK-START
+ 
+-def _normalize_grid(intervals):
+-  """
+-  Normalize endpoints to a compact integer grid while preserving order.
+-  Each unique endpoint is mapped to an increasing even integer.
+-  Returns a new list of (l, r) with integer coordinates.
+-  """
+-  if not intervals:
+-    return []
+-  endpoints = sorted(set([x for seg in intervals for x in seg]))
+-  coord = {}
+-  cur = 0
+-  for e in endpoints:
+-    coord[e] = cur
+-    cur += 2  # spacing by 2 to keep even gaps
+-  return [(coord[l], coord[r]) for (l, r) in intervals]
++import random
++from math import gcd
++from copy import deepcopy
+ 
++def firstfit_colors(intervals):
++    """
++    Fast FirstFit: track for each color the rightmost end of its last
++    interval; assign to the first color where l >= last_end, else new color.
++    """
++    last_end = []
++    for (l, r) in intervals:
++        placed = False
++        for i, le in enumerate(last_end):
++            if l >= le:
++                last_end[i] = r
++                placed = True
++                break
++        if not placed:
++            last_end.append(r)
++    return len(last_end)
+ 
+-def construct_intervals(iterations=4, normalize=True):
+-  """
+-  Build a sequence of open intervals that forces FirstFit
+-  to use many colors while keeping the clique size controlled.
+-
+-  Cross-over design:
+-    - Figure-4-style recursive expansion (four copies per level + four blockers)
+-    - alternating offset patterns across levels
+-    - connector scheduling (after vs split)
+-    - optional extra copy on the first level
+-    - normalization to a compact integer grid
+-
+-  Arguments:
+-    iterations: number of recursive expansion steps (default 4)
+-    normalize: whether to apply endpoint normalization (default True)
+-
+-  Returns:
+-    intervals: list of tuples (l, r) with integer endpoints (open intervals)
+-  """
+-
+-  # ---------- Utilities (robust for open-interval semantics) ----------
+-
+-  def overlaps(a, b):
+-    (l1, r1), (l2, r2) = a, b
+-    return max(l1, l2) < min(r1, r2)
+-
+-  def firstfit_colors(intervals):
++def clique_number(intervals):
+     """
+-    Simulate FirstFit on intervals given in arrival order using robust overlap checks.
+-    Returns number of colors used.
+-    """
+-    colors = []  # color classes: list of lists of intervals
+-    for iv in intervals:
+-      placed = False
+-      for cls in colors:
+-        conflict = False
+-        for u in cls:
+-          if overlaps(u, iv):
+-            conflict = True
+-            break
+-        if not conflict:
+-          cls.append(iv)
+-          placed = True
+-          break
+-      if not placed:
+-        colors.append([iv])
+-    return len(colors)
+-
+-  def clique_number(intervals):
+-    """
+-    Sweep-line maximum number of open intervals covering a single point.
+-    Right endpoints processed before left to respect open boundaries.
++    Sweep-line for open intervals; count max simultaneous coverage.
++    Right endpoints (-1) processed before left (+1) at ties.
+     """
+     events = []
+     for (l, r) in intervals:
+-      if l < r:
+-        events.append((l, +1))
+-        events.append((r, -1))
+-    # At ties: (-1) first, then (+1)
+-    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++        if l < r:
++            events.append((l, +1))
++            events.append((r, -1))
++    events.sort(key=lambda x: (x[0], x[1]))
+     cur = best = 0
+     for _, t in events:
+-      cur += t
+-      if cur > best:
+-        best = cur
++        cur += t
++        best = max(best, cur)
+     return best
+ 
+-  # ---------- Pattern generator ----------
++def normalize_intervals(intervals):
++    """
++    Map all distinct endpoints to a compact even integer grid,
++    shift so min=0, then divide by GCD to shrink further.
++    """
++    if not intervals:
++        return []
++    pts = sorted({x for seg in intervals for x in seg})
++    mp = {v: i*2 for i, v in enumerate(pts)}
++    T = [(mp[l], mp[r]) for (l, r) in intervals]
++    # shift
++    base = min(l for l, _ in T)
++    T = [(l-base, r-base) for (l, r) in T]
++    # shrink by gcd
++    vals = [abs(x) for seg in T for x in seg]
++    g = 0
++    for v in vals:
++        g = gcd(g, v)
++    if g > 1:
++        T = [(l//g, r//g) for (l, r) in T]
++    return T
+ 
+-  def build_candidate(depth, pattern_cycle, connectors, schedule='after', extra_first=False):
++def figure4_pattern(depth):
+     """
+-    Build a depth-level recursive pattern using:
+-      - pattern_cycle: tuple/list of offset tuples (cycled over levels)
+-      - connectors: list of 4 tuples (a,b) as multipliers of delta
+-      - schedule: 'after' or 'split' (blockers arrival relative to copies)
+-      - extra_first: add a 5th copy at level 0 to increase coupling
++    Classic Figure-4 recursive adversary (Kierstead & Trotter).
+     """
+     T = [(0.0, 1.0)]
+-    for lvl in range(depth):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-
+-      # Offsets for this level
+-      offs_base = pattern_cycle[lvl % len(pattern_cycle)]
+-      if extra_first and lvl == 0:
+-        # Extend by one more copy at the next arithmetic step (+4),
+-        # matching the canonical spacing used in the literature.
+-        offs = tuple(list(offs_base) + [max(offs_base) + 4])
+-      else:
+-        offs = offs_base
+-
+-      # Build copies (left-anchored translation; robust and simple)
+-      def copies_from(src_T, offsets):
++    for _ in range(depth):
++        lo = min(l for l, r in T)
++        hi = max(r for l, r in T)
++        d = hi - lo
+         S = []
+-        for start in offsets:
+-          offset = delta * start - lo
+-          for (l, r) in src_T:
+-            S.append((l + offset, r + offset))
+-        return S
+-
+-      # Blockers anchored to the left (canonical)
+-      blks = [(delta * a, delta * b) for (a, b) in connectors]
+-
+-      if schedule == 'after':
+-        S = copies_from(T, offs) + blks
+-      else:  # 'split' schedule: half copies, then blockers, then rest
+-        h = len(offs) // 2
+-        S = copies_from(T, offs[:h]) + blks + copies_from(T, offs[h:])
+-
+-      T = S
++        for s in (2, 6, 10, 14):
++            for (l, r) in T:
++                S.append((d*s + l - lo, d*s + r - lo))
++        # four long connectors
++        S += [(d*1, d*5), (d*12, d*16), (d*4, d*9), (d*8, d*13)]
++        T = S
+     return T
+ 
+-  # ---------- Candidate search space (compact but diverse) ----------
++def random_individual(n, span):
++    """
++    Build a random sequence of n intervals in [0, span].
++    """
++    T = []
++    for _ in range(n):
++        a = random.uniform(0, span-1)
++        b = random.uniform(a+0.1, span)
++        T.append((a, b))
++    return T
+ 
+-  # Offset patterns (cycled by level)
+-  canonical = (2, 6, 10, 14)
+-  alt_a = (1, 5, 9, 13)
+-  alt_b = (3, 7, 11, 15)
++def mutate(ind, span):
++    """
++    Slightly adjust one interval and occasionally add or remove one.
++    """
++    T = deepcopy(ind)
++    if not T:
++        return random_individual(5, span)
++    i = random.randrange(len(T))
++    l, r = T[i]
++    dl = (random.random()-0.5)*span*0.1
++    dr = (random.random()-0.5)*span*0.1
++    nl = max(0, l + dl)
++    nr = max(nl+0.1, min(span, r + dr))
++    T[i] = (nl, nr)
++    # randomly delete
++    if random.random() < 0.1 and len(T) > 4:
++        del T[random.randrange(len(T))]
++    # randomly insert
++    if random.random() < 0.1 and len(T) < 2000:
++        a = random.uniform(0, span-1)
++        b = random.uniform(a+0.1, span)
++        T.append((a, b))
++    return T
+ 
+-  pattern_cycles = [
+-    (canonical,),                            # fixed canonical
+-    (canonical, alt_a),                      # alternate with (1,5,9,13)
+-    (canonical, alt_b),                      # alternate with (3,7,11,15)
+-  ]
++def crossover(a, b):
++    """
++    Single-point crossover of two interval lists.
++    """
++    la, lb = len(a), len(b)
++    if la == 0 or lb == 0:
++        return deepcopy(a if la>lb else b)
++    cut = random.randrange(min(la, lb))
++    return deepcopy(a[:cut] + b[cut:])
+ 
+-  # Connector templates (Figure-4 and small variants)
+-  connectors_templates = [
+-    [(1, 5), (12, 16), (4, 9), (8, 13)],    # canonical
+-    [(0, 4), (11, 15), (3, 8), (7, 12)],    # shifted variant
+-    [(2, 6), (12, 16), (4, 9), (8, 13)],    # shift first blocker
+-  ]
+-
+-  schedules = ['after', 'split']            # two effective orderings
+-  extra_first_choices = [False, True]       # optional extra first-level copy
+-
+-  # Keep search modest for runtime
+-  depths = [max(2, iterations - 1), iterations]
+-
+-  best = None  # (ratio, -n, alg, opt, intervals)
+-
+-  for depth in depths:
+-    for pat in pattern_cycles:
+-      for conn in connectors_templates:
+-        for sch in schedules:
+-          for ex in extra_first_choices:
+-            T = build_candidate(depth, pat, conn, schedule=sch, extra_first=ex)
+-            om = clique_number(T)
+-            if om <= 0:
+-              continue
+-            cols = firstfit_colors(T)
+-            ratio = cols / om
+-            n = len(T)
+-            cand = (ratio, -n, cols, om, T)
+-            if best is None or cand > best:
+-              best = cand
+-
+-  # Fallback to canonical if nothing found (should not happen)
+-  if best is None:
+-    # canonical 4-iteration construction
+-    T = [(0.0, 1.0)]
+-    for _ in range(iterations):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-      S = []
+-      for start in (2, 6, 10, 14):
+-        offset = delta * start - lo
+-        S.extend([(offset + l, offset + r) for l, r in T])
+-      S += [
+-        (delta * 1,  delta * 5),
+-        (delta * 12, delta * 16),
+-        (delta * 4,  delta * 9),
+-        (delta * 8,  delta * 13)
+-      ]
+-      T = S
+-    return _normalize_grid(T) if normalize else T
+-
+-  # Return best found (normalized if requested)
+-  intervals = best[4]
+-  return _normalize_grid(intervals) if normalize else intervals
++def run_experiment(**kwargs):
++    random.seed(12345)
++    # 1) Initialize population with a mix of Figure-4 and random sets
++    pop = []
++    for d in (3, 4, 5):
++        pop.append(figure4_pattern(d))
++    for _ in range(7):
++        pop.append(random_individual(30, 100.0))
++    # 2) Evaluate initial fitness
++    def fitness(T):
++        om = clique_number(T)
++        if om == 0: return 0.0
++        return firstfit_colors(T) / om
++    scored = [(fitness(ind), ind) for ind in pop]
++    # 3) Genetic evolution
++    best = max(scored, key=lambda x: x[0])
++    for gen in range(200):
++        # select top 10
++        scored.sort(key=lambda x: -x[0])
++        pool = [ind for _, ind in scored[:10]]
++        newpop = []
++        span = max((r for ind in pool for _,r in ind), default=100.0)
++        # generate offsprings
++        for _ in range(20):
++            a, b = random.sample(pool, 2)
++            child = crossover(a, b)
++            child = mutate(child, span)
++            newpop.append(child)
++        # re-evaluate
++        scored = [(fitness(ind), ind) for ind in newpop + pool]
++        cand = max(scored, key=lambda x: x[0])
++        if cand[0] > best[0]:
++            best = cand
++    # 4) Return normalized best individual
++    _, Tbest = best
++    return normalize_intervals(Tbest)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

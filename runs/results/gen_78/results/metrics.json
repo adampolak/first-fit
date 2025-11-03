@@ -1,0 +1,14 @@
+{
+    "combined_score": 1.25,
+    "public": {
+        "num_intervals": 14,
+        "intervals": "[(42, 44), (38, 46), (32, 36), (34, 40), (28, 48), (22, 26), (24, 30), (18, 50), (12, 16), (14, 20), (0, 4), (2, 6), (0, 8), (2, 10)]",
+        "alg": 5,
+        "opt": 4
+    },
+    "execution_time_mean": 50.44162017526105,
+    "execution_time_std": 0.0,
+    "num_valid_runs": 1,
+    "num_invalid_runs": 0,
+    "all_validation_errors": []
+}

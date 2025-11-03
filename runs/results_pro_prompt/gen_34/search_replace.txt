@@ -1,0 +1,256 @@
+<NAME>
+adversarial_refine_topk
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Fix a latent bug in original() (undefined variable).
+- Add evaluate_best_order() to test deterministic orders and an adaptive adversary on a sequence.
+- Maintain a top-k pool of best candidates by fractal-order score during the search.
+- After generation, refine the top-k candidates with multi-order and adversarial orderings; pick the best by FirstFit/OPT.
+- Slightly diversify starts options for broader coverage.
+
+Rationale:
+The current code evaluates each candidate only in the construction (fractal) order, which often underestimates the adversarial potential of FirstFit. I introduce a lightweight two-stage process: a cheap screening by fractal order collects a small top-k of promising candidates, then we run an expensive adversarial/ordering refinement only on those few. This keeps runtime manageable while exploiting adversarial orderings that are known to amplify FirstFit’s color usage on interval families. I also fix a bug in original() and broaden the starts options. Together, these targeted changes aim to raise the FirstFit/OPT ratio beyond the previously stuck 2.60.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def original():
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - los
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    return T
+=======
+  def original():
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    return T
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    return [seq[i] for i in order_indices]
+
+  # -------------------- Fractal/Tiles builder --------------------
+=======
+    return [seq[i] for i in order_indices]
+
+  def evaluate_best_order(seq: List[Interval]) -> Tuple[int, List[Interval]]:
+    """
+    Evaluate a sequence across several deterministic orders and an adaptive
+    adversarial ordering; return (best_colors, best_ordered_sequence).
+    """
+    best_colors = -1
+    best_seq = list(seq)
+    # Deterministic orderings
+    for _name, order_fn in ORDERERS:
+      try:
+        s2 = order_fn(seq)
+      except Exception:
+        s2 = seq
+      c2 = firstfit_color_count(s2)
+      if c2 > best_colors:
+        best_colors = c2
+        best_seq = s2
+    # Adaptive adversary ordering
+    try:
+      s_adv = adversarial_order(seq)
+      c_adv = firstfit_color_count(s_adv)
+      if c_adv > best_colors:
+        best_colors = c_adv
+        best_seq = s_adv
+    except Exception:
+      pass
+    return best_colors, best_seq
+
+  # -------------------- Fractal/Tiles builder --------------------
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  best_seq = None
+  best_score = -1.0
+  best_meta = None
+  max_intervals = 3200
+
+  # Variation space
+  starts_options = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+    (2, 6, 10, 14, 18),
+    (2, 6, 10, 14, 18, 22),
+    (3, 7, 11, 15, 19),
+  ]
+  depth_options = [3, 4, 5]
+  trials_per_combo = 60
+
+  # Baseline evaluation
+  baseline = original_safe()
+  baseline_colors = firstfit_color_count(baseline)
+  baseline_omega = clique_number(baseline)
+  if baseline_omega > 0:
+    best_seq = baseline
+    best_score = baseline_colors / baseline_omega
+    best_meta = ("baseline", baseline_colors, baseline_omega, len(baseline))
+=======
+  best_seq = None
+  best_score = -1.0
+  best_meta = None
+  max_intervals = 3200
+
+  # Keep a small pool of best candidates by simple (fractal-order) score
+  top_k = 6
+  top_entries: List[Tuple[float, int, int, int, List[Interval]]] = []
+
+  def push_candidate(seq: List[Interval], colors: int, omega: int):
+    score = colors / omega if omega > 0 else 0.0
+    top_entries.append((score, colors, omega, len(seq), seq))
+    top_entries.sort(key=lambda x: (-x[0], x[3]))
+    if len(top_entries) > top_k:
+      del top_entries[top_k:]
+
+  # Variation space
+  starts_options = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+    (2, 5, 9, 13),
+    (3, 6, 9, 12),
+    (2, 6, 10, 14, 18),
+    (2, 6, 10, 14, 18, 22),
+    (3, 7, 11, 15, 19),
+  ]
+  depth_options = [3, 4, 5]
+  trials_per_combo = 60
+
+  # Baseline evaluation
+  baseline = original_safe()
+  baseline_colors = firstfit_color_count(baseline)
+  baseline_omega = clique_number(baseline)
+  if baseline_omega > 0:
+    best_seq = baseline
+    best_score = baseline_colors / baseline_omega
+    best_meta = ("baseline", baseline_colors, baseline_omega, len(baseline))
+    push_candidate(baseline, baseline_colors, baseline_omega)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  alt = original_alt()
+  alt_colors = firstfit_color_count(alt)
+  alt_omega = clique_number(alt)
+  if alt_omega > 0:
+    alt_score = alt_colors / alt_omega
+    if alt_score > best_score + 1e-12:
+      best_seq = alt
+      best_score = alt_score
+      best_meta = ("alt_anchor=(3,7,11,15)", alt_colors, alt_omega, len(alt))
+=======
+  alt = original_alt()
+  alt_colors = firstfit_color_count(alt)
+  alt_omega = clique_number(alt)
+  if alt_omega > 0:
+    alt_score = alt_colors / alt_omega
+    push_candidate(alt, alt_colors, alt_omega)
+    if alt_score > best_score + 1e-12:
+      best_seq = alt
+      best_score = alt_score
+      best_meta = ("alt_anchor=(3,7,11,15)", alt_colors, alt_omega, len(alt))
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+            colors = firstfit_color_count(seq)
+            score = colors / omega
+            if score > best_score + 1e-12 or (abs(score - best_score) < 1e-12 and len(seq) < len(best_seq or [])):
+              best_seq = seq
+              best_score = score
+              best_meta = ("starts=%s depth=%d interleave=%s caps_before=%s caps=%s" % (
+                              starts, depth, interleave, caps_before, caps), colors, omega, len(seq))
+
+  if best_seq is None:
+    best_seq = original_safe()
+
+  # Print the validation line
+  if best_meta is None:
+    best_meta = ("unknown", 0, 0, 0)
+  best_desc, best_colors, best_omega, best_n = best_meta
+  ratio = best_colors / best_omega if best_omega > 0 else 0.0
+  print(f"construct_intervals: depth=0, order={best_desc}, n={best_n}, FirstFit={best_colors}, OPT={best_omega}, ratio={ratio:.3f}")
+
+  return best_seq
+=======
+            colors = firstfit_color_count(seq)
+            score = colors / omega
+            push_candidate(seq, colors, omega)
+            if score > best_score + 1e-12 or (abs(score - best_score) < 1e-12 and len(seq) < len(best_seq or [])):
+              best_seq = seq
+              best_score = score
+              best_meta = ("starts=%s depth=%d interleave=%s caps_before=%s caps=%s" % (
+                              starts, depth, interleave, caps_before, caps), colors, omega, len(seq))
+
+  # Final refinement: evaluate best orderings (including adversarial) on the top candidates
+  final_seq = None
+  final_meta = None
+  final_ratio = -1.0
+
+  # Ensure at least the current best is considered
+  if best_seq is not None:
+    omega_best = clique_number(best_seq)
+    push_candidate(best_seq, firstfit_color_count(best_seq), omega_best)
+
+  for score, colors_est, omega, n, seq_raw in top_entries:
+    colors_ord, seq_ord = evaluate_best_order(seq_raw)
+    ratio = colors_ord / omega if omega > 0 else 0.0
+    if ratio > final_ratio + 1e-12 or (abs(ratio - final_ratio) < 1e-12 and len(seq_ord) < len(final_seq or [])):
+      final_ratio = ratio
+      final_seq = seq_ord
+      final_meta = ("refined", colors_ord, omega, len(seq_ord))
+
+  if final_seq is None:
+    final_seq = original_safe()
+    omega0 = clique_number(final_seq)
+    colors0 = firstfit_color_count(final_seq)
+    final_meta = ("fallback", colors0, omega0, len(final_seq))
+
+  desc, ff_colors, opt_val, n_intervals = final_meta
+  print(f"construct_intervals: depth=0, order={desc}, n={n_intervals}, FirstFit={ff_colors}, OPT={opt_val}, ratio={ff_colors/opt_val if opt_val>0 else 0.0:.3f}")
+
+  return final_seq
+>>>>>>> REPLACE
+
+</DIFF>

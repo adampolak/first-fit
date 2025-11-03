@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 98, in <module>
+    main(parsed_args.program_path, parsed_args.results_dir)
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 71, in main
+    metrics, correct, error_msg = run_shinka_eval(
+                                  ^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 119, in run_shinka_eval
+    run_result = experiment_fn(**kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_105/main.py", line 304, in run_experiment
+    return construct_intervals()
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_105/main.py", line 257, in construct_intervals
+    pruned = shrink_prune(T, target_ratio)

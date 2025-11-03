@@ -1,0 +1,239 @@
+<NAME>
+depth5_fastff_adversary_threshold
+</NAME>
+<DESCRIPTION>
+Checklist:
+- Enable deeper fractal depth to raise FirstFit colors while keeping ω small.
+- Accelerate FirstFit simulation using per-color sorted blocks with binary search.
+- Constrain search space to manageable, high-yield configurations (depth=5, few anchors, no interleaving) and reduce jitter variants.
+- Add depth-5 baseline candidates explicitly to ensure strong options are considered.
+- Guard adversarial ordering with a size threshold to avoid quadratic-time blowups on large instances.
+
+This edit increases the interval budget and focuses the generator on depth-5 fractals with two proven anchor families, adds explicit depth-5 baselines, speeds up FirstFit evaluation, reduces candidate explosion, and makes adversarial reordering conditional on instance size. Together these changes aim to find sequences with higher FirstFit/OPT ratios (e.g., potentially moving beyond the 13/5 regime), while keeping runtime practical.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  def firstfit_color_count(intervals: List[Interval]) -> int:
+    # Plain FirstFit with given order
+    colors = []
+    for (l, r) in intervals:
+      placed = False
+      for col in colors:
+        conflict = False
+        for (cl, cr) in col:
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    return len(colors)
+=======
+  def firstfit_color_count(intervals: List[Interval]) -> int:
+    # FirstFit with per-color sorted blocks and binary search (open-interval semantics)
+    color_blocks: List[List[Interval]] = []
+
+    def can_place(block: List[Interval], iv: Interval) -> bool:
+      l, r = iv
+      # binary search insertion position by left endpoint
+      lo, hi = 0, len(block)
+      while lo < hi:
+        mid = (lo + hi) // 2
+        if block[mid][0] < l:
+          lo = mid + 1
+        else:
+          hi = mid
+      pos = lo
+      if pos > 0:
+        cl, cr = block[pos - 1]
+        if cl < r and l < cr:
+          return False
+      if pos < len(block):
+        cl, cr = block[pos]
+        if cl < r and l < cr:
+          return False
+      return True
+
+    def insert_block(block: List[Interval], iv: Interval):
+      l, _ = iv
+      lo, hi = 0, len(block)
+      while lo < hi:
+        mid = (lo + hi) // 2
+        if block[mid][0] < l:
+          lo = mid + 1
+        else:
+          hi = mid
+      block.insert(lo, iv)
+
+    for iv in intervals:
+      placed = False
+      for block in color_blocks:
+        if can_place(block, iv):
+          insert_block(block, iv)
+          placed = True
+          break
+      if not placed:
+        color_blocks.append([iv])
+    return len(color_blocks)
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  def refine_with_adversary(top_entries):
+    """
+    For top entries from screening, apply adversarial ordering and keep the best.
+    """
+    best_ratio = -1.0
+    best_seq = None
+    best_meta = None
+    for ratio0, colors0, omega, n, cand, seq_ord in top_entries:
+      # Try adversarial ordering on raw set
+      seq_adv = adversarial_order(cand.intervals)
+      colors_adv = firstfit_color_count(seq_adv)
+      ratio_adv = colors_adv / omega if omega > 0 else 0.0
+
+      # Also try adversarial ordering on the screened-best order as seed (stability)
+      seq_adv2 = adversarial_order(seq_ord)
+      colors_adv2 = firstfit_color_count(seq_adv2)
+      ratio_adv2 = colors_adv2 / omega if omega > 0 else 0.0
+
+      # Choose the best among original, screened, adversarial variants
+      candidates = [
+        (ratio0, seq_ord, colors0),
+        (ratio_adv, seq_adv, colors_adv),
+        (ratio_adv2, seq_adv2, colors_adv2),
+      ]
+      for r, seq, cols in candidates:
+        if r > best_ratio or (abs(r - best_ratio) < 1e-12 and len(seq) < len(best_seq or [])):
+          best_ratio = r
+          best_seq = seq
+          best_meta = (cols, omega, len(seq))
+    return best_seq, best_meta
+=======
+  def refine_with_adversary(top_entries):
+    """
+    For top entries from screening, apply adversarial ordering and keep the best.
+    Skip adversarial ordering for very large instances to keep runtime practical.
+    """
+    best_ratio = -1.0
+    best_seq = None
+    best_meta = None
+    adv_limit = 1200
+    for ratio0, colors0, omega, n, cand, seq_ord in top_entries:
+      candidates = [(ratio0, seq_ord, colors0)]
+      if n <= adv_limit:
+        # Try adversarial ordering on raw set
+        seq_adv = adversarial_order(cand.intervals)
+        colors_adv = firstfit_color_count(seq_adv)
+        ratio_adv = colors_adv / omega if omega > 0 else 0.0
+
+        # Also try adversarial ordering on the screened-best order as seed (stability)
+        seq_adv2 = adversarial_order(seq_ord)
+        colors_adv2 = firstfit_color_count(seq_adv2)
+        ratio_adv2 = colors_adv2 / omega if omega > 0 else 0.0
+
+        candidates.extend([
+          (ratio_adv, seq_adv, colors_adv),
+          (ratio_adv2, seq_adv2, colors_adv2),
+        ])
+      # Choose the best among original, screened, adversarial variants
+      for r, seq, cols in candidates:
+        if r > best_ratio or (abs(r - best_ratio) < 1e-12 and len(seq) < len(best_seq or [])):
+          best_ratio = r
+          best_seq = seq
+          best_meta = (cols, omega, len(seq))
+    return best_seq, best_meta
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # -------------------- Parameter sweep --------------------
+
+  # Limits
+  max_intervals = 800
+  depths = [3, 4, 5]
+  starts_pool = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+    (2, 5, 9, 13),
+    (3, 6, 9, 12),
+  ]
+  bool_flags = [(False, False), (True, False), (False, True), (True, True)]
+=======
+  # -------------------- Parameter sweep --------------------
+
+  # Limits
+  max_intervals = 2600
+  depths = [5]
+  starts_pool = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+  ]
+  bool_flags = [(False, False)]
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Generate candidates within budget
+  candidates: List[Candidate] = []
+  # Always include the baseline (from literature) as a safe seed
+  baseline_caps = [(1, 5), (12, 16), (4, 9), (8, 13)]
+  base_seq = build_fractal(4, (2, 6, 10, 14), baseline_caps, interleave=False, caps_before=False)
+  base_omega = clique_number(base_seq)
+  candidates.append(Candidate(base_seq, base_omega))
+=======
+  # Generate candidates within budget
+  candidates: List[Candidate] = []
+  # Always include the baselines (from literature) as safe seeds
+  baseline_caps = [(1, 5), (12, 16), (4, 9), (8, 13)]
+  base_seq = build_fractal(4, (2, 6, 10, 14), baseline_caps, interleave=False, caps_before=False)
+  base_omega = clique_number(base_seq)
+  candidates.append(Candidate(base_seq, base_omega))
+  # Depth-5 baselines to push FirstFit higher while keeping ω low
+  base_seq5 = build_fractal(5, (2, 6, 10, 14), baseline_caps, interleave=False, caps_before=False)
+  base_omega5 = clique_number(base_seq5)
+  candidates.append(Candidate(base_seq5, base_omega5))
+  alt_seq5 = build_fractal(5, (3, 7, 11, 15), baseline_caps, interleave=False, caps_before=False)
+  alt_omega5 = clique_number(alt_seq5)
+  candidates.append(Candidate(alt_seq5, alt_omega5))
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+    # enrich with a few randomized jitters around templates
+    jittered_caps = []
+    for tpl in templates:
+      # make two noisy variants around template
+      for _ in range(2):
+        cc = []
+        for (a, b) in tpl:
+          da = rng.choice([-2, -1, 0, 1, 2])
+          db = rng.choice([-1, 0, 1, 2, 3])
+          aa = a + da
+          bb = b + db
+          if bb - aa < 3:
+            bb = aa + 3
+          cc.append((aa, bb))
+        jittered_caps.append(cc)
+=======
+    # enrich with a few randomized jitters around templates
+    jittered_caps = []
+    for tpl in templates:
+      # make one noisy variant around template (keeps candidate count modest)
+      for _ in range(1):
+        cc = []
+        for (a, b) in tpl:
+          da = rng.choice([-1, 0, 1])
+          db = rng.choice([-1, 0, 1, 2])
+          aa = a + da
+          bb = b + db
+          if bb - aa < 3:
+            bb = aa + 3
+          cc.append((aa, bb))
+        jittered_caps.append(cc)
+>>>>>>> REPLACE
+</DIFF>

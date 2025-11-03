@@ -1,0 +1,26 @@
+<NAME>add_more_templates</NAME>
+<DESCRIPTION>Extend the set of offset and blocker templates in construct_intervals to include additional patterns (3,7,11,15) and (0,4,8,12) for offsets, and add a third blocker variant ((2,6),(4,8),(10,14),(12,16)). This diversification of base geometries may produce stronger adversarial interval sequences for FirstFit.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+    ]
+    blocker_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),  # canonical
+        ((0,4),(11,15),(3,8),(7,12)),  # variant
+    ]
+=======
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # shifted pattern
+        (3,7,11,15),    # alternate stagger
+        (0,4,8,12),     # 0-based pattern
+    ]
+    blocker_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),   # canonical
+        ((0,4),(11,15),(3,8),(7,12)),   # variant A
+        ((2,6),(4,8),(10,14),(12,16)),  # variant B
+    ]
+>>>>>>> REPLACE
+</DIFF>

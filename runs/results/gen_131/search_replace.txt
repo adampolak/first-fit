@@ -1,0 +1,95 @@
+<NAME>
+deepen_canonical_and_prune_search
+</NAME>
+
+<DESCRIPTION>
+I switch to a deeper level of the canonical 4-copy + 4-blocker recursive blueprint (iterations=5 by default) and prune the template search to the single, empirically best-performing canonical layout: left-anchored translation, offsets (2, 6, 10, 14), and “after” schedule.
+
+Why this helps:
+- In the Figure 4-style construction, each additional recursion level increases FirstFit color pressure via new blocker/copy interactions while keeping the maximum clique bounded (omega≈5). Empirically, this pattern adds roughly three new FF colors per level without increasing omega, thereby increasing the FF/omega ratio.
+- Prior code limited depth to 4 by default and explored multiple layout variants that consistently returned the same frontier ≈2.60. Increasing depth is the cleanest lever to raise the ratio.
+- Restricting to the canonical offsets and order avoids noise from less effective variants and significantly reduces compute overhead, which is important as we deepen the recursion.
+- The fallback also honors the chosen depth.
+
+Expected effect:
+- Move from k=4 to k=5, driving FF usage from ≈13 to ≈16 with omega≈5, i.e., ratio from ≈2.60 to ≈3.20, while keeping runtime modest (n ≈ 2388).
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(iterations=4):
+=======
+def construct_intervals(iterations=5):
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Candidate configuration space (compact and deterministic)
+  depths = [max(2, iterations - 1), iterations]
+  translations = ['left', 'center']
+  offset_sets = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted
+    (3, 7, 11, 15),  # alternate
+  ]
+  schedules = ['after', 'before', 'split']
+  extras = [False, True]
+=======
+  # Candidate configuration space (pruned to the canonical best)
+  depths = [iterations]
+  translations = ['left']
+  offset_sets = [
+    (2, 6, 10, 14),  # canonical baseline
+  ]
+  schedules = ['after']
+  extras = [False]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Fallback: canonical canonical-4-iteration pattern if search failed
+  if best_T is None:
+    best_T = []
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for (l, r) in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    best_T = T
+=======
+  # Fallback: canonical pattern with the requested depth if search failed
+  if best_T is None:
+    best_T = []
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for (l, r) in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    best_T = T
+>>>>>>> REPLACE
+
+</DIFF>

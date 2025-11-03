@@ -1,0 +1,120 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+
+def _normalize_grid(intervals):
+    """Map unique endpoints to even integers preserving order."""
+    pts = sorted({x for seg in intervals for x in seg})
+    m = {x:i*2 for i,x in enumerate(pts)}
+    return [(m[l], m[r]) for (l,r) in intervals]
+
+def _ff_count(intervals):
+    """Fast FirstFit via per-color last_end tracking."""
+    last_end = []
+    for (l,r) in intervals:
+        placed = False
+        for i,le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def _omega_open(intervals):
+    """Sweep-line omega for open intervals."""
+    ev = []
+    for l,r in intervals:
+        if l<r:
+            ev.append((l,1))
+            ev.append((r,-1))
+    ev.sort(key=lambda x:(x[0], x[1]==1))
+    cur = best = 0
+    for _,d in ev:
+        cur += d
+        if cur>best: best=cur
+    return best
+
+def _build_candidate(depth, starts, blockers, schedule, extra_first, extra_last, translation):
+    """Recursive k-copy + 4-blocker construction with scheduling."""
+    T = [(0.0,1.0)]
+    for lvl in range(depth):
+        lo = min(l for l,_ in T)
+        hi = max(r for _,r in T)
+        delta = hi - lo
+        center = (lo+hi)/2.0
+        offs = list(starts)
+        if extra_first and lvl==0: offs.append(starts[-1]+4)
+        if extra_last  and lvl==depth-1: offs.append(starts[-1]+4)
+        def make(fromT, offs_list):
+            out=[]
+            for s in offs_list:
+                off = (delta*s - (lo if translation=='left' else center))
+                for l,r in fromT:
+                    out.append((l+off, r+off))
+            return out
+        if translation=='left':
+            blk = [(delta*a, delta*b) for a,b in blockers]
+        else:
+            blk = [((delta*a-center),(delta*b-center)) for a,b in blockers]
+        if schedule=='after':
+            S = make(T,offs)+blk
+        elif schedule=='before':
+            S = blk+make(T,offs)
+        elif schedule=='split':
+            h=len(offs)//2
+            S = make(T,offs[:h])+blk+make(T,offs[h:])
+        else:  # interleaved
+            S=[]
+            for i,s in enumerate(offs):
+                S+=make(T,[s])
+                if i<len(blk): S.append(blk[i])
+        T = S
+    return T
+
+def construct_intervals(iterations=4, normalize=True):
+    """Search small parameter space for best FF/omega ratio."""
+    depths = [max(2,iterations-1), max(2,iterations)]
+    start_sets = [(2,6,10,14),(1,5,9,13),(3,7,11,15),(0,4,8,12)]
+    blocker_templates = [
+        [(1,5),(12,16),(4,9),(8,13)],
+        [(1,5),(11,15),(4,9),(8,13)],
+        [(2,6),(12,16),(4,9),(8,13)],
+        [(1,6),(11,16),(3,9),(7,13)]
+    ]
+    schedules = ['after','before','split','interleaved']
+    translations = ['left','center']
+    extra_opts = [(False,False),(True,False),(False,True),(True,True)]
+
+    best = None  # (ratio, -size, cols, intervals_raw)
+    for d in depths:
+        if (4**d)*8 > 5000: continue
+        for starts in start_sets:
+            for blks in blocker_templates:
+                for sch in schedules:
+                    for tr in translations:
+                        for ef,el in extra_opts:
+                            T = _build_candidate(d, starts, blks, sch, ef, el, tr)
+                            Tn = _normalize_grid(T)
+                            om = _omega_open(Tn)
+                            if om<1: continue
+                            cols = _ff_count(Tn)
+                            ratio = cols/om
+                            key = (ratio, -len(Tn), cols)
+                            if best is None or key>best[0]:
+                                best = (key, Tn)
+    if best is None:
+        # fallback canonical
+        T = _build_candidate(max(2,iterations), (2,6,10,14), [(1,5),(12,16),(4,9),(8,13)],
+                              'after', False, False, 'left')
+        out = _normalize_grid(T)
+    else:
+        out = best[1]
+    return out if normalize else [(float(l),float(r)) for l,r in out]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

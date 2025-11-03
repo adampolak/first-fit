@@ -1,0 +1,205 @@
+<NAME>
+wave_insertion_positions
+</NAME>
+
+<DESCRIPTION>
+Improve the augmentation heuristic by allowing candidate "wave" intervals to be inserted at arbitrary positions in the arrival sequence (not only appended). FirstFit is online and sensitive to arrival order; appending a wave often doesn't increase colors, but inserting a wave earlier (just before some long connector or between copies) can force FirstFit to open an extra color. The new try_add_wave searches a limited set of insertion positions (endpoints and midpoints of dense segments) and computes the color index the wave would receive if inserted at that position (using a fast per-color last_end simulation). It accepts a candidate insertion that strictly increases FirstFit colors while keeping omega <= target_omega. The change is localized to try_add_wave only and preserves interface and determinism. This should raise FF without increasing omega and improve the FF/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def try_add_wave(cur_intervals, target_omega, wave_length=2, candidates_limit=600):
+    """
+    Try to add short "wave" intervals (of integer length wave_length) to increase FirstFit colors
+    without increasing clique number above target_omega.
+
+    Strategy:
+      - enumerate a set of candidate left endpoints chosen between unique endpoints of current intervals
+      - for each candidate construct interval (x, x+wave_length)
+      - accept the first candidate that increases FirstFit color count while keeping omega <= target_omega
+    Returns:
+      - (accepted_interval or None, new_intervals)
+    """
+    # Work on normalized integer intervals
+    T = list(cur_intervals)
+    if not T:
+        return None, T
+    coords = sorted(set(x for iv in T for x in iv))
+    # generate candidate left positions: between coords[i], coords[i+1]-wave_length (so interval fits)
+    # to limit candidates, sample uniformly across range as well as near dense regions
+    min_x = min(coords)
+    max_x = max(coords)
+    # candidate lefts: use endpoints and midpoints of large gaps
+    left_candidates = set()
+    for a,b in zip(coords, coords[1:]):
+        # try left placements anchored near a, near midpoint, and near b-wave_length
+        if b - a <= 0:
+            continue
+        # choose up to three placements in this gap if it can host wave_length
+        if b - a >= wave_length + 1:
+            left_candidates.add(a + 1)
+            left_candidates.add((a + b) // 2)
+            left_candidates.add(b - wave_length - 1)
+        else:
+            left_candidates.add(a)
+    # also sample a small grid across whole range
+    step = max(1, (max_x - min_x) // 30)
+    for x in range(min_x, max_x - wave_length + 1, step):
+        left_candidates.add(x)
+    # cap candidates
+    lefts = sorted(left_candidates)
+    if len(lefts) > candidates_limit:
+        # downsample deterministically
+        lefts = [lefts[i] for i in range(0, len(lefts), max(1, len(lefts)//candidates_limit))]
+
+    base_cols = firstfit_colors(T)
+    base_om = clique_number(T)
+    # quick reject if base_om already exceeds target
+    if base_om > target_omega:
+        target_omega = base_om
+
+    for x in lefts:
+        cand = (x, x + wave_length)
+        # don't add degenerate or overlapping with endpoints equalities only (open intervals)
+        if cand[0] >= cand[1]:
+            continue
+        # ensure clique remains <= target_omega
+        new_om = clique_number(T + [cand])
+        if new_om > target_omega:
+            continue
+        # compute FirstFit colors on the augmented sequence (append at the end)
+        new_cols = firstfit_colors(T + [cand])
+        if new_cols > base_cols:
+            # accept
+            T2 = T + [cand]
+            return cand, T2
+    return None, T
+=======
+def try_add_wave(cur_intervals, target_omega, wave_length=2, candidates_limit=600):
+    """
+    Try to add short "wave" intervals (of integer length wave_length) to increase FirstFit colors
+    without increasing clique number above target_omega.
+
+    Enhanced strategy:
+      - enumerate a set of candidate left endpoints chosen between unique endpoints of current intervals
+      - consider inserting each candidate at several promising insertion positions in the arrival order,
+        not only appending at the end; insertion earlier can force FirstFit to open a new color.
+      - evaluate the resulting FirstFit color count efficiently by simulating per-color last_end
+        up to the insertion point and then running the tail (bounded work).
+      - accept the first insertion that strictly increases FirstFit colors while keeping omega <= target_omega.
+
+    Returns:
+      - (accepted_interval_or_tuple (cand, insert_pos) or None, new_intervals)
+    """
+    # Work on normalized integer intervals
+    T = list(cur_intervals)
+    if not T:
+        return None, T
+    coords = sorted(set(x for iv in T for x in iv))
+    # generate candidate left positions: between coords[i], coords[i+1]-wave_length (so interval fits)
+    left_candidates = set()
+    for a,b in zip(coords, coords[1:]):
+        if b - a <= 0:
+            continue
+        if b - a >= wave_length + 1:
+            left_candidates.add(a + 1)
+            left_candidates.add((a + b) // 2)
+            left_candidates.add(b - wave_length - 1)
+        else:
+            left_candidates.add(a)
+    # also sample a small grid across whole range
+    min_x = coords[0]
+    max_x = coords[-1]
+    step = max(1, (max_x - min_x) // 30)
+    for x in range(min_x, max_x - wave_length + 1, step):
+        left_candidates.add(x)
+    lefts = sorted(left_candidates)
+    if len(lefts) > candidates_limit:
+        lefts = [lefts[i] for i in range(0, len(lefts), max(1, len(lefts)//candidates_limit))]
+
+    base_cols = firstfit_colors(T)
+    base_om = clique_number(T)
+    if base_om > target_omega:
+        target_omega = base_om
+
+    # Helper: fast simulate FirstFit up to position p (exclusive) returning last_end list
+    def ff_last_end_prefix(seq, p):
+        last_end = []
+        for iv in seq[:p]:
+            l, r = iv
+            placed = False
+            for i in range(len(last_end)):
+                if l >= last_end[i]:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return last_end
+
+    n = len(T)
+    # pick a small set of promising insertion positions: endpoints of blocks and a few mid positions
+    # include 0 (front) and n (append) always
+    insert_positions = set([0, n])
+    # include partition positions every block of size ~max(1,n//20)
+    block = max(1, n // 20)
+    for i in range(0, n, block):
+        insert_positions.add(i)
+        insert_positions.add(min(n, i + block // 2))
+    # include positions before large intervals (long connectors) to try to disrupt packing
+    lengths = [(i, T[i][1] - T[i][0]) for i in range(n)]
+    # top few longest interval indices
+    topk = sorted(lengths, key=lambda x: -x[1])[:10]
+    for idx, _ in topk:
+        insert_positions.add(max(0, idx - 1))
+        insert_positions.add(idx)
+        insert_positions.add(min(n, idx + 1))
+
+    insert_positions = sorted(p for p in insert_positions if 0 <= p <= n)
+
+    # Evaluate candidates
+    for x in lefts:
+        cand = (x, x + wave_length)
+        if cand[0] >= cand[1]:
+            continue
+        # quick omega check for adding cand anywhere (omega independent of order)
+        if clique_number(T + [cand]) > target_omega:
+            continue
+        # Try each insertion position; simulate efficiently
+        for pos in insert_positions:
+            # simulate prefix
+            last_end = ff_last_end_prefix(T, pos)
+            # place cand into prefix simulation
+            l, r = cand
+            placed = False
+            for i in range(len(last_end)):
+                if l >= last_end[i]:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+            # now continue simulating tail using this last_end (we only need color count)
+            # process remaining intervals in order
+            for iv in T[pos:]:
+                il, ir = iv
+                pplaced = False
+                for i in range(len(last_end)):
+                    if il >= last_end[i]:
+                        last_end[i] = ir
+                        pplaced = True
+                        break
+                if not pplaced:
+                    last_end.append(ir)
+                # early abort: if last_end size already exceeds base_cols and we already are certain omega ok,
+                # we can accept
+                if len(last_end) > base_cols:
+                    break
+            new_cols = len(last_end)
+            if new_cols > base_cols:
+                # Accept this insertion: build new sequence with cand inserted at pos
+                newT = T[:pos] + [cand] + T[pos:]
+                return (cand, pos), newT
+    return None, T
+>>>>>>> REPLACE
+</DIFF>

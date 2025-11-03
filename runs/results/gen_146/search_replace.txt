@@ -1,0 +1,137 @@
+<NAME>add_cache_for_ff_omega</NAME>
+<DESCRIPTION>Introduce simple memoization caches for the FirstFit color count and omega computations to avoid recomputing on identical interval sequences. This should speed up the evaluation loop and potentially improve the overall combined score by enabling deeper search within time budgets.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order of open intervals.
+    Returns number of colors used.
+    Optimized: maintain each color as a sorted-by-left list and test conflicts
+    by checking at most the predecessor and successor of the insertion position.
+    """
+    from bisect import bisect_left
+    colors = []  # list of color records, each with 'ivals' sorted by left endpoint
+    for iv in intervals:
+        l, r = iv
+        placed = False
+        for color in colors:
+            lefts = color['lefts']
+            pos = bisect_left(lefts, l)
+            conflict = False
+            # check predecessor
+            if pos > 0:
+                pl, pr = color['ivals'][pos - 1]
+                if pr > l:
+                    conflict = True
+            # check successor
+            if not conflict and pos < len(color['ivals']):
+                nl, nr = color['ivals'][pos]
+                if nl < r:
+                    conflict = True
+            if not conflict:
+                color['ivals'].insert(pos, (l, r))
+                color['lefts'].insert(pos, l)
+                placed = True
+                break
+        if not placed:
+            colors.append({'ivals': [(l, r)], 'lefts': [l]})
+    return len(colors)
+=======
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order of open intervals.
+    Returns number of colors used.
+    Optimized: maintain each color as a sorted-by-left list and test conflicts
+    by checking at most the predecessor and successor of the insertion position.
+    Adds a lightweight memoization cache to reuse results for identical interval lists.
+    """
+    # simple in-function cache keyed by the exact interval sequence
+    if not hasattr(firstfit_colors, "_cache"):
+        firstfit_colors._cache = {}
+    key = tuple(intervals)
+    if key in firstfit_colors._cache:
+        return firstfit_colors._cache[key]
+
+    from bisect import bisect_left
+    colors = []  # list of color records, each with 'ivals' sorted by left endpoint
+    for iv in intervals:
+        l, r = iv
+        placed = False
+        for color in colors:
+            lefts = color['lefts']
+            pos = bisect_left(lefts, l)
+            conflict = False
+            # check predecessor
+            if pos > 0:
+                pl, pr = color['ivals'][pos - 1]
+                if pr > l:
+                    conflict = True
+            # check successor
+            if not conflict and pos < len(color['ivals']):
+                nl, nr = color['ivals'][pos]
+                if nl < r:
+                    conflict = True
+            if not conflict:
+                color['ivals'].insert(pos, (l, r))
+                color['lefts'].insert(pos, l)
+                placed = True
+                break
+        if not placed:
+            colors.append({'ivals': [(l, r)], 'lefts': [l]})
+
+    res = len(colors)
+    firstfit_colors._cache[key] = res
+    return res
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def clique_number(intervals):
+    """Compute omega with memoization cache to avoid recomputing identical inputs."""
+    if not hasattr(clique_number, "_cache"):
+        clique_number._cache = {}
+    key = tuple(intervals)
+    if key in clique_number._cache:
+        return clique_number._cache[key]
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    # sort so (-1) comes before (+1) at same coordinate
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    clique_number._cache[key] = best
+    return best
+=======
+def clique_number(intervals):
+    """Compute omega with memoization cache to avoid recomputing identical inputs."""
+    if not hasattr(clique_number, "_cache"):
+        clique_number._cache = {}
+    key = tuple(intervals)
+    if key in clique_number._cache:
+        return clique_number._cache[key]
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    # sort so (-1) comes before (+1) at same coordinate
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    clique_number._cache[key] = best
+    return best
+>>>>>>> REPLACE
+</DIFF>

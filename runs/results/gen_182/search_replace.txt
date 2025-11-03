@@ -1,0 +1,63 @@
+<NAME>
+add_wave_variation_and_offset_cycle
+</NAME>
+
+<DESCRIPTION>
+Cycle through multiple offset patterns each iteration to explore geometric variants, and inject deterministic short and long wave intervals after the connectors to further push FirstFit’s color usage without increasing the clique size. This alternates among four 4-copy skeleton templates and two wave templates over the 4 recursive expansions.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+  for _ in range(4):
+=======
+  iterations = 4
+  offset_patterns = [
+      (2, 6, 10, 14),
+      (1, 5, 9, 13),
+      (3, 7, 11, 15),
+      (0, 4, 8, 12),
+  ]
+  # deterministic wave templates to strain FirstFit without growing omega
+  wave_short = [(2, 3), (6, 7)]
+  wave_long  = [(4, 8), (10, 14)]
+  wave_templates = [wave_short, wave_long]
+
+  T = [(0, 1)]
+  for i in range(iterations):
+      # cycle offsets and waves by iteration
+      offsets = offset_patterns[i % len(offset_patterns)]
+      wave   = wave_templates[i % len(wave_templates)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+=======
+    for start in offsets:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+=======
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    # inject wave intervals to further increase coloring pressure
+    for (a, b) in wave:
+      S.append((delta * a, delta * b))
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,35 @@
+<NAME>
+diverse_initial_copy
+</NAME>
+
+<DESCRIPTION>
+Increase branching factor in the first expansion by using five translated copies on the initial iteration, then revert to four copies thereafter. This ‘diversifies’ early structure, creating more interleavings that FirstFit must manage without increasing the clique number, boosting the FF/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled copies at offsets chosen to stagger intervals
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Add the four connecting long intervals as in the original figure
+=======
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # dynamic offsets: extra copy on first iteration to diversify branching
+    if i == 0:
+      offsets = (2, 6, 10, 14, 18)
+    else:
+      offsets = (2, 6, 10, 14)
+    for start in offsets:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Add the four connecting long intervals as in the original figure
+>>>>>>> REPLACE
+</DIFF>

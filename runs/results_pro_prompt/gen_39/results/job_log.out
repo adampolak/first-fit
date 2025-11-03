@@ -1,0 +1,4 @@
+construct_intervals: candidate=baseline, n=596, FirstFit=13, OPT=5, ratio=2.600
+Run 1/1 completed in 3.12 seconds
+Correctness and error status saved to results73v4prolpsat/gen_39/results/correct.json
+Metrics saved to results73v4prolpsat/gen_39/results/metrics.json

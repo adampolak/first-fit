@@ -1,0 +1,250 @@
+<NAME>cache_and_pattern_cache_prune</NAME>
+<DESCRIPTION>
+Introduce targeted performance improvements for the adversary construction:
+- Add a memoized cache in the evaluate function to avoid re-computing FF/omega for identical interval sets during a single run.
+- Add a memoized cache in the recursive pattern builder (build_pattern) to reuse previously constructed pattern trees when the same parameters re-occur, reducing duplicated work across the extensive parameter sweep.
+- Strengthen the final pruning step with an aggressive, multi-pass deterministic pruning that preserves the same omega and FirstFit color count, but attempts to shrink the witness more aggressively than the previous single-pass approach.
+These changes are designed to be low-risk (no change to the logical adversary construction) while potentially reducing runtime and improving stability of the resulting intervals.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+=======
+  def evaluate(intervals, _cache={}):
+    """
+    Return (score, omega, colors, n).
+    Cached to avoid recomputation for identical interval lists within a single run.
+    """
+    key = tuple(intervals)
+    if key in _cache:
+      return _cache[key]
+    if not intervals:
+      res = (-1.0, 0, 0, 0)
+      _cache[key] = res
+      return res
+    om = clique_number(intervals)
+    if om <= 0:
+      res = (-1.0, 0, 0, len(intervals))
+      _cache[key] = res
+      return res
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    res = (score, om, cols, len(intervals))
+    _cache[key] = res
+    return res
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left',
+                    schedule='after', interleave='block', reverse_alt=False):
+    """
+    Recursively expand base_seed k times with multiple copies and blockers.
+    - translation in {'left','center'} controls copy offsets
+    - blocker_anchor in {'left','center'} controls blocker placement
+    - schedule in {'after','before','split'} decides the order of copies vs blockers per level
+    - interleave in {'block','zip'} controls how copies are interleaved
+    - reverse_alt: if True and interleave='block', every other copy is presented in reverse order
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # Build per-copy sequences
+      copy_lists = []
+      for idx, start in enumerate(offsets):
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+        copy_lists.append([(l + off, r + off) for (l, r) in seq])
+
+      # Interleave copies
+      if interleave == 'block':
+        S_copies = []
+        for lst in copy_lists:
+          S_copies.extend(lst)
+      else:  # 'zip': emit one item from each copy in round-robin order
+        S_copies = []
+        if copy_lists:
+          m = len(copy_lists[0])
+          for j in range(m):
+            for lst in copy_lists:
+              S_copies.append(lst[j])
+
+      # Build blockers for this level
+      S_blockers = []
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S_blockers.append((delta * a, delta * b))
+        else:
+          S_blockers.append((delta * a - center, delta * b - center))
+
+      # Compose level by schedule
+      if schedule == 'before':
+        S = S_blockers + S_copies
+      elif schedule == 'split' and interleave == 'block':
+        h = max(1, len(copy_lists) // 2)
+        first_half = []
+        for i in range(h):
+          first_half.extend(copy_lists[i])
+        second_half = []
+        for i in range(h, len(copy_lists)):
+          second_half.extend(copy_lists[i])
+        S = first_half + S_blockers + second_half
+      elif schedule == 'mix':  # alternate copy then blocker intervals
+        S = []
+        max_len = max(len(S_copies), len(S_blockers))
+        for j in range(max_len):
+          if j < len(S_copies):
+            S.append(S_copies[j])
+          if j < len(S_blockers):
+            S.append(S_blockers[j])
+      else:
+        # default 'after' or 'split' with interleave='zip'
+        S = S_copies + S_blockers
+
+      T = S
+    return T
+=======
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left',
+                    schedule='after', interleave='block', reverse_alt=False):
+    """
+    Recursively expand base_seed k times with multiple copies and blockers.
+    - translation in {'left','center'} controls copy offsets
+    - blocker_anchor in {'left','center'} controls blocker placement
+    - schedule in {'after','before','split'} decides the order of copies vs blockers per level
+    - interleave in {'block','zip'} controls how copies are interleaved
+    - reverse_alt: if True and interleave='block', every other copy is presented in reverse order
+    """
+    # Simple memoization to reuse identical patterns across parameter combinations
+    if not hasattr(build_pattern, "_cache"):
+      build_pattern._cache = {}
+
+    # Build a hashable key from the parameters
+    try:
+      base_seed_key = tuple(tuple(x) for x in base_seed)
+      key = (base_seed_key, k, tuple(offsets), tuple(blockers), translation, blocker_anchor, schedule, interleave, reverse_alt)
+    except Exception:
+      key = None
+
+    if key is not None and key in build_pattern._cache:
+      return build_pattern._cache[key]
+
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # Build per-copy sequences
+      copy_lists = []
+      for idx, start in enumerate(offsets):
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+        copy_lists.append([(l + off, r + off) for (l, r) in seq])
+
+      # Interleave copies
+      if interleave == 'block':
+        S_copies = []
+        for lst in copy_lists:
+          S_copies.extend(lst)
+      else:  # 'zip': emit one item from each copy in round-robin order
+        S_copies = []
+        if copy_lists:
+          m = len(copy_lists[0])
+          for j in range(m):
+            for lst in copy_lists:
+              S_copies.append(lst[j])
+
+      # Build blockers for this level
+      S_blockers = []
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S_blockers.append((delta * a, delta * b))
+        else:
+          S_blockers.append((delta * a - center, delta * b - center))
+
+      # Compose level by schedule
+      if schedule == 'before':
+        S = S_blockers + S_copies
+      elif schedule == 'split' and interleave == 'block':
+        h = max(1, len(copy_lists) // 2)
+        first_half = []
+        for i in range(h):
+          first_half.extend(copy_lists[i])
+        second_half = []
+        for i in range(h, len(copy_lists)):
+          second_half.extend(copy_lists[i])
+        S = first_half + S_blockers + second_half
+      elif schedule == 'mix':  # alternate copy then blocker intervals
+        S = []
+        max_len = max(len(S_copies), len(S_blockers))
+        for j in range(max_len):
+          if j < len(S_copies):
+            S.append(S_copies[j])
+          if j < len(S_blockers):
+            S.append(S_blockers[j])
+      else:
+        # default 'after' or 'split' with interleave='zip'
+        S = S_copies + S_blockers
+
+      T = S
+    # Cache the result before returning
+    if key is not None:
+      build_pattern._cache[key] = T
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(final_T)
+=======
+  # Aggressive deterministic pruning: repeatedly remove intervals while preserving metrics
+  final_T = list(best[4])
+  try:
+    om = clique_number(final_T)
+    cols = firstfit_colors(final_T)
+    changed = True
+    while changed:
+      changed = False
+      for idx in range(len(final_T)):
+        cand = final_T[:idx] + final_T[idx+1:]
+        if not cand:
+          continue
+        if clique_number(cand) == om and firstfit_colors(cand) == cols:
+          final_T = cand
+          om = clique_number(final_T)
+          cols = firstfit_colors(final_T)
+          changed = True
+          break
+  except Exception:
+    final_T = list(best[4])
+
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(final_T)
+>>>>>>> REPLACE
+</DIFF>

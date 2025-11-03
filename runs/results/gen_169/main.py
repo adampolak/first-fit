@@ -1,0 +1,207 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+  """
+  Normalize endpoints to a compact integer grid while preserving order.
+  Each unique endpoint is mapped to an increasing even integer.
+  Returns a new list of (l, r) with integer coordinates.
+  """
+  if not intervals:
+    return []
+  endpoints = sorted(set([x for seg in intervals for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2  # spacing by 2 to keep even gaps
+  return [( coord[l], coord[r] ) for (l, r) in intervals]
+
+
+def construct_intervals(iterations=4, normalize=True):
+  """
+  Build a sequence of open intervals that forces FirstFit
+  to use many colors while keeping the clique size controlled.
+
+  Approach:
+  - A compact, deterministic pattern space is explored:
+    - Pattern cycles of offsets (canonical/alt_a/alt_b)
+    - 3 blocker templates
+    - 2 scheduling modes: 'after' and 'split'
+    - optional extra first-level copy
+  - Depth choices around a sweet spot (depth = iterations-1 or iterations)
+  - Efficient simulation of FirstFit and omega on the generated intervals
+  - Final normalization to a compact integer grid if requested
+  """
+
+  # Helpers
+
+  def overlaps(a, b):
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+  def firstfit_colors(intervals):
+    """
+    Simulate FirstFit with exact overlap checks.
+    Returns the number of colors used.
+    """
+    colors = []  # list of color classes, each a list of intervals
+    for iv in intervals:
+      placed = False
+      for cls in colors:
+        ok = True
+        for u in cls:
+          if overlaps(u, iv):
+            ok = False
+            break
+        if ok:
+          cls.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+
+  def clique_number(intervals):
+    """
+    Compute omega: maximum number of intervals covering a point.
+    Sweep-line: process right endpoints before left endpoints on ties.
+    """
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  # Pattern space (compact)
+  canonical = (2, 6, 10, 14)
+  alt_a     = (1, 5, 9, 13)
+  alt_b     = (3, 7, 11, 15)
+  alt_d     = (0, 4, 8, 12)  # additional stagger pattern
+
+  # Rotor cycles across levels; include longer 4-cycle to diversify geometry
+  pattern_cycles = [
+    (canonical,),                         # canonical only
+    (canonical, alt_a),                   # alternate canonical/alt_a
+    (canonical, alt_b),                   # alternate canonical/alt_b
+    (canonical, alt_a, alt_b, alt_d),     # 4-cycle rotor
+    (alt_d,),                             # D-only baseline
+  ]
+
+  # Blocker templates (left-anchored connectors)
+  blockers_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],   # shifted
+    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+  ]
+
+  schedules = ['after', 'split', 'before', 'sandwich']  # expanded scheduling orders
+  extras    = [False, True]                  # optional extra first copy
+  anchor_modes = ['left', 'center']          # blocker anchoring modes
+
+  depths = [max(2, iterations - 1), iterations]
+
+  best = None  # record: (ratio, -n, cols, om, T)
+
+  # Deterministic exploration over compact space
+  for depth in depths:
+    for pat in pattern_cycles:
+      for conn in blockers_templates:
+        for sch in schedules:
+          for ex in extras:
+            for anchor in anchor_modes:
+              # Build candidate
+              T = [(0.0, 1.0)]
+              for lvl in range(depth):
+                lo = min(l for l, r in T)
+                hi = max(r for l, r in T)
+                delta = hi - lo
+                center = (lo + hi) / 2.0
+
+                # Offsets for this level
+                # pat is a tuple; pick the appropriate cycle entry
+                offs_base = pat[min(lvl, len(pat) - 1)]
+                offs = list(offs_base)
+                if ex and lvl == 0:
+                  offs.append(offs_base[-1] + 4)
+
+                def copies(src_T, offsets):
+                  S = []
+                  for start in offsets:
+                    offset = delta * start - lo
+                    for (l, r) in src_T:
+                      S.append((l + offset, r + offset))
+                  return S
+
+                # Build blockers with selected anchor mode
+                if anchor == 'left':
+                  blks = [(delta * a, delta * b) for (a, b) in conn]
+                else:  # 'center'
+                  blks = [(delta * a - center, delta * b - center) for (a, b) in conn]
+
+                # Apply schedule
+                if sch == 'after':
+                  T = copies(T, offs) + blks
+                elif sch == 'before':
+                  T = blks + copies(T, offs)
+                elif sch == 'split':
+                  h = len(offs) // 2
+                  T = copies(T, offs[:h]) + blks + copies(T, offs[h:])
+                else:  # 'sandwich': quarter the copies with blockers interleaved
+                  q1 = len(offs) // 4
+                  q2 = len(offs) // 2
+                  q3 = (3 * len(offs)) // 4
+                  T = (
+                    copies(T, offs[:q1])
+                    + blks
+                    + copies(T, offs[q1:q2])
+                    + blks
+                    + copies(T, offs[q2:q3])
+                    + blks
+                    + copies(T, offs[q3:])
+                  )
+
+              om = clique_number(T)
+              if om <= 0:
+                continue
+              cols = firstfit_colors(T)
+              ratio = cols / om
+              n = len(T)
+              cand = (ratio, -n, cols, om, T)
+              if best is None or cand > best:
+                best = cand
+
+  # Fallback if something went wrong (should be rare)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        offset = delta * start - lo
+        S.extend([(offset + l, offset + r) for l, r in T])
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return _normalize_grid(T) if normalize else T
+
+  best_T = best[4]
+  return _normalize_grid(best_T) if normalize else best_T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

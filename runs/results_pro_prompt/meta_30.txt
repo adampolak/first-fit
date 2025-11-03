@@ -1,0 +1,302 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Interval construction for FirstFit color ratio**
+- **Implementation**: Builds intervals with a deterministic two-iteration expansion. It starts with T = [(0,1)], then in each of two rounds computes lo/hi to get delta, scales/translates all existing intervals by delta*start for starts (2,6,10,14), and appends four fixed blocks (delta,5delta), (12delta,16delta), (4delta,9delta), (8delta,13delta). The result is a list T of 36 intervals; run_experiment simply returns construct_intervals(). The docstring notes open-interval intent, but coordinates are concrete numeric bounds; a commented Figure-3 variant is provided for reference.
+- **Performance**: Combined score 2.33 with 36 intervals produced; alg: 7, opt: 3.
+- **Feedback**: The implementation is deterministic and aligns with the referenced construction (Figure 4) used to analyze FirstFit performance. It passes validation tests, and the approach yields a reproducible set of intervals for evaluation; minor caveat: the docstring mentions open intervals, while the code treats bounds as regular numeric endpoints.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Fractal interval construction for FirstFit ratio**
+- **Implementation**: The code builds a fractal-like set of open intervals via build_fractal(depth, starts, caps), normalizes coordinates so the leftmost point is 0, and then evaluates multiple arrival orders using a greedy FirstFit color allocator. It uses a sweep-line to compute OPT (clique number) and selects the order and depth that maximize FirstFit colors per OPT, with several deterministic orders plus seeded random shuffles for reproducibility; a final summary line is printed and the best interval sequence is returned.
+- **Performance**: Final metrics show a combined score of 2.60 with 596 intervals; the best witness yields FirstFit colors = 13 and OPT = 5 (ratio 2.6).
+- **Feedback**: The approach uses deterministic seeding for reproducibility and systematically probes a variety of arrival orders across depths 1–4, effectively balancing fractal growth with tractable search. Validation indicates the implementation is correct and produces a reproducible, though heuristic, improvement over random ordering.
+**Program Identifier:** Generation 1 - Patch Name fractal_firstfit_improved - Correct Program: True
+
+**Program Name: FirstFit interval coloring adversarial construction**
+- **Implementation**: The code defines construct_intervals() that starts with T = [(0, 1)] and iterates 5 levels. Each level computes lo, hi, and delta = hi - lo, then builds a new set S by translating copies of T with offsets (delta*start) for starts in (2, 6, 10, 14), followed by four fixed scaled patterns (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). It then assigns T = S and returns T. The result is a list of open intervals represented as (l, r); run_experiment simply calls construct_intervals(). The implementation mirrors a qualitative construction from a figure in a referenced paper, but does not perform validation against the FirstFit coloring behavior.
+- **Performance**: Combined score 2.67 with 2388 intervals generated (endpoints span large ranges, e.g., around 100k–150k and beyond).
+- **Feedback**: The program is incorrect and does not pass all validation tests. Likely issues include a lack of verification that the generated interval sequence achieves the intended FirstFit color/width properties, possible misalignment with the required open-interval semantics, and not providing integration with a validator that simulates FirstFit on the produced intervals. The approach would benefit from adding a verifier that runs FirstFit on the produced intervals and checks the target ratio, and from ensuring the output format/domain matches the evaluation harness expectations.
+**Program Identifier:** Generation 2 - Patch Name deepen_recursion_to_push_ratio_towards_3 - Correct Program: False
+
+**Program Name: Fractal Interval Set with Heuristic FirstFit optimization**
+- **Implementation**: Builds a fractal-like set of open intervals via iterative fractal transforms (build_fractal) with two start/cap patterns, then normalizes so the leftmost point is 0.0. It assigns FirstFit colors greedily in many candidate arrival orders (base, reversed, length-center sorted, left/right priority, and several random shuffles with deterministic seeds), evaluating each by colors_used / clique_number(seq) where clique_number computes the interval graph’s maximum overlap. It tracks the best candidate by this ratio, prints a short validation line, and returns the best interval sequence.
+- **Performance**: Reported run yields a large interval set (2388 intervals) with a combined score metric of 2.67; the logged output includes depth, order, n, FirstFit, OPT, and their ratio.
+- **Feedback**: The approach uses a broad heuristic search across depths 1–5 and many arrival orders to maximize FirstFit/OPT, but the submission is flagged as incorrect and failing validation tests; potential fragility includes overfitting to specific fractal patterns, reliance on open-interval semantics, and quadratic color assignment cost.
+**Program Identifier:** Generation 3 - Patch Name enhanced_fractal_search_space - Correct Program: False
+
+**Program Name: Fractal interval construction with FirstFit evaluation**
+- **Implementation**: Builds a fractal-like set of open intervals by iteratively expanding a base interval with shifted copies and added caps, then normalizes so the leftmost point is 0. Greedy FirstFit coloring is performed for multiple pre-defined and seeded random arrival orders; the maximum color used (FirstFit) is compared against the intervals' clique number (OPT) computed via a sweep-line over interval endpoints. The code enumerates depths 1..5, tests several ordering strategies (fractal, reversed, short/long first, left/right/center heuristics), plus 10 deterministic random orders per depth, and selects the best sequence by color/OPT ratio, printing a validation line before returning the best sequence.
+- **Performance**: The run reports a combined optimization score of 2.67, with 2388 intervals generated and a final FirstFit/OPT ratio around 0.445; the system notes that the program is incorrect and does not pass all validation tests.
+- **Feedback**: The approach relies on heavy heuristic search over depths and arrival orders to empirically maximize FirstFit efficiency, but validation indicates correctness gaps or mismatches with expected tests. The fractal expansion produces very large coordinate ranges and many intervals, which can stress memory/time and lead to brittle evaluation outcomes; the metric choice (ratio of FirstFit to clique number) and the specific ordering heuristics may not align with the validation harness’s expectations.
+**Program Identifier:** Generation 4 - Patch Name extend_depth_search - Correct Program: False
+
+**Program Name: Evolve-Block Interval Construction for FirstFit**
+- **Implementation**: Builds an interval set T starting from [(0,1)], then performs four iterations. Each iteration computes lo, hi, and delta = hi - lo, then constructs a new set S by translating every interval in T with offsets delta*start - lo for starts in (2,6,10,14), and finally appends four delta-scaled fixed intervals. T is replaced with S each time, and the function returns the final 596 intervals. Intervals are treated as open (l, r). A run_experiment wrapper simply returns construct_intervals(); there is a commented alternate return showing a figure-based example.
+- **Performance**: Deterministic construction yields 596 intervals (growth: 1 -> 8 -> 36 -> 148 -> 596).
+- **Feedback**: The implementation faithfully reproduces the referenced figure-based construction; evaluation reports a combined score of 2.60 corresponding to the produced interval set, and validation tests pass. Exponential growth drives the final size, which is predictable but may constrain scalability if extended beyond four iterations.
+**Program Identifier:** Generation 5 - Patch Name deepen_recursion_to_boost_ratio - Correct Program: True
+
+**Program Name: Fractal Interval Generator for FirstFit**
+- **Implementation**: Builds a Figure-4 style fractal tiling of open intervals via build_fractal(depth, starts, caps), normalizes to start at 0, and then evaluates FirstFit on multiple candidate arrival orders. It precomputes the interval overlap graph per depth (adjacency_sweep) and uses a sweep-based clique_number as the OPT bound, with FirstFit colors computed per candidate order (firstfit_colors_for_order). A diverse set of orders (fractal, reversed, left/right/short/long sorts, alternating patterns, zigzag, and random shuffles) are tested across depths 1..6; the best (lowest) color/OPT ratio is tracked with tie-breaking by smaller n and then larger FirstFit color count. A final validation line is printed and the best interval sequence is returned.
+  
+- **Performance**: Reports a combined score of 2.71 with about 9.5k intervals (num_intervals: 9556), indicating substantial search/work but not guaranteeing correctness under validation tests.
+  
+- **Feedback**: The evaluator notes the program is incorrect and does not pass all validation tests. The heuristic search over fractal-depths and many candidate orders is computationally heavy and brittle (large N, numerous permutations, and complex tie-breaking). Potential issues include reliance on heuristic ordering to beat OPT, possible edge-case handling in color assignment, and a fallback path that may mask deeper correctness problems.
+**Program Identifier:** Generation 6 - Patch Name fractal_adversary_v2 - Correct Program: False
+
+**Program Name: Evolving Intervals for FirstFit Color Bound**
+- **Implementation**: Builds 38,228 intervals by iteratively transforming the current interval set. Start with T = [(0,1)], then, for 7 rounds, compute lo/hi from T, delta = hi - lo, and form S by applying four affine maps (delta*start + l - lo, delta*start + r - lo) to every interval in T for starts 2,6,10,14; append four fixed intervals (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13); replace T with S. Returns the final list T. The function is used directly by run_experiment(**kwargs) as the sole output.
+- **Performance**: Score: 2.75; number of intervals: 38228; configuration shows alg: 22 and opt: 8.
+- **Feedback**: The evaluator notes the program is incorrect and fails the validation tests. The approach derives from a specificFigure 4 construction, yields enormous interval coordinates, and relies on a fixed 7-iteration scheme that apparently does not achieve the target FirstFit color-to-point-cover ratio required by tests. The dataset suggests heavy interval growth and extreme values, which raises concerns about robustness and correctness across validation cases.
+**Program Identifier:** Generation 7 - Patch Name deepen_recursion_to_7 - Correct Program: False
+
+**Program Name: Adversarial FirstFit interval construction**
+
+- **Implementation**: The code builds an adversarial sequence of open intervals via a depth-6 recursive amplification. It defines _step_scale to replicate a base template T at integer offsets determined by delta (hi-lo) and then appends caps (long coupling intervals). The normalization step shifts all endpoints to start at 0 and divides by the gcd of all endpoints to compress coordinates while preserving intersection structure. The constructor starts with T = [(0,1)], applies _step_scale across a fixed starts tuple and caps list for six iterations, then runs normalization. The final result is a long, adversarially ordered list of (l, r) pairs returned by construct_intervals.
+
+- **Performance**: Combined score: 2.71; number of intervals: 9556 (provided in the run). The output is a large adversarial interval set intended to stress a FirstFit coloring algorithm.
+
+- **Feedback**: The approach intends to maximize the FirstFit/OPT ratio by deep ad hoc replication, but the program is reported incorrect and fails validation tests. Potential issues include reliance on a highly sensitive adversarial pattern with many large-scale offsets and caps, which may not preserve required invariants or expected constraints under tests. The depth-6 expansion increases size dramatically and may produce pathological inputs, suggesting the need for formal correctness checks on interval intersections and arrivals, as well as alignment with the test harness’s validity criteria.
+**Program Identifier:** Generation 8 - Patch Name ff_tower_depth6 - Correct Program: False
+
+**Program Name: Evolving FirstFit Interval Sequences**
+- **Implementation**: The code simulates FirstFit coloring on an ordered list of open intervals, using a nested color list and an overlap check to assign intervals to the first compatible color. It computes the clique number via a sweep-line (treating open intervals so ends precede starts at the same coordinate) and constructs candidate interval sequences with a recursive generator that can interleave copies and scale blocks; a baseline construction is provided, and a randomized search over block starts, recursion depths, and caps (with a deterministic seed) searches for a higher score (colors/omega) under a size budget.
+- **Performance**: The final run reports a combined score of 2.60 using 596 intervals, yielding a concrete interval sequence for evaluation.
+- **Feedback**: The approach uses a deterministic seed for reproducibility and combines a solid baseline with a budget-bounded randomized search to explore local variants. The recursive, block-scaling construction with optional interleaving effectively modulates cross-block interference, though the search is heuristic and can be compute-heavy; fallback to the baseline ensures a valid result if exploration misses the budget.
+**Program Identifier:** Generation 9 - Patch Name none - Correct Program: True
+
+**Program Name: Evolve-Block: Greedy FirstFit Interval Builder**
+- **Implementation**: Builds a sequence of open intervals starting from a base gadget, then for omega in 2..6 runs a time-bounded greedy randomized search. It simulates FirstFit coloring, computes OPT via a sweep-line clique, and greedily adds candidates that increase the FF color while keeping OPT ≤ target omega; candidate intervals are generated from endpoints, midpoints, long-range bridges, and jittered anchors, with a final normalization step.
+- **Performance**: Overall score indicates failure to pass validation tests (score 0.0) despite substantial heuristic search and candidate generation.
+- **Feedback**: The approach is highly heuristic and brittle: it relies on fixed seeds and time budgets, generates many candidates per step, and depends on quick yet approximate color predictions; lack of guaranteed improvement under omega constraints and reliance on dense candidate pools can lead to stagnation or incorrect results, with normalization potentially masking issues.
+**Program Identifier:** Generation 10 - Patch Name greedy_interval_adversary - Correct Program: False
+
+**Program Name: Fractal-Seeded FirstFit Interval Search**  
+- **Implementation**: The code builds a fractal-like set of open intervals labeled base/rep/cap, generates candidate anchor sets through multiple cap-pattern families, and evaluates many deterministic orderings (including fractal, reversed, various cap-first/last and block-hybrid variants). It uses a budgeted search with depth control, computes an optimistic clique-number as the target, applies FirstFit to each candidate, and tracks the best ratio of FF colors to the clique bound, with a normalization and a fallback construction if nothing is found.  
+- **Performance**: Combined score to maximize: 0.0; the program is incorrect and does not pass all validation tests.  
+- **Feedback**: The heuristic search is broad but strictly budget-bounded (max_evals) and relies on deterministic seeds, which may limit exploration and reproducibility. The objective (FF colors relative to clique number) may be misaligned with validation expectations, and the fallback path indicates robustness gaps that undermine correctness and reliability.
+**Program Identifier:** Generation 11 - Patch Name fractal_hybrid_search_v2 - Correct Program: False
+
+**Program Name: Fractal Seeded First-Fit Interval Optimizer**
+- **Implementation**: Implements a FirstFit coloring for interval sequences, with an exact open-interval clique-size bound (OPT) via a sweep-line that processes end events before starts at ties. Generates fractal-like interval candidates from a base seed using scaled copies and caps, then reorders via a block-hybrid heuristic. Evaluates multiple seeds and ordering strategies, selecting the candidate with the best alg/OPT ratio.
+- **Performance**: Best observed ratio around 1.80 on a fractal-generated set of 596 intervals (example run: alg=9, opt=5). The evaluation tests many seeds and orders, returning the top sequence.
+- **Feedback**: The approach effectively explores multiple seeds and reordering heuristics to improve FirstFit performance relative to OPT, though it relies on heuristic selection without formal guarantees. The fractal growth and repeated sorting cost become significant; potential improvements include pruning less promising seeds early or caching repeated computations.
+**Program Identifier:** Generation 12 - Patch Name multi_seed_fractal_selector - Correct Program: True
+
+**Program Name: Evolve-Block FirstFit Interval Construction**
+- **Implementation**: Builds a sequence of open intervals via a recursive block-copy generator (generate_recursive) parameterized by starts, caps, depth, and interleave. It includes a baseline (original) and an alt anchor, then explores many combinations with randomized caps and interleaving, using a deterministic seed. Evaluation uses an LRU-cached function eval_seq_cached to compute (colors_used, omega) for any interval sequence, while firstfit_color_count and clique_number implement FirstFit coloring and sweep-line clique size. Intervals are treated as open, with ends processed before starts at equal coordinates to avoid artificial overlaps.
+- **Performance**: Achieves a combined score of 2.60 with 596 intervals in the produced sequence.
+- **Feedback**: The approach leverages deterministic, cache-accelerated exploration of structured block layouts plus anchor baselines; while effective, it is heuristic and relies on heavy search and pruning limits. Further gains could come from more systematic pruning, tighter bounds, or alternative generation strategies to curb search space without sacrificing quality.
+**Program Identifier:** Generation 13 - Patch Name anchor_pattern_expansion_and_eval_cache - Correct Program: True
+
+**Program Name: Evolving Fractal-Cap Intervals for FirstFit**
+- **Implementation**: Constructs interval sets via a recursive FractalGenerator that uses a pair of “starts” and “caps” to expand blocks across depths, producing a meta among (l, r) with per-interval metadata. It then evaluates a large pool of interval-ordering strategies (several deterministic orders plus an adversarial heuristic) to maximize FirstFit color count relative to the clique-number omega, using a fixed 800-interval budget and deterministic cap-sets derived from the anchors; normalization rebases coordinates to start at 0.0. 
+- **Performance**: Reported objective score is 0.0; the pipeline is heavy, heuristic-driven, and the evaluator notes the program is incorrect and fails validation tests (with a likely runtime syntax issue blocking execution). 
+- **Feedback**: There is a concrete syntax bug in normalize (mismatched brackets) that would prevent execution; the search is combinatorially large and relies on multiple heuristics (and deterministic randomness) that may be brittle across runs; consider fixing the normalization bug, trimming the search space, and adding rigorous validation to ensure correctness before relying on the long-tailed optimization loop.
+**Program Identifier:** Generation 14 - Patch Name fractal_hybrid_search_v2 - Correct Program: False
+
+**Program Name: Minimal Wrapper for Interval Construction**
+- **Implementation**: Accepts arbitrary keyword arguments and delegates to construct_intervals(), but the function relies on an external, undefined symbol and contains no internal logic or data processing.
+- **Performance**: Combined score to maximize: 0.0; optimization cannot proceed due to missing/undefined core function, leading to invalid evaluation.
+- **Feedback**: The implementation is incomplete and not self-contained; construct_intervals must be defined (or the logic embedded) and output must meet the evaluator’s expected format; add actual interval-construction logic and corresponding tests to achieve a nonzero score.
+**Program Identifier:** Generation 15 - Patch Name fractal_adversary - Correct Program: False
+
+**Program Name: Evolve-Block Sequence for FirstFit**
+
+- **Implementation**: Implements a deterministic FirstFit color-count simulator for an arrival-ordered list of open intervals and uses a baseline 'original' construction plus a recursive generator (generate_recursive) parameterized by starts, caps, depth, interleave, and caps_before to produce candidate sequences. It explores caps/interleaving space with a deterministic seed, evaluates multiple arrival orders (fractal, reversed, left/right_first, short/long_first, hybrid) and prunes to a 2200-interval budget to select the best by colors/omega.
+
+- **Performance**: Combined score achieved: 2.60; total intervals generated: 596; algorithm explores multiple configurations (caps/starts/depth/interleave) to optimize colors/omega.
+
+- **Feedback**: Strengths: rich exploration space with multiple ordering heuristics and a principled open-interval overlap model, enabling meaningful improvements in the color/omega ratio. Limitations: heuristic search may be sensitive to seed and cap choices, and runtime can grow with depth and the size of the starts/caps search; a fallback to the baseline ensures a valid result.
+**Program Identifier:** Generation 16 - Patch Name order_and_caps_before_enhancements - Correct Program: True
+
+**Program Name: Fractal Seeded Interval Builder for FirstFit**
+- **Implementation**: Builds a fractal-like set of open intervals using a base (0,1) and repeated scaling with predefined seeds (starts/caps) to generate candidate interval sequences. It employs multiple reordering heuristics (identity, reversed, short_first, long_first, left_first, right_first, block_hybrid) and deterministic greedy samplers (greedy_max_assigned_color, greedy_max_overlap) to produce candidate orderings, then evaluates each candidate with FirstFit coloring and a sweep-line clique bound to estimate OPT, selecting the best ratio alg/opt. If no candidate succeeds, it falls back to a shallower fractal variant.
+- **Performance**: Achieved a combined score of 1.80 with 596 intervals; the best run yielded FirstFit color count 9 and OPT 5 (ratio 1.8).
+- **Feedback**: The approach robustly uses fractal seed patterns plus diverse ordering heuristics to push FirstFit colors up relative to OPT, but it is computationally intensive due to exhaustive candidate-and-ordering evaluation. The implementation correctly treats intervals as open (end <= next start allowed) and uses ends-before-starts tie-breaking in the clique bound, which aligns with the open-interval model.
+**Program Identifier:** Generation 17 - Patch Name none - Correct Program: True
+
+**Program Name: Hybrid-Block Interval Construction for FirstFit**
+- **Implementation**: Builds a four-iteration interval sequence T by scaling/translating existing intervals and adding fixed cross-intervals, starting from (0,1); then applies a nested block_hybrid_order that divides the final sequence into four blocks and reorders them with b0 unchanged, b1 reversed, b2 sorted by (length, left), and b3 sorted by (negative length, left) to diversify presentation.
+- **Performance**: Combined score 2.20 with 596 intervals; validations pass.
+- **Feedback**: The approach faithfully implements the arXivFigure4-inspired construction and uses a deterministic, four-block hybrid ordering to diversify interval presentation, yielding a large but scalable interval set (coordinates grow via delta-based scaling); the local, self-contained implementation ensures reproducibility without external dependencies.
+**Program Identifier:** Generation 18 - Patch Name implement_block_hybrid_order - Correct Program: True
+
+**Program Name: Evolve-Block Adversarial Interval Builder**
+- **Implementation**: A multi-stage generator builds open intervals via a fractal-like pipeline (depth-based expansion with starts and caps), then screens candidate interval sets through multiple canonical FirstFit orderings, selects top performers by color/clique ratio, and refines with an adversarial, bitset-based reordering. Deterministic randomness (seeded RNG) and a baseline seed ensure reproducibility; final output is the best interval sequence after adversarial refinement.
+- **Performance**: Combined score 2.60; 596 intervals generated; final omega (clique number) reported as 5 (with 13 candidate-ordering runs considered for screening).
+- **Feedback**: The approach effectively uses hierarchical, template-driven generation and screening to manage search space, then applies a sophisticated adversarial reordering to push for higher color usage. Deterministic seeds aid reproducibility, but the pipeline is computationally intensive and relies on heuristic scoring (ratio colors/omega) to guide selection; results show a modest clique bound (omega=5) despite large interval counts, indicating room for tuning the fractal/cap templates or ordering strategies.
+**Program Identifier:** Generation 19 - Patch Name fractal_adversary_pipeline - Correct Program: True
+
+**Program Name: Evolving FirstFit Intervals via Fractal Search**
+- **Implementation**: A hybrid fractal-like interval generator (generate_recursive) combined with a baseline original constructor and an alt-anchor variant. It uses a cached evaluator (eval_seq_cached) that runs FirstFit coloring and computes the clique number (omega) via sweep-line; exploration proceeds over multiple starts, depths, interleave and caps_before options with random caps, pruning sequences that exceed 3200 intervals, and selecting the best ratio colors/omega.
+- **Performance**: Achieves a combined score of 2.60 with about 596 intervals in the final sequence; outputs a single validation line detailing the best configuration and its FirstFit vs. omega balance.
+- **Feedback**: Extensive caching accelerates repeated evaluations, while a large but bounded search space (with pruning) explores varied fractal-like constructions; potential memory growth from unlimited caching and heuristic cap generation are areas for caution and potential improvement.
+**Program Identifier:** Generation 20 - Patch Name ff_fractal_cached_cross - Correct Program: True
+
+**Program Name: Evolve-Block Interval Construction for FirstFit**
+- **Implementation**: Builds a sequence of open intervals by iteratively transforming the previous set: starting with (0,1), for four iterations it scales and shifts existing intervals by delta and four start offsets (2,6,10,14), then appends four fixed delta-multiplied intervals. The inner function block_hybrid_order exists but is never used, and there is a commented alternative return. The main entry point run_experiment simply returns construct_intervals.
+- **Performance**: Combined score 2.60 with 596 intervals generated (the evaluator reports alg: 13, opt: 5).
+- **Feedback**: The implementation faithfully follows a literature-based construction (Figure 4) and yields a large interval set; however, there is unused dead code (block_hybrid_order) and a potential for cleanup or reuse of the hybrid ordering to diversify presentations. The approach produces very large coordinates across iterations, which may impact numerical handling or readability.
+**Program Identifier:** Generation 21 - Patch Name revert_identity_order - Correct Program: True
+
+**Program Name: Evolve-Block Fractal FirstFit Interval Optimizer**
+- **Implementation**: Builds a Figure-4 style fractal backbone T over 4 iterations, then evaluates multiple interval orderings (including a block-hybrid) by computing FirstFit color counts and dividing by the clique number ω (computed once on T with open-interval semantics). FirstFit uses a naive end_times list; clique_number uses an event sweep with end events processed before start events at ties to maintain open-interval semantics.
+- **Performance**: Combined score 1.80 with 596 intervals generated; the evaluator reports algorithmic/optimization indicators (alg: 9; opt: 5) alongside the produced interval sequence.
+- **Feedback**: The approach effectively mixes fractal backbone generation with targeted ordering heuristics to maximize the FirstFit-to-ω ratio, and the ω-invariant denominator simplifies comparison across orders; potential improvements include a more scalable FirstFit implementation and further pruning of candidate orders for even larger inputs.
+**Program Identifier:** Generation 22 - Patch Name adaptive_order_selection - Correct Program: True
+
+**Program Name: Fractal Interval Generator with Hybrid Greedy Ordering**
+- **Implementation**: Builds fractal interval sets starting from (0,0)–(1,1) and applying scaled copies plus caps across depths 3 or 4, using seeds of starts/caps to expand the interval list; endpoints are cast to integers, then the offline optimum (clique bound) is computed, and a battery of arrival-order heuristics (including block-hybrid, several greedy variants, and reversals) feed sequences into a FirstFit color-counting routine; the best sequence is chosen by maximizing alg/omega with tie-breaks on shorter sequences.
+- **Performance**: Achieved a combined score of 1.80 with 596 intervals (best observed alg=9, opt=5), and a deterministic run given fixed seeds.
+- **Feedback**: The fractal-based generation plus diverse heuristics yields nontrivial, reproducible stress-test instances and competitive ratios; however, reliance on many heuristics with silent error handling may mask issues and could be complemented by more robust Omega estimation or broader seed exploration.
+**Program Identifier:** Generation 23 - Patch Name enhanced_greedy_fractal - Correct Program: True
+
+**Program Name: Evolving FirstFit Intervals via Recursive Tiling**
+- **Implementation**: Core logic builds interval sequences with a fractal-like recursive tiling (generate_recursive) and baseline originals, plus an alt anchor; evaluation uses a cached FirstFit color assignment over per-color sorted blocks (binary-search placement) and a sweep-line to compute Omega; multiple anchor/tiling options are explored with randomized caps (seeded for reproducibility) and flags (interleave, caps_before); results are logged and the best sequence is returned.
+- **Performance**: Combined score 2.60 with 596 intervals generated; extensive parameter search across starts, depths, cap sets, and interleave/caps placement, all guarded by an interval-budget prune (max 3200) and caching to speed repeated evaluations.
+- **Feedback**: The design leverages caching (lru_cache) to amortize heavy sequence-evaluation work and uses multiple baselines and randomized caps to explore the space efficiently; pruning and deterministic seeding improve reproducibility, though the search remains brute-force-heavy and somewhat heuristic in cap selection.
+**Program Identifier:** Generation 24 - Patch Name ff-binary-search-firstfit - Correct Program: True
+
+**Program Name: Fractal Interval Builder for FirstFit**
+- **Implementation**: Generates a fixed, depth-5 fractal-like set of open intervals using three start patterns and a caps_before toggle, then evaluates six candidate sequences by computing the clique number (sweep-line for open intervals) and a FirstFit coloring count, selecting the sequence with the highest color-to-clique ratio; falls back to a depth-4 baseline if needed.
+- **Performance**: Combined score 2.67 with 2388 intervals produced; validator reports the program as incorrect.
+- **Feedback**: The approach relies on a very small, hand-picked candidate space, which appears insufficient to satisfy validation tests; expanding the candidate space and ensuring robust open-interval handling and tie-breaking alignment with tests are key areas for improvement.
+**Program Identifier:** Generation 25 - Patch Name depth5_fractal_spine - Correct Program: False
+
+**Program Name: Evolve-Block: Fractal Interval Ordering for FirstFit**
+- **Implementation**: Builds candidate interval sequences using fractal-like recursion with multiple seed patterns (starts/caps), optional interleaving, and cap-first variants. It simulates FirstFit (via end-time tracking) to count colors, computes an offline-optimum clique number by a tie-aware sweep, and evaluates several deterministic orderings (identity, reverse, left/right-first, short/long first, and a block-hybrid) to maximize colors/omega; it selects the best sequence, falling back to the original fractal if needed.
+- **Performance**: Achieves a combined score of 1.80 on 596 intervals, selecting the best FirstFit/OPT ratio across multiple candidate sequences and orderings (fallback used if no improvement found).
+- **Feedback**: The approach systematically explores fractal-based sequence variants and multiple arrival orderings to boost color usage, while using an exact offline baseline (clique number) to measure improvement; the final result relies on selecting the best ratio and gracefully falls back to the proven fractal construction when necessary.
+**Program Identifier:** Generation 26 - Patch Name ff_fractal_crossover - Correct Program: True
+
+**Program Name: Hybrid Block Construction for FirstFit**
+
+- **Implementation**: The core function construct_intervals builds a 4-stage interval sequence. Each stage computes delta from current min/max, adds four cap-like intervals scaled by delta, then expands by duplicating prior intervals shifted by delta*start with start in (2,6,10,14), updating T = S each round. There is an unused inner function block_hybrid_order, and the final return is the resulting 596 intervals. The code treats intervals as open (l, r) pairs and relies on arithmetic scaling to preserve the interference pattern described in the referenced construction.
+
+- **Performance**: Combined score 1.20 with 596 intervals generated; the run_experiment entry point simply returns construct_intervals and passes validation tests.
+
+- **Feedback**: The delta-based scaling and interleaved replication implement the intended interference construction effectively, producing a large, structured interval set. However, there is dead code (block_hybrid_order) and room for clearer documentation around each stage; removing unused code and adding comments would improve readability and maintainability.
+**Program Identifier:** Generation 27 - Patch Name interleaved_caps_first - Correct Program: True
+
+**Program Name: Fractal Interval Sequence Optimizer**
+- **Implementation**: Builds candidate interval sets via a fractal expansion (base [(0,1)], seeds, and depth in {3,4}) with optional interleaving and caps-before handling. For each generated sequence, computes ω with an offline clique-number sweep, then evaluates multiple arrival orders (including block-hybrid and two greedy variants) using First-Fit coloring to measure color usage. The best sequence is chosen by maximizing peak First-Fit colors over ω plus a small contribution from the mean ratio, ensuring reproducibility with fixed seeds and a deterministic sweep over parameters.
+- **Performance**: Combined score to maximize: 1.00; num_intervals: 596 (intervals listed in the run); alg: 5; opt: 5.
+- **Feedback**: The approach yields a reproducible, high-performing set of intervals by combining fractal-based generation with diverse arrival-order heuristics and an ω baseline. The evaluation uses a clear metric (peak/ω with a small mean bonus) and respects practical bounds (max 2000 intervals). Potential improvements include broader parameter exploration or alternative scoring to further reduce color usage, but the current configuration achieves a perfect score under the given evaluation.
+**Program Identifier:** Generation 28 - Patch Name multi_seed_fractal - Correct Program: True
+
+**Program Name: Fractal Interval Set Optimizer with Adversarial Ordering**
+- **Implementation**: Builds candidate interval sequences with a fractal-like builder (build_fractal) and cap templates (cap_templates_for_starts), then explores multiple local orderings (fractal, reversed, left/right first, short/long first, hybrid, right endpoint, alternating short/long). An adversarial-ordering pass uses bitset-based neighbor graphs to greedily maximize color blocking and future coverage, integrated with a FirstFit coloring evaluator and a clique-number check to guide screening. A screening/refinement pipeline selects top candidates by colors/omega ratio, then applies adversarial refinement before final selection.
+- **Performance**: Runs a parameter sweep capped at 800 intervals, yielding a final solution with 596 intervals and a combined score of 2.60 (alg: 13, opt: 5).
+- **Feedback**: The approach delivers a correct solution that passes validation tests and exhibits a robust, multi-stage heuristic with deterministic seeding for reproducibility. Notes: code is feature-rich but somewhat verbose with duplicated run_experiment definitions; potential cleanup could improve clarity and maintainability.
+**Program Identifier:** Generation 29 - Patch Name none - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+Below is a focused analysis of concrete patterns, scores, and implementation details drawn directly from the evaluated programs. The emphasis is on the current best patterns and how they compare to other efforts, with concrete references to program names, scores, and techniques.
+
+Successful Algorithmic Patterns
+- Fractal backbone with depth-controlled expansion plus origin normalization
+  - Observed in: Generation 19 (fractal_adversary_pipeline), Generation 16 (order_and_caps_before_enhancements), Generation 24 (ff-binary-search-firstfit), and Generation 29 (fractal_interval_set with adversarial ordering). These approaches rely on a fractal/tile construction to generate a structured, overlapping interval set, then normalize coordinates so the leftmost point is at 0.0. This keeps numeric ranges bounded and stabilizes both FirstFit coloring and the exact clique bound (OPT) computation.
+  - Evidence: All three programs produce around 596 intervals with strong ratios (near 2.60) and pass validation, indicating that the fractal backbone at moderate scale is a reliable foundation.
+- Multi-order exploration with deterministic seeds and adversarial refinement
+  - Observed in: Generation 19 (fractal_adversary_pipeline) and Generation 29 (Fractal Interval Set Optimizer with Adversarial Ordering). These patterns test a diverse set of arrival orders (fractal, reversed, left/right-first, short/long first, and seeded random permutations), then pick the best by colors/OPT. The adversarial/refinement angle helps surface orderings that exploit the fractal structure while staying within the problem’s open-interval semantics.
+  - Evidence: In Gen 19, the best result uses a mix of orders and seeded randomness, culminated in a validated ratio around 2.60 with 596 intervals and omega (OPT) = 5.
+- Exact open-interval OPT bound via sweep-line
+  - Used consistently across best results: a precise clique-number bound computed with a sweep-line that processes end events before start events on ties, preserving open-interval semantics. This invariant enables meaningful ratio comparisons and avoids overestimating the OPT bound.
+  - Evidence: The best-performing entries explicitly report omega = 5 and compute FirstFit colors against that bound, ensuring robust, comparable metrics (e.g., Gen 19 reports OPT = 5).
+- Caching and bounded search spaces to accelerate exploration
+  - Generation 24 highlights caching (lru-like) and a cap/prune mechanism (max 3200 intervals) to ensure evaluations stay tractable and reproducible. This aligns with the overall pattern of exploring fractal constructions without exploding the search space in ways that would violate the evaluator’s invariants.
+  - Evidence: The description notes “extensive caching accelerates repeated evaluations” and “interval-budget prune (max 3200).”
+- Reproducibility through fixed seeds and deterministic results
+  - The best solutions rely on fixed seeds and deterministic sweeps over parameter grids (depths, starts, caps, interleave flags, and orderings). This yields reproducible results and makes comparisons across variants meaningful (e.g., Gen 19’s reproducible fractal backbone with deterministic seeds and multiple orders).
+
+Programs showcasing these patterns and their scores
+- Current best (as highlighted in the global insights)
+  - Generation 19 - fractal_adversary_pipeline: 596 intervals; ratio ≈ 2.60; omega = 5; alg = 13; opt = 5; Correct Program: True.
+- Other close, validated results with the same core pattern
+  - Generation 16 - order_and_caps_before_enhancements: 596 intervals; ratio around 2.60; Correct Program: True.
+  - Generation 24 - ff-binary-search-firstfit: 596 intervals; combined score 2.60; extensive caching and pruning noted; Correct Program: True.
+  - Generation 29 - fractal_interval_set_optimizer with adversarial ordering: 596 intervals; combined score 2.60; multiple local orderings plus adversarial refinement; Correct Program: True.
+- Additional corroborating patterns
+  - Generation 25 (depth5_fractal_spine) showed fractal-style generation with 2388 intervals but was marked incorrect, illustrating that scale alone is insufficient and invariants must be respected.
+  - Generation 27 (interleaved_caps_first) shows a clean, well-scoped 596-interval construction with a clear delta-based growth, but is ranked lower (1.20). This underscores the importance of the objective (colors/OPT) and order/search strategy, not just interval count.
+
+Ineffective Approaches
+- Very large-scale fractal constructions that inflated intervals and violated validator invariants
+  - Gen 2 (fractal-adversarial FirstFit) ~2388 intervals; ratio ≈ 2.67; Incorrect.
+  - Gen 3 (fractal-based FirstFit optimization) ~2388 intervals; ratio ≈ 2.67; Incorrect.
+  - Gen 6 (~9.5k intervals; ratio ≈ 2.71); Incorrect.
+  - Gen 7 (~38k intervals; ratio ≈ 2.75); Incorrect.
+  - Gen 8 (~9.5k intervals; ratio ≈ 2.71); Incorrect.
+  - Insight: High ratios did not translate to correctness once the invariant checks (OPEN-interval semantics, exact OPT landmarking) and pruning constraints were violated. Scale alone created configurations that failed validation despite impressive-looking ratios.
+- Over-reliance on heuristics without invariant verification
+  - The invalid high-ratio attempts generally lacked consistent, exact OPT computation alignment or failed to respect open-interval semantics in the clique bound, leading to validator failures even when FirstFit/ratio looked strong.
+- Narrow candidate spaces or dead code reducing diversity
+  - Gen 25’s depth-5 fractal spine relied on a small, hand-picked candidate space and did not meet validation as per the report; and several programs include unused/dead code (e.g., block_hybrid_order in some implementations), which can mask real invariants or hinder maintainability without providing value to validation.
+
+Implementation Insights
+- Fractal backbone plus normalization improves numerical stability and invariants alignment
+  - The successful implementations (Gen 19, Gen 24, Gen 16, Gen 29) all normalize the leftmost coordinate to 0.0 after fractal expansion. This keeps coordinates bounded and reduces drift that could affect both the FirstFit process and the sweep-line-based clique computation.
+- Diverse, deterministic order exploration increases robustness
+  - The best results test multiple orders (fractal, reversed, left/right-first, short/long first) and incorporate seeded random permutations to diversify but maintain reproducibility. This approach helps surface orderings that exploit the fractal structure without resorting to uncontrolled randomness.
+- Open-interval semantics are central to correctness
+  - All top-performing approaches consistently implement a sweep that processes ends before starts at ties, ensuring the clique bound (OPT) matches the open-interval model. This alignment is critical, as invalid results were often tied to mismatches in interval semantics.
+- Adversarial refinement as a complementary concept
+  - Gen 19 and Gen 29 show that an adversarial refinement mindset—screening a broad set of orders and seeds and then selecting the best ratio—can push results toward stronger color usage relative to OPT. However, this relies on keeping the fractal backbone coherent and invariant-consistent.
+
+Performance Analysis
+- Score patterns and comparisons
+  - Current best pattern: Consistently around a 2.60 ratio at approximately 596 intervals, with omega around 5 (e.g., Gen 19). This combination appears to be the sweet spot where the fractal backbone, order exploration, and open-interval OPT alignment converge to pass validation.
+  - Near-best, validated results (Gen 16, Gen 24, Gen 29) mirror the same structure (596 intervals, fractal backbone, multi-order evaluation) and achieve similar ratios, reinforcing that the fractal foundation plus diverse, seeded ordering is a stable, validated pattern around this score.
+  - Higher raw ratios observed in invalid attempts (Gen 2, Gen 6, Gen 7, Gen 8) emphasize that raw FirstFit efficiency is not enough; invariants and correctness checks are essential. Those attempts failed validation despite favorable ratios, underscoring the validator’s guardrails.
+- Correlations
+  - Fractal/backbone scale around 596 intervals tends to yield robust, valid results when combined with dimensional order exploration and a strict OPT bound. Expanding well beyond this scale tends to increase the risk of validator violations unless invariants are meticulously maintained.
+  - The combination of normalization, open-interval-aware clique computation, and a diversified order search appears strongly correlated with validated high performance.
+- Notable pattern consistency
+  - The strongest and most consistently validated results employ:
+    - A fractal/backbone generator with depth control and normalization.
+    - Multiple candidate orders (including deterministic and seeded random orders).
+    - An exact OPT bound using an open-interval-aware sweep.
+    - Caching and bounded search/pruning to keep evaluations manageable and reproducible.
+
+Current Best Pattern Emphasis
+- The most successful pattern centers on fractal-based interval generation at moderate scale (596 intervals) combined with:
+  - Extensive, deterministic order exploration (including adversarially motivated selections) to maximize colors/OPT.
+  - A rigorous open-interval clique bound, ensuring the metric is meaningful and invariant across candidates.
+  - Reproducibility through fixed seeds and clear meta-information (depth, order, n_intervals, FirstFit, OPT, ratio).
+
+Concrete program references with scores
+- Best-known validated result (Generation 19 - fractal_adversary_pipeline): 596 intervals; omega = 5; ratio ≈ 2.60; alg = 13; opt = 5; Correct Program: True.
+- Other validated high-scoring results with similar pattern:
+  - Generation 16 - order_and_caps_before_enhancements: 596 intervals; ratio ≈ 2.60; Correct Program: True.
+  - Generation 24 - ff-binary-search-firstfit: 596 intervals; combined score 2.60; uses caching and pruning; Correct Program: True.
+  - Generation 29 - Fractal Interval Set Optimizer with Adversarial Ordering: 596 intervals; combined score 2.60; adversarial/ordering refinement; Correct Program: True.
+- Notable invalid high-ratio attempts (illustrating limits of raw ratio without invariants):
+  - Generation 2, 3, 6, 7, 8: high ratios (≈ 2.67–2.75) but marked incorrect due to validator invariants not being satisfied (open-interval semantics, exact OPT alignment, or other constraints).
+
+In sum
+- The successful pattern centers on fractal-based interval generation at a moderate scale, normalization to a common origin, and robust, multi-order exploration guided by an exact open-interval OPT bound. Adversarial refinement among ordered variants consistently helps push the color/OPT ratio higher, but only when the fractal backbone and invariants are correctly maintained. The current best (Gen 19) exemplifies these successful elements and remains the reference point for the observed high-performance, validated results.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1) Diversify fractal anchors with parallel, budget-aligned anchor configurations
+- Implement two additional fractal anchor families in parallel to the current best (e.g., starts = (3,7,11,15) with a matching caps set, and starts = (4,8,12,16) with its own caps). Evaluate depth 1–4 for each anchor family under the same interval budget, and pick the best by the color/OPT ratio. This builds on the proven fractal backbone while surface-diversifying interval layouts that still land around the target 596 intervals.
+
+2) Introduce block-wise hybrid ordering to exploit local fractal structure
+- Partition the generated interval sequence into 4 fixed blocks and assign a different deterministic order to each block (e.g., block1 fractal, block2 left_first, block3 reversed, block4 short_first) before concatenation. This preserves multi-order exploration but leverages local fractal locality to improve FirstFit usage, aligning with the successful adversarial ordering patterns without losing reproducibility.
+
+3) Enforce budget-aware fractal growth with principled pruning
+- Add a depth-controlled pruning step that estimates growth at each depth and aborts deeper expansions if the total interval count would exceed a strict budget (e.g., 700–750). By capping growth early, you maintain the invariants that enabled validator-passing results (open-interval semantics and robust OPT bounds) while still exploring richer fractal shapes within a safe range.
+
+4) Multi-order robustness scoring to favor stable gains across orders
+- For each depth/config, compute colors/OPT across a larger set of orders (fractal, reversed, left_first, right_first, and several seeded random shuffles). Prefer configurations with high mean ratio and low variance across orders, so selections are less sensitive to any single order. This builds on the proven value of adversarial refinement while emphasizing order-agnostic performance.
+
+5) Internal cross-verification to guard against drift in results
+- After identifying top candidates by ratio, perform a secondary verification pass that recomputes FirstFit colors and the open-interval OPT bound using a separate, independent method within the mutation. Require agreement between the two computations; if there is a discrepancy, promote the next-best candidate. This reinforces the reliable invariants that underpinned the current best results and improves reproducibility.

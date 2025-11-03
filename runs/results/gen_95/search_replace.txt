@@ -1,0 +1,20 @@
+<NAME>
+add_post_build_strict_pruning
+</NAME>
+
+<DESCRIPTION>
+After constructing the raw pattern in build_pattern, apply a strict pruning pass to remove any interval whose removal does not decrease the FirstFit color count or increase the clique number. This reduces the interval count (improving the score penalty) without hurting the ratio, and may expose a slightly tighter adversary structure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    return T
+=======
+    # Post-expansion strict pruning: remove any interval that does not affect FF or ω
+    om_cur = clique_number(T)
+    cols_cur = firstfit_colors(T)
+    # prune_strict is defined below and preserves both metrics
+    T_pruned = prune_strict(T, cols_cur, om_cur)
+    return T_pruned
+>>>>>>> REPLACE
+</DIFF>

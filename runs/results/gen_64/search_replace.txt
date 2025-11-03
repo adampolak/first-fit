@@ -1,0 +1,225 @@
+<NAME>
+zip_interleave_and_caps
+</NAME>
+
+<DESCRIPTION>
+I introduce three targeted mechanisms known to amplify FirstFit colors without necessarily increasing the clique number:
+1) Copy interleaving and reversal: Within each recursive level, instead of appending each copy as one contiguous block, we can interleave the copies item-by-item (“zip”) and optionally reverse every other copy. This classic arrival-order engineering often prevents FirstFit from reusing small colors early and couples colors across copies. I add an interleave parameter with modes: block (existing behavior) and zip, plus reverse_alt to reverse every other copy.
+2) Blocker scheduling: Add a schedule knob with options after, before, and split. Split places half of the copies, then blockers, then the remaining copies. This per-level timing is another well-known trick to constrain early colors and force new ones later. When interleave='zip', split degrades to after to keep logic simple and safe.
+3) Wider template sweep: I add more offsets and blocker templates (including two asymmetric variants and a six-blocker “caps” template) to probe different couplings across the four copies. The clique is always measured by the sweep to ensure omega remains small.
+
+These changes are small, composable, and preserve instance validity. They only alter arrival order and the choice of connector intervals, both vetted by the existing omega sweep. The search space remains modest (depths still in {3,4,5}) but is enriched in directions that typically raise FF without raising omega. The code remains deterministic and returns a normalized compact witness, preserving all previous behavior as a subset of the new options.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left'):
+    """
+    Recursively expand base_seed k times with 4 copies and 4 blockers.
+    translation in {'left','center'} controls copy offsets.
+    blocker_anchor in {'left','center'} controls blocker placement.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      S = []
+      for start in offsets:
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        for (l, r) in T:
+          S.append((l + off, r + off))
+
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S.append((delta * a, delta * b))
+        else:
+          S.append((delta * a - center, delta * b - center))
+
+      T = S
+    return T
+=======
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left',
+                    schedule='after', interleave='block', reverse_alt=False):
+    """
+    Recursively expand base_seed k times with multiple copies and blockers.
+    - translation in {'left','center'} controls copy offsets
+    - blocker_anchor in {'left','center'} controls blocker placement
+    - schedule in {'after','before','split'} decides the order of copies vs blockers per level
+    - interleave in {'block','zip'} controls how copies are interleaved
+    - reverse_alt: if True and interleave='block', every other copy is presented in reverse order
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # Build per-copy sequences
+      copy_lists = []
+      for idx, start in enumerate(offsets):
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+        copy_lists.append([(l + off, r + off) for (l, r) in seq])
+
+      # Interleave copies
+      if interleave == 'block':
+        S_copies = []
+        for lst in copy_lists:
+          S_copies.extend(lst)
+      else:  # 'zip': emit one item from each copy in round-robin order
+        S_copies = []
+        if copy_lists:
+          m = len(copy_lists[0])
+          for j in range(m):
+            for lst in copy_lists:
+              S_copies.append(lst[j])
+
+      # Build blockers for this level
+      S_blockers = []
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S_blockers.append((delta * a, delta * b))
+        else:
+          S_blockers.append((delta * a - center, delta * b - center))
+
+      # Compose level by schedule
+      if schedule == 'before':
+        S = S_blockers + S_copies
+      elif schedule == 'split' and interleave == 'block':
+        h = max(1, len(copy_lists) // 2)
+        first_half = []
+        for i in range(h):
+          first_half.extend(copy_lists[i])
+        second_half = []
+        for i in range(h, len(copy_lists)):
+          second_half.extend(copy_lists[i])
+        S = first_half + S_blockers + second_half
+      else:
+        # default 'after' or 'split' with interleave='zip'
+        S = S_copies + S_blockers
+
+      T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  offsets_set = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+  ]
+=======
+  offsets_set = [
+    (2, 6, 10, 14),      # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+    (2, 6, 9, 14),       # slight skew to tighten mid overlap
+    (2, 7, 11, 14),      # shifted second copy
+    (1.5, 5.5, 9.5, 13.5)  # half-step stagger
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+  ]
+=======
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # D: asymmetric early/late pushers
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # F: six-blocker couplers (two extra caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  best = None  # (score, om, cols, n, intervals)
+
+  for base in base_seeds:
+    for k in depths:
+      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+      if (4 ** k) * (len(base) + 2) > 3000:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              T = build_pattern(base_seed=base, k=k, offsets=offsets,
+                                blockers=blockers, translation=tr, blocker_anchor=ba)
+              score, om, cols, n = evaluate(T)
+              cand = (score, om, cols, n, T)
+              if best is None:
+                best = cand
+              else:
+                if cand[0] > best[0] + 1e-9:
+                  best = cand
+                elif abs(cand[0] - best[0]) <= 1e-9:
+                  # tie-break by fewer intervals, then more colors
+                  if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                    best = cand
+=======
+  best = None  # (score, om, cols, n, intervals)
+
+  schedules = ['after', 'before', 'split']
+  interleaves = ['block', 'zip']
+  rev_flags = [False, True]
+
+  for base in base_seeds:
+    for k in depths:
+      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+      if (4 ** k) * (len(base) + 2) > 3000:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              for sch in schedules:
+                for inter in interleaves:
+                  for rev in rev_flags:
+                    T = build_pattern(base_seed=base, k=k, offsets=offsets,
+                                      blockers=blockers, translation=tr, blocker_anchor=ba,
+                                      schedule=sch, interleave=inter, reverse_alt=rev)
+                    score, om, cols, n = evaluate(T)
+                    cand = (score, om, cols, n, T)
+                    if best is None:
+                      best = cand
+                    else:
+                      if cand[0] > best[0] + 1e-9:
+                        best = cand
+                      elif abs(cand[0] - best[0]) <= 1e-9:
+                        # tie-break by fewer intervals, then more colors
+                        if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                          best = cand
+>>>>>>> REPLACE
+</DIFF>

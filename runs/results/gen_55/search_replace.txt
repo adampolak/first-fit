@@ -1,0 +1,38 @@
+<NAME>
+iter_norm_after_each_level
+</NAME>
+
+<DESCRIPTION>
+Introduce an in-iteration normalization step to the recursive construction.
+By normalizing after every level, endpoints become compact integers on an even grid.
+This stabilizes numeric behavior, keeps coordinates small, and can improve FF/omega dynamics observed by the evaluator. The change preserves the relative ordering and overlap structure of intervals, so the adversarial properties remain intact while potentially boosting the measured ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+      if schedule == 'after':
+        S = make_copies(T, offs) + blockers
+      elif schedule == 'before':
+        S = list(blockers) + make_copies(T, offs)
+      else:  # 'split': half the copies, then blockers, then remaining copies
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first) + list(blockers) + make_copies(T, second)
+
+      T = S
+=======
+      if schedule == 'after':
+        S = make_copies(T, offs) + blockers
+      elif schedule == 'before':
+        S = list(blockers) + make_copies(T, offs)
+      else:  # 'split': half the copies, then blockers, then remaining copies
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first) + list(blockers) + make_copies(T, second)
+
+      # Normalize after this iteration to keep numbers small and integral
+      T = _normalize_grid(S)
+>>>>>>> REPLACE
+</DIFF>

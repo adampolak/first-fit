@@ -1,0 +1,329 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    Construct an interval arrival sequence intended to maximize the ratio
+    FirstFit_used_colors / clique_number (opt). This implementation uses a
+    deterministic randomized constructive search to incrementally force FirstFit
+    to create new colors while keeping the clique small.
+    Returns:
+      intervals: list of tuples (l, r) representing open intervals (floats or ints)
+    """
+
+    import random
+    import math
+    random.seed(1234567)
+
+    # Helpers
+    def overlap(a, b):
+        # a, b are (l, r). Open intervals: overlap iff a.l < b.r and b.l < a.r
+        return (a[0] < b[1]) and (b[0] < a[1])
+
+    def firstfit_colors(intervals):
+        """
+        Compute FirstFit colors for a sequence of intervals (online in given order).
+        Returns list of colors (1-based) and max color used.
+        O(n^2) but n is modest.
+        """
+        colors = []
+        for i, iv in enumerate(intervals):
+            used = set()
+            for j in range(i):
+                if overlap(iv, intervals[j]):
+                    used.add(colors[j])
+            c = 1
+            while c in used:
+                c += 1
+            colors.append(c)
+        return colors, (max(colors) if colors else 0)
+
+    def clique_size(intervals):
+        """Compute maximum number of intervals covering any point (sweep line)."""
+        events = []
+        for (l, r) in intervals:
+            # For open intervals ensure that ties don't create false overlap:
+            # ending before starting at same coordinate
+            events.append((l, 1))
+            events.append((r, -1))
+        # sort by (position, type) with ends (-1) processed before starts (+1)
+        events.sort(key=lambda x: (x[0], x[1]))
+        cur = 0
+        best = 0
+        for pos, delta in events:
+            cur += delta
+            if cur > best:
+                best = cur
+        return best
+
+    # Candidate evaluation when we already have colors for existing list
+    def evaluate_candidate(existing_intervals, existing_colors, candidate, max_omega):
+        """
+        Check whether adding candidate at the end would:
+         - cause FirstFit to use a new color (existing_max + 1)
+         - keep clique_size <= max_omega
+        Returns (assigned_color, clique_after)
+        """
+        used = set()
+        for idx, iv in enumerate(existing_intervals):
+            if overlap(candidate, iv):
+                used.add(existing_colors[idx])
+        # assigned color for candidate:
+        c = 1
+        while c in used:
+            c += 1
+        # quick check: if c is not a new color, we can early reject if we need a new color
+        all_intervals = existing_intervals + [candidate]
+        clq = clique_size(all_intervals)
+        return c, clq
+
+    # Heuristic: pick representative intervals (one per color) trying to spread them
+    def choose_reps_spread(existing_intervals, existing_colors, num_colors):
+        """
+        Returns a list of chosen indices: one index per color 1..num_colors.
+        Tries to pick representatives whose centers are spread out (farthest-first).
+        """
+        # Build list of indices per color
+        by_color = [[] for _ in range(num_colors + 1)]
+        centers = []
+        for idx, iv in enumerate(existing_intervals):
+            col = existing_colors[idx]
+            if 1 <= col <= num_colors:
+                by_color[col].append(idx)
+                centers.append(((iv[0] + iv[1]) / 2.0, idx))
+        reps = [None] * (num_colors + 1)
+        # Farthest-first: start with a random color and pick one index for it,
+        # then choose for each remaining color the index farthest from set.
+        colors_order = list(range(1, num_colors + 1))
+        random.shuffle(colors_order)
+        chosen_centers = []
+        for col in colors_order:
+            cand_indices = by_color[col]
+            if not cand_indices:
+                # no candidate for this color (shouldn't happen), return None
+                return None
+            # choose the index maximizing min distance to already chosen centers
+            best_idx = None
+            best_score = -1.0
+            for idx in cand_indices:
+                center = (existing_intervals[idx][0] + existing_intervals[idx][1]) / 2.0
+                if not chosen_centers:
+                    score = random.random()  # tie-break randomly
+                else:
+                    score = min(abs(center - c) for c in chosen_centers)
+                # prefer shorter intervals as tie-breaker
+                length = existing_intervals[idx][1] - existing_intervals[idx][0]
+                score = (score, -length, random.random())
+                if best_idx is None or score > best_score:
+                    best_score = score
+                    best_idx = idx
+            reps[col] = best_idx
+            chosen_centers.append((existing_intervals[best_idx][0] + existing_intervals[best_idx][1]) / 2.0)
+        # Return list in color order
+        return [reps[c] for c in range(1, num_colors + 1)]
+
+    # High-level search routine for a target omega (try to maximize FF colors while keeping clique <= target)
+    def build_for_omega(target_omega, grid_max=900):
+        """
+        Attempt to build a sequence where clique <= target_omega, using a greedy
+        randomized approach to force FirstFit to create new colors one-by-one.
+        """
+        # Parameters
+        seed_pockets = 8
+        pocket_len = max(3, grid_max // (seed_pockets * 3))
+        gap = max(10, grid_max // (seed_pockets + 1))
+        intervals = []
+
+        # Create initial seed pockets: small disjoint intervals to provide spatial options;
+        # arrival order is left to right to keep determinism.
+        for i in range(seed_pockets):
+            base = 20 + i * gap
+            l = base + 0.1
+            r = base + pocket_len - 0.1
+            intervals.append((float(l), float(r)))
+
+        colors, maxcolor = firstfit_colors(intervals)
+
+        # Bound how many colors to try to create
+        MAX_COLORS_TRY = 18
+
+        # Main loop: try to grow colors one by one
+        total_trials_budget = 30000
+        trials_used = 0
+        while maxcolor < MAX_COLORS_TRY and trials_used < total_trials_budget:
+            # We try to find one candidate that will get color = maxcolor+1 and keep clique <= target_omega
+            success = False
+            attempts = 0
+            # Try targeted rep-spanning candidates first (these are most likely to force a new color)
+            while attempts < 2000 and trials_used < total_trials_budget:
+                attempts += 1
+                trials_used += 1
+                # Choose representatives: one previously assigned interval for each color 1..maxcolor
+                reps_idx = choose_reps_spread(intervals, colors, maxcolor)
+                if reps_idx is None:
+                    break
+                # compute minimal bounding span of representatives
+                left = min(intervals[idx][0] for idx in reps_idx)
+                right = max(intervals[idx][1] for idx in reps_idx)
+                # pad to ensure intersection with each rep, but try varying small pads to control clique
+                pad = random.choice([0.5, 1.0, 2.0, 3.0, 5.0])
+                candidate = (left - pad, right + pad)
+                # Clamp to grid
+                if candidate[0] < 0:
+                    candidate = (0.0, candidate[1] + (0.0 - candidate[0]))
+                if candidate[1] > grid_max:
+                    candidate = (candidate[0] - (candidate[1] - grid_max), float(grid_max))
+                if candidate[0] >= candidate[1]:
+                    continue
+                assigned_color, clq = evaluate_candidate(intervals, colors, candidate, target_omega)
+                if assigned_color == maxcolor + 1 and clq <= target_omega:
+                    intervals.append(candidate)
+                    colors.append(assigned_color)
+                    maxcolor = max(maxcolor, assigned_color)
+                    success = True
+                    break
+            if success:
+                # recompute colors and continue to next color attempt
+                colors, maxcolor = firstfit_colors(intervals)
+                continue
+
+            # If targeted attempts failed, try random short intervals and random long spanning intervals
+            random_attempts = 0
+            while random_attempts < 2000 and trials_used < total_trials_budget:
+                random_attempts += 1
+                trials_used += 1
+                # choose randomly between short, medium, and spanning types
+                typ = random.random()
+                if typ < 0.5:
+                    # short interval placed near a random representative of a random existing color
+                    if maxcolor == 0:
+                        l = random.uniform(0.0, grid_max * 0.6)
+                        length = random.uniform(1.0, max(2.0, pocket_len))
+                        candidate = (l, l + length)
+                    else:
+                        col = random.randint(1, maxcolor)
+                        possible = [i for i, c in enumerate(colors) if c == col]
+                        if not possible:
+                            continue
+                        rep_idx = random.choice(possible)
+                        # place a short interval overlapping this rep but not many other reps
+                        rep = intervals[rep_idx]
+                        # pick a point near rep and create a short interval around it
+                        center = (rep[0] + rep[1]) / 2.0
+                        length = random.uniform(1.0, max(2.0, pocket_len / 2.0))
+                        offset = random.uniform(-0.6 * pocket_len, 0.6 * pocket_len)
+                        l = max(0.0, center + offset - length / 2.0)
+                        r = min(grid_max, l + length)
+                        candidate = (l, r)
+                else:
+                    # long spanning candidate that tries to hit many colors
+                    # pick random set of colors to span
+                    if maxcolor == 0:
+                        l = random.uniform(0.0, grid_max * 0.5)
+                        r = min(grid_max, l + random.uniform(5.0, grid_max * 0.5))
+                        candidate = (l, r)
+                    else:
+                        chosen_colors = list(range(1, maxcolor + 1))
+                        random.shuffle(chosen_colors)
+                        kchoose = min(len(chosen_colors), max(2, int(random.expovariate(1.0) + 1)))
+                        chosen_colors = sorted(chosen_colors[:kchoose])
+                        # pick one rep per chosen color
+                        try:
+                            reps_idx = []
+                            for col in chosen_colors:
+                                poss = [i for i, c in enumerate(colors) if c == col]
+                                if not poss:
+                                    raise Exception("no rep")
+                                reps_idx.append(random.choice(poss))
+                            left = min(intervals[idx][0] for idx in reps_idx)
+                            right = max(intervals[idx][1] for idx in reps_idx)
+                            pad = random.uniform(0.5, 6.0)
+                            candidate = (left - pad, right + pad)
+                            if candidate[0] < 0:
+                                candidate = (0.0, candidate[1] + (0.0 - candidate[0]))
+                            if candidate[1] > grid_max:
+                                candidate = (candidate[0] - (candidate[1] - grid_max), float(grid_max))
+                        except Exception:
+                            continue
+                # Evaluate candidate
+                assigned_color, clq = evaluate_candidate(intervals, colors, candidate, target_omega)
+                if assigned_color == maxcolor + 1 and clq <= target_omega:
+                    intervals.append(candidate)
+                    colors, maxcolor = firstfit_colors(intervals)
+                    success = True
+                    break
+            if not success:
+                # Unable to find another interval that forces a new color while preserving omega
+                break
+
+        # Final recompute and return
+        colors, maxcolor = firstfit_colors(intervals)
+        final_clique = clique_size(intervals)
+        return intervals, maxcolor, final_clique
+
+    # Try several omegas and keep the best ratio result
+    best_intervals = None
+    best_ratio = -1.0
+    best_stats = None
+    for omega_target in (3, 4, 5):
+        intervals, alg_colors, opt_clique = build_for_omega(omega_target, grid_max=900)
+        if opt_clique == 0:
+            continue
+        ratio = float(alg_colors) / float(opt_clique)
+        # prefer higher ratio, tie-breaker fewer intervals
+        score = (ratio, -len(intervals))
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_intervals = intervals
+            best_stats = (alg_colors, opt_clique, len(intervals), omega_target)
+
+    # If search failed to beat baseline or produced nothing, fall back to a small crafted pattern
+    if not best_intervals:
+        # fallback: previous simple recursive pattern (small)
+        T = [(0.0, 1.0)]
+        for _ in range(2):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+            S += [
+                (delta * 1, delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4, delta * 9),
+                (delta * 8, delta * 13)
+            ]
+            T = S
+        best_intervals = T
+    else:
+        # final normalization: make integers, compress stretch a little, ensure open intervals
+        # scale to integer grid and remove tiny numerical epsilons
+        scale = 10.0
+        normalized = []
+        # shift to positive and round
+        min_l = min(l for l, r in best_intervals)
+        shift = 0.0
+        if min_l <= 0.0:
+            shift = -min_l + 1.0
+        for l, r in best_intervals:
+            L = int(math.floor((l + shift) * scale))
+            R = int(math.ceil((r + shift) * scale))
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        best_intervals = normalized
+
+    # Final safety: recalc stats (colors and clique)
+    final_colors, final_alg = firstfit_colors(best_intervals)
+    final_clique = clique_size(best_intervals)
+
+    # Optionally we could print stats, but keep silent for evaluator
+    # print("Final: alg_colors=", final_alg, "opt_clique=", final_clique, "n_intervals=", len(best_intervals))
+
+    return best_intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

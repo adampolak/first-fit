@@ -1,0 +1,27 @@
+<NAME>
+cyclic_delta_scaling
+</NAME>
+
+<DESCRIPTION>
+Add a cyclic non-linear scaling schedule (SCALING_LIST) to modulate the expansion factor per recursion level. This replaces the fixed delta = hi - lo with delta = (hi - lo) * gamma, cycling gamma through SCALING_LIST, aiming to reduce clique growth while preserving FirstFit color growth.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+=======
+  SCALING_LIST = [1.0, 1.2, 0.8, 1.15]
+  T = [(0, 1)]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+=======
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    gamma = SCALING_LIST[k % len(SCALING_LIST)]
+    delta = (hi - lo) * gamma
+>>>>>>> REPLACE
+</DIFF>

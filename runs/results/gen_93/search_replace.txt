@@ -1,0 +1,57 @@
+<NAME>
+extra_first_flag
+</NAME>
+
+<DESCRIPTION>
+Enable an `extra_first` parameter in `_compute_four_copies_and_blockers` to control adding a fifth copy during the first iteration. This allows an extra translated copy (offset 18) only on iteration zero to increase adversarial coupling without increasing the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _compute_four_copies_and_blockers(T):
+=======
+def _compute_four_copies_and_blockers(T, extra_first=False):
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+dynamic_offsets
+</NAME>
+
+<DESCRIPTION>
+Use the `extra_first` flag to select between four and five copy offsets. When `extra_first=True`, include the fifth offset 18 to inject an extra wave of short intervals in the first iteration, forcing additional FirstFit colors.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # four copies at offsets 2,6,10,14
+  S = []
+  for start in (2, 6, 10, 14):
+=======
+  # copies at canonical offsets, add extra on first iteration if requested
+  S = []
+  starts = (2, 6, 10, 14, 18) if extra_first else (2, 6, 10, 14)
+  for start in starts:
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+call_with_extra_first
+</NAME>
+
+<DESCRIPTION>
+Pass `extra_first=True` only on the first recursive iteration in `construct_intervals`, enabling the extra copy logic for the initial layer to maximize FirstFit pressure early.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Recursive expansion: at each level replace T by four copies plus blockers
+  for _ in range(iterations):
+    T = _compute_four_copies_and_blockers(T)
+=======
+  # Recursive expansion: at each level replace T by copies plus blockers,
+  # with an extra copy only on the first iteration to boost color pressure.
+  for i in range(iterations):
+    T = _compute_four_copies_and_blockers(T, extra_first=(i == 0))
+>>>>>>> REPLACE
+</DIFF>

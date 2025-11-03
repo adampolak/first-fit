@@ -1,0 +1,218 @@
+--- a/original.py
++++ b/original.py
+@@ -1,113 +1,131 @@
+ # EVOLVE-BLOCK-START
+ 
+ from math import gcd
+ 
+-# --- overlap, FirstFit, clique on floats ---
++def overlaps(a, b):
++    """Open‐interval overlap test."""
++    (l1, r1), (l2, r2) = a, b
++    return max(l1, l2) < min(r1, r2)
+ 
+-def overlaps(a,b):
+-    (l1,r1),(l2,r2)=a,b
+-    return max(l1,l2)<min(r1,r2)
+-
+-def firstfit_colors(T):
+-    colors=[]
+-    for iv in T:
+-        placed=False
+-        for c in colors:
+-            if not any(overlaps(iv,u) for u in c):
+-                c.append(iv)
+-                placed=True
++def firstfit_colors(intervals):
++    """Fast FirstFit using last‐endpoint tracking."""
++    last_end = []
++    for (l, r) in intervals:
++        placed = False
++        for i in range(len(last_end)):
++            if l >= last_end[i]:
++                last_end[i] = r
++                placed = True
+                 break
+         if not placed:
+-            colors.append([iv])
+-    return len(colors)
++            last_end.append(r)
++    return len(last_end)
+ 
+-def clique_number(T):
+-    ev=[]
+-    for l,r in T:
+-        if l<r:
+-            ev.append((l,1))
+-            ev.append((r,-1))
+-    ev.sort(key=lambda x:(x[0], x[1]))
+-    cur=best=0
+-    for _,t in ev:
+-        cur+=t
+-        if cur>best: best=cur
++def clique_number(intervals):
++    """Sweep‐line to compute maximum concurrency (ω)."""
++    events = []
++    for (l, r) in intervals:
++        if l < r:
++            events.append((l, 1))
++            events.append((r, -1))
++    # exit events (-1) before entry (+1) at same coordinate
++    events.sort(key=lambda e: (e[0], e[1]))
++    cur = best = 0
++    for _, delta in events:
++        cur += delta
++        if cur > best:
++            best = cur
+     return best
+ 
+-# --- strict pruning on floats ---
+-
+ def prune_strict_floats(intervals, target_cols, target_om):
+-    cur=list(intervals)
+-    # sort by descending length to try to remove long redundant ones first
+-    def length(iv): return iv[1]-iv[0]
+-    changed=True
++    """
++    Greedily remove any interval whose deletion does not
++    reduce the FirstFit color count or the clique number.
++    """
++    T = list(intervals)
++    # try removing longer intervals first (they tend to be redundant)
++    def length(iv): return iv[1] - iv[0]
++    changed = True
+     while changed:
+-        changed=False
+-        order=sorted(range(len(cur)), key=lambda i:(-length(cur[i]),i))
++        changed = False
++        # indices sorted by descending length
++        order = sorted(range(len(T)), key=lambda i: -length(T[i]))
+         for i in order:
+-            cand=cur[:i]+cur[i+1:]
+-            if firstfit_colors(cand)==target_cols and clique_number(cand)==target_om:
+-                cur=cand
+-                changed=True
++            candidate = T[:i] + T[i+1:]
++            if firstfit_colors(candidate) == target_cols and clique_number(candidate) == target_om:
++                T = candidate
++                changed = True
+                 break
+-    return cur
+-
+-# --- normalize floats -> small ints ---
++    return T
+ 
+ def normalize_intervals(T):
+-    if not T: return []
+-    pts=sorted({x for seg in T for x in seg})
+-    # map to even integers
+-    mp={}
+-    c=0
++    """Map all endpoints to a minimal even integer grid and divide out gcd."""
++    if not T:
++        return []
++    pts = sorted({x for seg in T for x in seg})
++    mp = {}
++    c = 0
+     for x in pts:
+-        mp[x]=c; c+=2
+-    L=[(mp[l],mp[r]) for l,r in T]
+-    # shift min to 0
+-    mn=min(min(a,b) for a,b in L)
+-    L=[(a-mn,b-mn) for a,b in L]
+-    # divide out gcd
+-    g=0
+-    for a,b in L:
+-        g=gcd(g,abs(a)); g=gcd(g,abs(b))
+-    if g>1:
+-        L=[(a//g,b//g) for a,b in L]
++        mp[x] = c
++        c += 2
++    L = [(mp[l], mp[r]) for (l, r) in T]
++    # shift so min coordinate is 0
++    mn = min(a for a, _ in L)
++    L = [(a - mn, b - mn) for (a, b) in L]
++    # divide by gcd of all endpoints
++    g = 0
++    for a, b in L:
++        g = gcd(g, abs(a))
++        g = gcd(g, abs(b))
++    if g > 1:
++        L = [(a // g, b // g) for (a, b) in L]
+     return L
+ 
+-# --- build one round of 4‐copy + 4‐blockers ---
+-
+-def expand_once(T):
+-    lo=min(l for l,r in T)
+-    hi=max(r for l,r in T)
+-    delta=hi-lo
+-    S=[]
+-    # four standard copies
+-    for s in (2,6,10,14):
+-        off=delta*s - lo
+-        for l,r in T:
+-            S.append((l+off,r+off))
+-    # four blockers
+-    for a,b in ((1,5),(12,16),(4,9),(8,13)):
+-        S.append((delta*a,delta*b))
++def expand_once(T, level):
++    """
++    One round of 4‐copy + 4‐blockers with systematic tiling offsets.
++    We cycle through four offset patterns to perturb the geometry.
++    """
++    # four offset‐patterns (A, B, C, D) in a fixed cycle
++    offset_patterns = [
++        (2, 6, 10, 14),
++        (1, 5, 9, 13),
++        (3, 7, 11, 15),
++        (0, 4, 8, 12)
++    ]
++    offsets = offset_patterns[level % len(offset_patterns)]
++    lo = min(l for l, r in T)
++    hi = max(r for l, r in T)
++    delta = hi - lo
++    S = []
++    # create the four translated copies
++    for s in offsets:
++        off = delta * s - lo
++        for (l, r) in T:
++            S.append((l + off, r + off))
++    # classic four‐blocker template (preserves ω=5)
++    for (a, b) in ((1,5), (12,16), (4,9), (8,13)):
++        S.append((delta * a, delta * b))
+     return S
+ 
+-# --- main construction with per-level pruning ---
+-
+ def construct_intervals():
+-    T=[(0.0,1.0)]
+-    # target ratio ~2.6 comes from depth=4 giving FF=13, ω=5
+-    for _ in range(4):
+-        S=expand_once(T)
+-        # compute local targets on floats
+-        target_om=clique_number(S)
+-        target_cols=firstfit_colors(S)
+-        # prune strictly on floats
+-        T=prune_strict_floats(S, target_cols, target_om)
+-    # normalize to small ints
++    """
++    Build the adversarial sequence by 4 recursive expansions
++    with tiling‐cycle offsets and strict per‐level pruning.
++    """
++    T = [(0.0, 1.0)]
++    for level in range(4):
++        S = expand_once(T, level)
++        # record local targets on floats
++        target_cols = firstfit_colors(S)
++        target_om   = clique_number(S)
++        # prune away any interval not needed to maintain (cols, ω)
++        T = prune_strict_floats(S, target_cols, target_om)
++    # finally normalize to a compact integer grid
+     return normalize_intervals(T)
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

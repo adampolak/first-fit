@@ -1,0 +1,122 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(depth=None):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This implementation follows the recursive "cap" construction
+  inspired by Figure 4 in https://arxiv.org/abs/1506.00192 and
+  increases the recursion depth to amplify the FF/omega ratio.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Allow explicit depth control to explore smarter configurations.
+  # Increase default depth slightly to give more stages for FF pressure.
+  if depth is None:
+    depth = 5
+
+  # Pattern banks to introduce variety across recursion levels.
+  START_SETS = [
+    [2, 6, 10, 14],
+    [3, 7, 11, 15],
+    [4, 8, 12, 16],
+    [5, 9, 13, 17],
+    [6, 10, 14, 18],
+  ]
+  BRIDGE_SETS = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],
+    [(2, 6), (13, 17), (5, 10), (9, 14)],
+    [(3, 7), (14, 18), (6, 11), (10, 15)],
+    [(4, 8), (15, 19), (7, 12), (11, 16)],
+    [(5, 9), (16, 20), (8, 13), (12, 17)],
+  ]
+
+  SCALING_LIST = [1.0, 1.2, 0.8, 1.15]
+  # Start with two disjoint seeds to diversify recursive growth
+  T = [(0.0, 1.0), (5.0, 6.0)]
+
+  # We'll use interleaved replication of copies (instead of concatenation)
+  # and spread bridge-insertions across the interleaved stream to act as
+  # early blockers for FirstFit.
+  for k in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    span = hi - lo
+    if span <= 0:
+      span = 1.0
+    gamma = SCALING_LIST[k % len(SCALING_LIST)]
+    delta = span * gamma
+
+    # choose start and bridge patterns for this level
+    start_list = START_SETS[k % len(START_SETS)]
+    bridge_set = BRIDGE_SETS[k % len(BRIDGE_SETS)]
+
+    # create shifted copies of T (one list per start factor)
+    copies = []
+    for s in start_list:
+      copy = [ (delta * s + l - lo, delta * s + r - lo) for (l, r) in T ]
+      copies.append(copy)
+
+    # interleave elements across copies to make the arrival order more adversarial
+    num_copies = len(copies)
+    max_len = max(len(c) for c in copies) if copies else 0
+    interleaved = []
+    for i in range(max_len):
+      # deterministically rotate the order to break regular symmetry
+      order = [ (j + i + k) % num_copies for j in range(num_copies) ]
+      for j in order:
+        if i < len(copies[j]):
+          interleaved.append(copies[j][i])
+      # insert a tiny deterministic mini-blocker in some layers to disrupt local reuse
+      if i == (max_len // 2) and (k % 2 == 1):
+        small_left = delta * (start_list[0] - 0.25)
+        small_right = delta * (start_list[0] - 0.05)
+        interleaved.append((small_left, small_right))
+
+    # prepare bridges scaled for this level
+    bridges = [ (delta * a, delta * b) for (a, b) in bridge_set ]
+
+    # spread bridges into the interleaved stream rather than appending at the end:
+    # insert first half after ~1/3, second half after ~2/3 of the stream.
+    if interleaved:
+      n = len(interleaved)
+      p1 = max(0, n // 3)
+      p2 = min(n, 2 * n // 3)
+      S = []
+      S.extend(interleaved[:p1])
+      # add first half of bridges
+      S.extend(bridges[: len(bridges) // 2 ])
+      S.extend(interleaved[p1:p2])
+      # add remaining bridges
+      S.extend(bridges[len(bridges) // 2 :])
+      S.extend(interleaved[p2:])
+    else:
+      S = interleaved[:]
+      S.extend(bridges)
+
+    # advance to next level
+    T = S
+
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

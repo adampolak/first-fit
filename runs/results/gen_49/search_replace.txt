@@ -1,0 +1,77 @@
+<NAME>
+vary_recursion_depths
+</NAME>
+
+<DESCRIPTION>
+Systematically vary the recursion depth parameter k among values [3,4,5] when building the baseline, rather than fixing k=4. This expands the search to shallower and deeper constructions, potentially uncovering configurations with improved FF/ω ratios for different depths. A fallback still uses k=4 if no augmented candidate beats the baseline.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    offsets_set = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    blockers = ((1, 5), (12, 16), (4, 9), (8, 13))
+    k = 4
+
+    best = None  # (score, omega, cols, n, intervals)
+    for offs in offsets_set:
+        base = build_baseline(k=k, offsets=offs, blockers=blockers)
+        # augment
+        aug = augment_with_corridor_waves(base)
+        # Evaluate
+        om = clique_number(aug)
+        cols = firstfit_colors(aug)
+        ratio = cols / max(1, om)
+        score = ratio - 1e-6 * (len(aug) / 10000.0)
+        cand = (score, om, cols, len(aug), aug)
+        if best is None:
+            best = cand
+        else:
+            if cand[0] > best[0] + 1e-9:
+                best = cand
+            elif abs(cand[0] - best[0]) <= 1e-9:
+                # smaller n preferred, then more colors
+                if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                    best = cand
+
+    return best[4] if best is not None else build_baseline(k=4)
+=======
+    depths = [3, 4, 5]
+    offsets_set = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    blockers = ((1, 5), (12, 16), (4, 9), (8, 13))
+
+    best = None  # (score, omega, cols, n, intervals)
+    for k in depths:
+        for offs in offsets_set:
+            base = build_baseline(k=k, offsets=offs, blockers=blockers)
+            # augment
+            aug = augment_with_corridor_waves(base)
+            # Evaluate
+            om = clique_number(aug)
+            cols = firstfit_colors(aug)
+            ratio = cols / max(1, om)
+            score = ratio - 1e-6 * (len(aug) / 10000.0)
+            cand = (score, om, cols, len(aug), aug)
+            if best is None:
+                best = cand
+            else:
+                if cand[0] > best[0] + 1e-9:
+                    best = cand
+                elif abs(cand[0] - best[0]) <= 1e-9:
+                    # smaller n preferred, then more colors
+                    if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                        best = cand
+
+    # Fallback to baseline with default k if no augmented candidate improves
+    return best[4] if best is not None else build_baseline(k=4)
+>>>>>>> REPLACE
+</DIFF>

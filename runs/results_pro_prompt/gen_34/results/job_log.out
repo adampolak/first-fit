@@ -1,0 +1,4 @@
+construct_intervals: depth=0, order=refined, n=2388, FirstFit=16, OPT=6, ratio=2.667
+Run 1/1 completed in 97.71 seconds
+Correctness and error status saved to results73v4prolpsat/gen_34/results/correct.json
+Metrics saved to results73v4prolpsat/gen_34/results/metrics.json

@@ -1,0 +1,92 @@
+<NAME>
+expand_search_space_offsets_blockers
+</NAME>
+
+<DESCRIPTION>
+I enlarge the adversarial search space by:
+- Supporting an additional arrival ordering schedule 'before' in the recursive builder (blockers before copies), which is known to alter FirstFit’s behavior by reserving early colors and can increase the total colors used without increasing omega.
+- Adding a fourth offset template D = (0, 4, 8, 12) and multiple pattern cycles that mix A, B, C, D across depths; small tiling shifts can change cross-copy coupling and often yield different FirstFit trajectories.
+- Adding two new blocker templates (B and C) recommended in the literature-inspired notes: Template B = ((0, 4), (7, 11), (3, 7), (10, 14)) and Template C = ((1, 5), (9, 13), (5, 9), (12, 16)). These create different “caps” and bridges, pushing FirstFit while preserving clique size.
+- Trying an extra depth option iterations+1 (capped at 5) to allow one more recursive amplification when feasible.
+
+These are targeted, deterministic extensions that broaden the construction family and increase the chance to find a witness with a strictly better FirstFit/omega ratio while keeping runtime reasonable. No external behavior or API changes are introduced; the modifications are confined within the evolve block and maintain normalization and evaluation semantics.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+      if schedule == 'after':
+        S = copies_from(T, offs) + blks
+      else:  # 'split' schedule: half copies, then blockers, then rest
+        h = len(offs) // 2
+        S = copies_from(T, offs[:h]) + blks + copies_from(T, offs[h:])
+=======
+      if schedule == 'after':
+        S = copies_from(T, offs) + blks
+      elif schedule == 'before':
+        # blockers first, then all copies
+        S = blks + copies_from(T, offs)
+      else:  # 'split' schedule: half copies, then blockers, then rest
+        h = len(offs) // 2
+        S = copies_from(T, offs[:h]) + blks + copies_from(T, offs[h:])
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  canonical = (2, 6, 10, 14)
+  alt_a = (1, 5, 9, 13)
+  alt_b = (3, 7, 11, 15)
+
+  pattern_cycles = [
+    (canonical,),                            # fixed canonical
+    (canonical, alt_a),                      # alternate with (1,5,9,13)
+    (canonical, alt_b),                      # alternate with (3,7,11,15)
+  ]
+
+  # Connector templates (Figure-4 and small variants)
+  connectors_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],    # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],    # shifted variant
+    [(2, 6), (12, 16), (4, 9), (8, 13)],    # shift first blocker
+  ]
+
+  schedules = ['after', 'split']            # two effective orderings
+  extra_first_choices = [False, True]       # optional extra first-level copy
+
+  # Keep search modest for runtime
+  depths = [max(2, iterations - 1), iterations]
+=======
+  canonical = (2, 6, 10, 14)
+  alt_a = (1, 5, 9, 13)
+  alt_b = (3, 7, 11, 15)
+  alt_d = (0, 4, 8, 12)
+
+  pattern_cycles = [
+    (canonical,),                               # fixed canonical
+    (alt_d,),                                   # fixed D
+    (canonical, alt_a),                         # alternate A↔B
+    (canonical, alt_b),                         # alternate A↔C
+    (canonical, alt_d),                         # alternate A↔D
+    (alt_a, alt_b),                             # alternate B↔C
+    (canonical, alt_a, alt_b, alt_d),           # cycle A→B→C→D
+  ]
+
+  # Connector templates (Figure-4 and recommended variants)
+  connectors_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],       # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],       # shifted variant
+    [(2, 6), (12, 16), (4, 9), (8, 13)],       # shift first blocker
+    [(0, 4), (7, 11), (3, 7), (10, 14)],       # Template B (recommended)
+    [(1, 5), (9, 13), (5, 9), (12, 16)],       # Template C (recommended)
+  ]
+
+  schedules = ['after', 'before', 'split']     # three effective orderings
+  extra_first_choices = [False, True]          # optional extra first-level copy
+
+  # Keep search modest for runtime; include one deeper level capped at 5
+  depths = sorted(set([max(2, iterations - 1), iterations, min(5, iterations + 1)]))
+>>>>>>> REPLACE
+
+</DIFF>

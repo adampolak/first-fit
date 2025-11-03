@@ -1,0 +1,157 @@
+<NAME>
+alternate_offsets_and_normalize
+</NAME>
+
+<DESCRIPTION>
+Introduce two targeted improvements inspired by adversarial constructions and prior experiments:
+
+1) Alternate copy offsets by level between the canonical (2,6,10,14) pattern and a shifted pattern (1,5,9,13). Alternation increases coupling between levels and tends to force FirstFit into worse color reuse decisions without increasing clique size much.
+2) Optionally add an extra fifth copy at the first iteration (offset 18) to strengthen early color pollution; controlled via a small flag (extra_first=True).
+3) Normalize endpoints to a compact integer grid before returning (maps each unique endpoint to increasing even integers). This keeps coordinates tidy and matches successful previous variants.
+
+These changes are conservative (they preserve the Figure-4 style recurrence) but increase arrival-order engineering pressure on FirstFit while keeping the clique computation stable. The edits are implemented with minimal changes to the existing function so behavior is easy to analyze and test.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192 and increases
+  the number of recursive expansions to produce a stronger adversary.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 4)
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  # Each iteration replaces T by four translated/scaled copies plus four
+  # longer intervals that connect the copies in the manner of Figure 4.
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled copies at offsets chosen to stagger intervals
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4, extra_first=True):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This variant:
+    - alternates copy offsets between two staggerings across levels
+      (canonical and shifted) to increase coupling between levels;
+    - optionally adds an extra fifth copy on the first iteration to
+      pollute early small colors (extra_first=True);
+    - normalizes endpoints to a compact integer grid before returning.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 4)
+    extra_first: whether to add a fifth copy at the first iteration (default True)
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # two offset patterns to alternate between levels (helps arrival-order engineering)
+  offsets_patterns = [
+    (2, 6, 10, 14),   # canonical
+    (1, 5, 9, 13)     # shifted (interleaved) alternative
+  ]
+
+  T = [(0, 1)]
+  # Each iteration replaces T by multiple translated/scaled copies plus connectors.
+  for lvl in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+
+    # pick offsets for this level (alternate patterns)
+    base_offsets = offsets_patterns[lvl % len(offsets_patterns)]
+    if extra_first and lvl == 0:
+      # extend first-level offsets with an extra copy to increase early coupling
+      offs = tuple(list(base_offsets) + [18])
+    else:
+      offs = base_offsets
+
+    # Place translated copies (left-anchored)
+    for start in offs:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+
+  # Normalize endpoints to a compact integer grid while preserving order.
+  # Map each unique endpoint to an increasing even integer (to ensure
+  # positive lengths and avoid degeneracy).
+  endpoints = sorted(set([x for seg in T for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2
+  normalized = [(coord[l], coord[r]) for (l, r) in T]
+
+  return normalized
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

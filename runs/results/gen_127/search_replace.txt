@@ -1,0 +1,97 @@
+<NAME>
+add_depth5
+</NAME>
+
+<DESCRIPTION>
+Extend the recursion depth options to include depth=5, allowing exploration of deeper recursive patterns which may boost the FirstFit/ω ratio at the expense of a larger instance.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    depths = [3, 4]  # try a couple of depths (keeps sizes manageable)
+=======
+    depths = [3, 4, 5]  # include depth=5 for more aggressive recursion
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+expand_offset_templates
+</NAME>
+
+<DESCRIPTION>
+Add additional offset template variants (3,7,11,15) and (0,4,8,12) to explore more branching geometries and potentially improve FirstFit pressure across varied spatial tilings.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+    ]
+=======
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+        (3,7,11,15),    # shifted +1
+        (0,4,8,12),     # shifted -2
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+restrict_extra_first_to_root
+</NAME>
+
+<DESCRIPTION>
+Modify extra_first behavior to add the extra copy only at the top recursion level (lvl==0) rather than every level, concentrating branching at the root to better manage clique growth deeper down.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        offs = list(offsets)
+        if extra_first:
+            # add a further copy step (+4) at every level
+            offs = offs + [offs[-1] + 4]
+=======
+        offs = list(offsets)
+        if extra_first and lvl == 0:
+            # add a further copy step (+4) only at the top level
+            offs = offs + [offs[-1] + 4]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+increase_waves_small_length
+</NAME>
+
+<DESCRIPTION>
+Increase the augmentation wave budget to 120 and force wave_length=1 to exploit smallest interval injections for maximal FirstFit pressure without growing the clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    max_waves = 60  # keep moderate
+    wave_length = max(1, max(1, max((r-l) for l,r in current)) // 30)  # choose a small wave length relative to scale
+    # ensure wave_length at least 2 for stability if space allows
+    wave_length = max(1, min(3, wave_length))
+=======
+    max_waves = 120  # increased wave budget for finer augmentation
+    wave_length = 1  # always use minimal wave length to maximize FF pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+increase_candidate_limit
+</NAME>
+
+<DESCRIPTION>
+Expand the wave augmentation search by raising the candidates_limit to 2000, allowing more potential insertion positions to be evaluated each wave iteration.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        cand, newT = try_add_wave(current, target_omega, wave_length=wave_length, candidates_limit=800)
+=======
+        cand, newT = try_add_wave(current, target_omega, wave_length=wave_length, candidates_limit=2000)
+>>>>>>> REPLACE
+</DIFF>

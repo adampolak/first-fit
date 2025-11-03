@@ -1,0 +1,116 @@
+<NAME>
+deeper_cap_with_budget_and_shift
+</NAME>
+
+<DESCRIPTION>
+I keep the proven recursive cap construction but push the recursion deeper to force FirstFit to use more colors while growing the clique number slowly. For this construction, after d expansions FirstFit uses roughly 3d+1 colors while the clique number is d+1, so the ratio approaches 3 from below. The current depth 4 yields 13/5 = 2.6. Increasing to depth 6 should yield about 19/7 ≈ 2.714, an immediate improvement.
+
+To keep the instance size manageable, I add an interval budget and choose the deepest d whose size fits the budget, using the exact closed form n_d = (7*4^d - 4)/3 for the number of intervals. I set a safe default budget of 10,000 intervals, which selects depth 6 under this construction (≈9556 intervals). Finally, I normalize the final instance by shifting all intervals so the minimum left endpoint is 0, reducing coordinate span without affecting overlaps (open intervals are preserved under translation).
+
+This targeted change is consistent with the recursive strategy from the literature and aligns with the “shrink” heuristic to keep witnesses compact, while measurably improving the FF/ω ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This implementation follows the recursive "cap" construction
+  inspired by Figure 4 in https://arxiv.org/abs/1506.00192 and
+  increases the recursion depth to amplify the FF/omega ratio.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Increase recursion depth to grow FF faster than omega (empirically).
+  depth = 4
+
+  T = [(0, 1)]
+  for _ in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+=======
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  This implementation follows the recursive "cap" construction
+  inspired by Figure 4 in https://arxiv.org/abs/1506.00192 and
+  increases the recursion depth (subject to a size budget) to amplify
+  the FF/omega ratio. After d expansions, FF uses ≈ 3d+1 colors
+  while omega is d+1, so the ratio approaches 3 from below.
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Choose the deepest recursion allowed by an interval-count budget
+  # to improve FF/omega while keeping the instance compact.
+  def _count_intervals(d: int) -> int:
+    # Recurrence: n_d = 4 n_{d-1} + 4, n_0 = 1  =>  n_d = (7*4^d - 4)/3
+    return (7 * (4 ** d) - 4) // 3
+
+  max_intervals = 10_000
+  target_depth = 6  # depth 6 gives ~9556 intervals and ratio ~19/7 ≈ 2.714
+  depth = target_depth
+  while depth > 1 and _count_intervals(depth) > max_intervals:
+    depth -= 1
+
+  # Cap construction
+  T = [(0, 1)]
+  for _ in range(depth):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+
+  # Normalize by shifting so the minimum left endpoint is 0.
+  # This shrink step preserves all intersections for open intervals.
+  base = min(l for l, r in T)
+  if base != 0:
+    T = [(l - base, r - base) for l, r in T]
+
+  return T
+>>>>>>> REPLACE
+
+</DIFF>

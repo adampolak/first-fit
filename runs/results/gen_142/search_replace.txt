@@ -1,0 +1,70 @@
+<NAME>
+add_interleaved_and_halfstep_offsets</NAME>
+
+<DESCRIPTION>
+Introduce an 'interleaved' scheduling option in `schedules` to interleave copies and blockers, which can further disrupt FirstFit assignments. Also expand `offsets_options` with a half-step stagger pattern `(2.5, 6.5, 10.5, 14.5)` to diversify geometry. Implement handling for `schedule=='interleaved'` in `build_candidate`, interleaving each copy with its corresponding blocker. These targeted changes enrich the search space without blowing up the instance size and may push the FirstFit usage higher while keeping ω unchanged.</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  schedules = ['after', 'before', 'split']
+=======
+  schedules = ['after', 'before', 'split', 'interleaved']
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  offsets_options = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted pattern
+    (3, 7, 11, 15),  # alternate stagger
+  ]
+=======
+  offsets_options = [
+    (2, 6, 10, 14),    # baseline
+    (1, 5, 9, 13),     # shifted pattern
+    (3, 7, 11, 15),    # alternate stagger
+    (2.5, 6.5, 10.5, 14.5),  # half-step stagger
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      if schedule == 'after':
+        S = make_copies(T, offs) + blockers
+      elif schedule == 'before':
+        S = list(blockers) + make_copies(T, offs)
+      else:  # 'split': half the copies, then blockers, then remaining copies
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first) + list(blockers) + make_copies(T, second)
+=======
+      if schedule == 'after':
+        S = make_copies(T, offs) + blockers
+      elif schedule == 'before':
+        S = list(blockers) + make_copies(T, offs)
+      elif schedule == 'split':
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first) + list(blockers) + make_copies(T, second)
+      elif schedule == 'interleaved':
+        S = []
+        for idx, start in enumerate(offs):
+          # add one copy
+          if translation == 'left':
+            off = delta * start - lo
+          else:
+            off = delta * start - center
+          for (l0, r0) in T:
+            S.append((l0 + off, r0 + off))
+          # then add corresponding blocker if available
+          if idx < len(blockers):
+            S.append(blockers[idx])
+      else:
+        # fallback to simple after-behavior
+        S = make_copies(T, offs) + blockers
+>>>>>>> REPLACE
+</DIFF>

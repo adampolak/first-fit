@@ -1,0 +1,25 @@
+<NAME>
+revert_identity_order
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Reassess ordering’s impact on FirstFit color blow-up vs. clique number stability
+- Restore the canonical recursive order that aligns caps and copies to couple colors across scales
+- Validate color usage (FirstFit) and OPT after the change on the same construction
+- If improved, lock in identity order; plan future work on parallel seeds and capped towers
+
+Argumentation:
+The block_hybrid_order perturbs the carefully engineered recursive order that makes Figure 4’s construction adversarial for FirstFit. Prior metrics show identity order on the same depth-4 fractal achieves alg=13, opt=5 (combined score 2.60), whereas the hybrid reordering drops to alg=11 (combined score 2.20). Returning the identity order re-establishes the multi-scale coupling that forces FirstFit to open more colors while preserving the clique number at 5.
+
+Post-action validation:
+With identity order, we expect the evaluator to report alg≈13 and opt=5 on this instance, matching the already-observed best for this construction. Next step: explore parallel seed anchors and block-wise hybrids only after selecting the best-performing global order.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  return block_hybrid_order(T)
+=======
+  return T
+>>>>>>> REPLACE
+</DIFF>

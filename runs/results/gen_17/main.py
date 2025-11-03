@@ -1,0 +1,174 @@
+# EVOLVE-BLOCK-START
+
+import random
+from math import gcd
+
+# Deterministic RNG
+RNG = random.Random(12345)
+
+def overlaps(a, b):
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+def firstfit_colors(intervals):
+    """Fast FirstFit using last-endpoints tracking."""
+    last_end = []
+    for (l, r) in intervals:
+        placed = False
+        for i, le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def clique_number(intervals):
+    """Sweep-line for open intervals."""
+    events = []
+    for (l, r) in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda e: (e[0], e[1]))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+def normalize_intervals(intervals):
+    """Shift so min=0, divide by gcd of all endpoints."""
+    if not intervals:
+        return []
+    # convert to ints, shift
+    all_pts = [x for iv in intervals for x in iv]
+    mn = min(all_pts)
+    shifted = [ (l-mn, r-mn) for (l,r) in intervals ]
+    # compute gcd
+    g = 0
+    for (l,r) in shifted:
+        g = gcd(g, l)
+        g = gcd(g, r)
+    if g > 1:
+        shifted = [ (l//g, r//g) for (l,r) in shifted ]
+    return shifted
+
+def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    Tn = normalize_intervals(intervals)
+    n = len(Tn)
+    if n == 0:
+        return (-1.0, 0, 0, 0)
+    om = clique_number(Tn)
+    if om == 0:
+        return (-1.0, 0, 0, n)
+    cols = firstfit_colors(Tn)
+    score = cols/om - 1e-6*(n/10000.0)
+    return (score, om, cols, n)
+
+def shrink_intervals(intervals, target_om, target_cols):
+    """Greedily remove intervals that do not drop the (om,cols) witness."""
+    T = intervals[:]
+    i = 0
+    while i < len(T):
+        cand = T[:i] + T[i+1:]
+        s, om, cols, _ = evaluate(cand)
+        if om == target_om and cols >= target_cols:
+            T = cand
+            i = 0
+        else:
+            i += 1
+    return T
+
+def construct_intervals():
+    # Parameters
+    MAX_ITERS = 1500
+    MAX_N      = 200
+    ADD_P      = 0.3
+    RM_P       = 0.2
+    MOVE_P     = 0.4
+    RESIZE_P   = 0.4
+    TEMP_START = 1.0
+    TEMP_END   = 0.01
+
+    # Seed with the classic 4-copy/4-blocker baseline
+    def baseline():
+        T = [(0,1)]
+        for _ in range(4):
+            lo = min(l for l,_ in T)
+            hi = max(r for _,r in T)
+            d  = hi-lo
+            S = []
+            for o in (2,6,10,14):
+                S += [ (l+ d*o - lo, r+ d*o - lo) for (l,r) in T ]
+            S += [
+                (d*1,  d*5),
+                (d*12, d*16),
+                (d*4,  d*9),
+                (d*8,  d*13)
+            ]
+            T = S
+        return normalize_intervals(T)
+
+    best = baseline()
+    best_score, best_om, best_cols, best_n = evaluate(best)
+
+    # current solution
+    current = best[:]
+    curr_score = best_score
+
+    for it in range(1, MAX_ITERS+1):
+        # temperature schedule
+        t = it / MAX_ITERS
+        temp = TEMP_START*(1-t) + TEMP_END*t
+
+        # mutate current
+        cand = current[:]
+        # add
+        if len(cand)<MAX_N and RNG.random()<ADD_P:
+            L = RNG.randint(1, 100)
+            S = RNG.randint(0, 5000)
+            cand.append((S, S+L))
+        # remove
+        if len(cand)>1 and RNG.random()<RM_P:
+            idx = RNG.randrange(len(cand))
+            del cand[idx]
+        # move or resize
+        for i in range(len(cand)):
+            if RNG.random()<MOVE_P:
+                shift = RNG.randint(-50, 50)
+                l,r = cand[i]
+                cand[i] = (l+shift, r+shift)
+            if RNG.random()<RESIZE_P:
+                delta = RNG.randint(-20, 20)
+                l,r = cand[i]
+                if r-l+delta >= 1:
+                    cand[i] = (l, r+delta)
+
+        # clean up invalid
+        cand = [ (l,r) for (l,r) in cand if l<r ]
+
+        # evaluate
+        score, om, cols, n = evaluate(cand)
+
+        # acceptance
+        if score > curr_score or RNG.random() < pow(2.71828, (score-curr_score)/max(temp,1e-6)):
+            current = cand
+            curr_score = score
+
+        # update best
+        if score > best_score:
+            best, best_score, best_om, best_cols, best_n = cand, score, om, cols, n
+
+    # post-shrink
+    best = shrink_intervals(best, best_om, best_cols)
+    return normalize_intervals(best)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

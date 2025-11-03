@@ -1,0 +1,117 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct an interval sequence to stress FirstFit using a recursive cap gadget
+  (Figure 4 from https://arxiv.org/abs/1506.00192) with four expansion layers
+  and a greedy adversarial arrival order that maximizes FirstFit's colors while
+  keeping the clique number small.
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals in adversarial order.
+  """
+
+  # Build a stronger backbone with four recursive expansions and cyclic starts
+  start_sets = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+    (5, 9, 13, 17),
+  ]
+
+  # Start with a single unit interval.
+  T = [(0.0, 1.0)]
+  # Perform four recursive expansions with alternating placement to diversify.
+  for i in range(4):
+    # Compute current span
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Create four scaled copies of T at shifted positions
+    starts = start_sets[i % 4]
+    for start in starts:
+      offset = delta * start - lo
+      S += [(l + offset, r + offset) for (l, r) in T]
+    # Add the four bridging intervals as in Figure 4
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13),
+    ]
+    T = S
+
+  # Greedy adversarial reordering to push FirstFit upward without changing omega
+  def overlap(a, b):
+    return (a[0] < b[1]) and (b[0] < a[1])
+
+  n = len(T)
+  # Precompute overlap adjacency and simple features
+  neighbors = [set() for _ in range(n)]
+  lengths = [0.0] * n
+  for i in range(n):
+    li, ri = T[i]
+    lengths[i] = ri - li
+    for j in range(i):
+      lj, rj = T[j]
+      if (li < rj) and (lj < ri):
+        neighbors[i].add(j)
+        neighbors[j].add(i)
+  degrees = [len(neighbors[i]) for i in range(n)]
+
+  remaining = list(range(n))
+  placed_color = {}  # idx -> FF color assigned at placement time
+  order = []
+
+  # Evaluate in a restricted candidate pool each round for efficiency:
+  # top-by-degree and top-by-length remaining intervals.
+  while remaining:
+    pool_size_deg = min(128, len(remaining))
+    pool_size_len = min(96, len(remaining))
+    # Deterministic pools
+    cand_pool = set(sorted(remaining, key=lambda i: degrees[i], reverse=True)[:pool_size_deg])
+    cand_pool.update(sorted(remaining, key=lambda i: lengths[i], reverse=True)[:pool_size_len])
+
+    best_idx = None
+    best_score = (-1, -1, -1.0)
+    for idx in cand_pool:
+      used = set()
+      # collect colors used by already-placed neighbors
+      for j in neighbors[idx]:
+        c = placed_color.get(j)
+        if c is not None:
+          used.add(c)
+      # FirstFit color for this candidate given current prefix
+      c = 1
+      while c in used:
+        c += 1
+      # score: larger assigned color, then broader overlap with placed, then longer length
+      score = (c, len(used), lengths[idx])
+      if score > best_score:
+        best_score = score
+        best_idx = idx
+
+    # Fallback in case pool is empty (shouldn't happen): pick any remaining
+    if best_idx is None:
+      best_idx = remaining[0]
+      used = set()
+      for j in neighbors[best_idx]:
+        c = placed_color.get(j)
+        if c is not None:
+          used.add(c)
+      c = 1
+      while c in used:
+        c += 1
+      best_score = (c, len(used), lengths[best_idx])
+
+    order.append(best_idx)
+    placed_color[best_idx] = best_score[0]
+    remaining.remove(best_idx)
+
+  return [T[i] for i in order]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

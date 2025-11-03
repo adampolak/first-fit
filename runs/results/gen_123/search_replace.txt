@@ -1,0 +1,52 @@
+<NAME>
+fast_firstfit_count
+</NAME>
+
+<DESCRIPTION>
+Proposes replacing the linear-scan FirstFit counter with a binary-search-based
+structure to track color endings. This yields near O(n log k) performance for
+computing the number of colors FirstFit would use, where k is the number of
+colors employed. This speeds up the core evaluation loop in construct_intervals,
+enabling more extensive exploration (or simply faster runtimes) and potentially
+allowing deeper sweeps that could improve the combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def _ff_count(intervals):
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+=======
+  def _ff_count(intervals):
+    """
+    Optimized FirstFit color count using a dynamic, sorted-ends structure.
+    Achieves roughly O(n log k) time where k is the number of colors used.
+    """
+    from bisect import bisect_right, insort
+    ends = []  # current end times for each color
+    sorted_by_end = []  # list of (end, color_index) sorted by end
+    next_color = 0
+    for (l, r) in intervals:
+      # find a color whose last end <= l using binary search on sorted_by_end
+      pos = bisect_right(sorted_by_end, (l, float('inf'))) - 1
+      if pos >= 0:
+        end, color = sorted_by_end.pop(pos)
+        ends[color] = r
+        insort(sorted_by_end, (r, color))
+      else:
+        color = next_color
+        next_color += 1
+        ends.append(r)
+        insort(sorted_by_end, (r, color))
+    return len(ends)
+>>>>>>> REPLACE
+</DIFF>

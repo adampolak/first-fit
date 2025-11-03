@@ -1,0 +1,243 @@
+<NAME>
+beam_search_intervals
+</NAME>
+
+<DESCRIPTION>
+Replace the exhaustive per-template search in the interval witness builder with a lightweight beam-search expansion. The beam maintains a small set of best partial witnesses at each level and expands them using a compact, fixed template set (offsets, blockers, translation, schedule, interleave, reversal). After processing all levels, pick the best final witness and apply deterministic pruning to shrink its footprint without sacrificing the achieved ratio. This approach aims to explore more structural variants within a tractable runtime, potentially improving the combined score over the naive exhaustive search.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+  We sweep several recommended blueprints and pick the best validated candidate.
+  Then run a conservative two-phase pruning to reduce interval count without hurting the ratio.
+  """
+  # search space inspired by the provided recommendations
+  offsets_set = [
+    (2, 6, 10, 14),        # baseline
+    (1, 5, 9, 13),         # shift left
+    (3, 7, 11, 15),        # shift right
+    (0, 4, 8, 12),         # anchored at 0
+    (1.5, 5.5, 9.5, 13.5), # half-step stagger
+    (2, 6, 9, 14),         # slight skew
+    (2, 7, 11, 14),        # shifted second copy
+  ]
+  blockers_templates = [
+    # Template A: baseline
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # Template B: early/late shorter
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # Template C: tighter middle coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # Template D: asymmetric nudges
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # Template E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # Template F: six-blocker couplers (adds two caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+  ]
+  translations = ['left', 'center']  # how copies are positioned
+  blocker_anchors = ['left', 'center']  # how blockers are positioned
+  depths = [3, 4, 5]  # sweep as recommended
+  schedules = ['after', 'before', 'split']
+  interleaves = ['block', 'zip']
+  reverse_flags = [False, True]
+  base_seeds = [
+    [(0.0, 1.0)],                      # single seed (classic)
+    [(0.0, 1.0), (2.0, 3.0)],          # two disjoint seeds variant
+  ]
+  extra_copies_opts = [0, 1, 2]  # allow up to two extra translated copies on first level
+
+  best = None  # (score, om, cols, n, intervals_norm, raw_intervals)
+  # Enumerate combinations with a guard on worst-case explosion
+  for base in base_seeds:
+    for k in depths:
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for translation in translations:
+            for anchor in blocker_anchors:
+              for extra in extra_copies_opts:
+                offs = list(offsets)
+                if extra >= 1:
+                  last = offs[-1] if offs else 0
+                  offs.append(last + 4)
+                if extra == 2:
+                  last2 = offs[-2] if len(offs) >= 2 else (offs[-1] if offs else 0)
+                  offs.append(last2 + 8)
+                offs = tuple(offs)
+
+                # crude size guard adjusted for arbitrary number of copies per level
+                approx = (len(offs) ** k) * (len(base) + len(blockers))
+                if approx > 3500:
+                  continue
+
+                for schedule in schedules:
+                  for interleave in interleaves:
+                    for rev in reverse_flags:
+                      T = build_pattern(
+                        k=k,
+                        base_seed=base,
+                        offsets=offs,
+                        blockers=blockers,
+                        translation=translation,
+                        blocker_anchor=anchor,
+                        schedule=schedule,
+                        interleave=interleave,
+                        reverse_alt=rev,
+                      )
+                      score, om, cols, n, Tn = evaluate(T)
+                      cand = (score, om, cols, n, Tn, T)
+                      if best is None:
+                        best = cand
+                      else:
+                        if cand[0] > best[0] + 1e-9:
+                          best = cand
+                        elif abs(cand[0] - best[0]) <= 1e-9:
+                          if cand[3] < best[3]:
+                            best = cand
+                          elif cand[3] == best[3] and cand[2] > best[2]:
+                            best = cand
+
+  # Fallback to baseline if search somehow fails
+  if best is None:
+    k = 4
+    T = [(0.0, 1.0)]
+    for _ in range(k):
+      lo = min(l for l,r in T)
+      hi = max(r for l,r in T)
+      delta = hi - lo
+      S = []
+      for start in (2,6,10,14):
+        offset = delta * start - lo
+        for (l,r) in T:
+          S.append((l + offset, r + offset))
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13),
+      ]
+      T = S
+    return normalize_intervals(T)
+
+  return best[5]
+# EVOLVE-BLOCK-END
+=======
+def construct_intervals(iterations=4):
+  """
+  Beam-search expansion for interval witness construction.
+  We'll maintain a small beam of candidate patterns and expand them one level at a time
+  using a compact template set. After finishing, we prune the best final witness.
+  """
+  BEAM_WIDTH = 6
+
+  # Compact template set to expand from a current witness
+  templates = [
+     {'offsets': (2,6,10,14), 'blockers': ((1,5),(12,16),(4,9),(8,13)),
+      'translation': 'left', 'anchor':'left', 'schedule':'after', 'interleave':'block', 'reverse': False},
+     {'offsets': (2,6,10,14,18), 'blockers': ((1,5),(12,16),(4,9),(8,13)),
+      'translation': 'left', 'anchor':'left', 'schedule':'after', 'interleave':'block', 'reverse': False},
+     {'offsets': (1,5,9,13), 'blockers': ((0,4),(6,10),(8,12),(14,18)),
+      'translation': 'left', 'anchor':'left', 'schedule':'after', 'interleave':'block', 'reverse': False},
+     {'offsets': (3,7,11,15), 'blockers': ((2,6),(4,8),(10,14),(12,16)),
+      'translation': 'left', 'anchor':'left', 'schedule':'after', 'interleave':'block', 'reverse': False},
+     {'offsets': (2,6,10,14), 'blockers': ((1,5),(12,16),(3,7),(9,13)),
+      'translation': 'center', 'anchor':'center', 'schedule':'split', 'interleave':'zip', 'reverse': True},
+     {'offsets': (1,5,9,13), 'blockers': ((0,4),(6,10),(8,12),(14,18)),
+      'translation': 'center', 'anchor':'center', 'schedule':'before', 'interleave':'block', 'reverse': False},
+  ]
+  # A slightly larger template pool for diversity
+  templates.append({'offsets': (1,5,9,13,17), 'blockers': ((1,5),(12,16),(4,9),(8,13),(2,14)),
+                    'translation':'left', 'anchor':'left', 'schedule':'after', 'interleave':'block', 'reverse': False})
+
+  def expand_once(T, tmpl):
+    """Expand a current witness T by one level using template tmpl."""
+    return build_pattern(
+        k=1,
+        base_seed=T,
+        offsets=tmpl['offsets'],
+        blockers=tmpl['blockers'],
+        translation=tmpl['translation'],
+        blocker_anchor=tmpl['anchor'],
+        schedule=tmpl['schedule'],
+        interleave=tmpl['interleave'],
+        reverse_alt=tmpl['reverse'],
+    )
+
+  # Initialize beam with simple seed
+  beam = [
+    ([(0.0, 1.0)], 0.0)  # (intervals, accumulated_score)
+  ]
+
+  for level in range(iterations):
+    candidates = []
+    for T, acc_score in beam:
+      for tmpl in templates:
+        Texp = expand_once(T, tmpl)
+        Tn = normalize_intervals(Texp)
+        om = clique_number(Tn)
+        cols = firstfit_colors(Tn)
+        if om <= 0:
+          continue
+        score = cols / om
+        candidates.append((Texp, acc_score + score, om, cols, len(Texp)))
+    if not candidates:
+      break
+    # sort by accumulated score, then prefer shorter witnesses, then more colors
+    candidates.sort(key=lambda x: (x[1], -x[4], x[3]), reverse=True)
+    beam = [(cand[0], cand[1]) for cand in candidates[:BEAM_WIDTH]]
+
+  # Pick best final witness from beam
+  best_T = None
+  best_score = -1e9
+  best_om = best_cols = 0
+  best_len = 0
+  for T, acc_score in beam:
+    Tn = normalize_intervals(T)
+    om = clique_number(Tn)
+    cols = firstfit_colors(Tn)
+    if acc_score > best_score + 1e-12 or (abs(acc_score - best_score) <= 1e-12 and (best_T is None or len(T) < best_len)):
+      best_score = acc_score
+      best_T = T
+      best_om = om
+      best_cols = cols
+      best_len = len(T)
+
+  if best_T is None:
+    # Fallback to baseline if beam failed
+    k = 4
+    T = [(0.0, 1.0)]
+    for _ in range(k):
+      lo = min(l for l,r in T)
+      hi = max(r for l,r in T)
+      delta = hi - lo
+      S = []
+      for start in (2,6,10,14):
+        offset = delta * start - lo
+        for (l,r) in T:
+          S.append((l + offset, r + offset))
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13),
+      ]
+      T = S
+    return normalize_intervals(T)
+
+  # Final pruning to shrink size while preserving ratio
+  phase1 = prune_strict(best_T, best_cols, best_om)
+  target_ratio = best_cols / best_om if best_om > 0 else 0.0
+  phase2 = prune_relaxed(phase1, target_ratio, best_om)
+  final = normalize_intervals(phase2)
+  if not final:
+    return best_T
+  om = clique_number(final)
+  cols = firstfit_colors(final)
+  if om == 0 or cols / om + 1e-12 < target_ratio or om > best_om:
+    return normalize_intervals(best_T)
+  return final
+>>>>>>> REPLACE
+</DIFF>

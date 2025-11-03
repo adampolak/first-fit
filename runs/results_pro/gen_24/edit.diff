@@ -1,0 +1,262 @@
+--- a/original.py
++++ b/original.py
+@@ -1,232 +1,252 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+     """
+     Build intervals to stress FirstFit:
+     - start with a Figure-4 gadget (recursive expansion),
+     - optionally run a short deterministic-randomized constructive search to add
+       a few spanning intervals that try to force more FirstFit colors while
+       preserving a small clique number.
+     Returns list of open intervals (l, r).
+     """
+ 
+     import math
+     import random
+     random.seed(1234567)
+ 
+     # --- Utilities ---------------------------------------------------------
+     def overlap(a, b):
+         return (a[0] < b[1]) and (b[0] < a[1])
+ 
+     def firstfit_colors(intervals):
+         colors = []
+         for i, iv in enumerate(intervals):
+             used = set()
+             for j in range(i):
+                 if overlap(iv, intervals[j]):
+                     used.add(colors[j])
+             c = 1
+             while c in used:
+                 c += 1
+             colors.append(c)
+         return colors, (max(colors) if colors else 0)
+ 
+     def clique_size(intervals):
+         events = []
+         for (l, r) in intervals:
+             events.append((l, 1))
+             events.append((r, -1))
+         # ensure ends processed before starts at same coordinate
+         events.sort(key=lambda x: (x[0], x[1]))
+         cur = best = 0
+         for _, d in events:
+             cur += d
+             if cur > best:
+                 best = cur
+         return best
+ 
+     # --- Gadget construction (Figure 4 style) ------------------------------
+     def make_gadget(depth=3, alternate=False):
+         # base seed
+         T = [(0.0, 1.0)]
+         bridge_factors = [(1, 5), (12, 16), (4, 9), (8, 13)]
+         patterns = [
+             (2, 6, 10, 14),
+             (3, 7, 11, 15),
+         ]
+         for i in range(depth):
+             lo = min(l for l, r in T)
+             hi = max(r for l, r in T)
+             span = hi - lo
++            starts = patterns[i % 2] if alternate else patterns[0]
++
++            # Build shifted copies for each start; occasionally reverse order per copy
++            copies = []
++            for idx, s in enumerate(starts):
++                offset = span * s - lo
++                seq = T if ((i + idx) % 2 == 0) else list(reversed(T))
++                shifted = [(l + offset, r + offset) for (l, r) in seq]
++                copies.append(shifted)
++
+             S = []
+-            starts = patterns[i % 2] if alternate else patterns[0]
+-            for s in starts:
+-                offset = span * s - lo
+-                for (l, r) in T:
+-                    S.append((l + offset, r + offset))
+-            for a, b in bridge_factors:
+-                S.append((span * a, span * b))
++            if i % 2 == 0:
++                # Even layers: place some bridges early, interleave copies, then remaining bridges.
++                for a, b in bridge_factors[:2]:
++                    S.append((span * a, span * b))
++                # Interleave across copies by position index to break large contiguous blocks.
++                for k in range(len(T)):
++                    for copy in copies:
++                        S.append(copy[k])
++                for a, b in bridge_factors[2:]:
++                    S.append((span * a, span * b))
++            else:
++                # Odd layers: baseline block order for stability; all bridges after.
++                for copy in copies:
++                    S.extend(copy)
++                for a, b in bridge_factors:
++                    S.append((span * a, span * b))
++
+             T = S
+         return T
+ 
+     # --- Representative chooser (heuristic) -------------------------------
+     def choose_reps_spread(existing_intervals, existing_colors, num_colors, skew=0.5):
+         # pick one interval index per color 1..num_colors, trying to spread centers
+         by_color = [[] for _ in range(num_colors + 1)]
+         for idx, col in enumerate(existing_colors):
+             if 1 <= col <= num_colors:
+                 by_color[col].append(idx)
+         # if any color has no representative, fail
+         for c in range(1, num_colors + 1):
+             if not by_color[c]:
+                 return None
+         # pick for each color an interval near the specified quantile of centers
+         reps = []
+         for c in range(1, num_colors + 1):
+             centers = sorted(by_color[c], key=lambda i: ((existing_intervals[i][0] + existing_intervals[i][1]) / 2.0, existing_intervals[i][1]-existing_intervals[i][0]))
+             if centers:
+                 q = min(max(skew, 0.0), 1.0)
+                 idx = int(round(q * (len(centers) - 1)))
+                 reps.append(centers[idx])
+         return reps
+ 
+     # --- Candidate evaluation ----------------------------------------------
+     def evaluate_candidate(existing_intervals, existing_colors, candidate, max_omega):
+         # compute assigned FirstFit color if appended now, and new clique
+         used = set()
+         for idx, iv in enumerate(existing_intervals):
+             if overlap(candidate, iv):
+                 used.add(existing_colors[idx])
+         c = 1
+         while c in used:
+             c += 1
+         new_clique = clique_size(existing_intervals + [candidate])
+         return c, new_clique
+ 
+     # --- Short targeted constructive phase -------------------------------
+     def targeted_extend(base_intervals, max_add=30, target_omega=4):
+         """
+         Try to append up to max_add intervals that force FirstFit to open new colors
+         while keeping clique <= target_omega. Deterministic heuristics with
+         slight asymmetry and a shrinker help avoid densest cores.
+         """
+         intervals = list(base_intervals)
+         colors, maxcolor = firstfit_colors(intervals)
+         attempts = 0
+         trials_limit = max_add * 120
+         # only try to add a handful to protect omega
+         target_increase = min(3, max_add)
+         added = 0
+ 
+         # overall span scale for tiny pads
+         lo_all = min(l for l, r in intervals)
+         hi_all = max(r for l, r in intervals)
+         total_span = max(hi_all - lo_all, 1.0)
+ 
+         while attempts < trials_limit and added < max_add:
+             attempts += 1
+             # recompute since appended earlier
+             colors, maxcolor = firstfit_colors(intervals)
+ 
+             # choose representatives with a cycling skew (avoid central density)
+             skew_seq = [0.2, 0.8, 0.35, 0.65]
+             skew = skew_seq[attempts % len(skew_seq)]
+             reps = choose_reps_spread(intervals, colors, maxcolor, skew=skew)
+             if not reps:
+                 # fallback: short interval near the last one
+                 center = (intervals[-1][0] + intervals[-1][1]) / 2.0
+                 candidate = (center + 0.15, center + 0.75)
+             else:
+                 left = min(intervals[i][0] for i in reps)
+                 right = max(intervals[i][1] for i in reps)
+                 span = max(right - left, 1e-9)
+                 # gentle, asymmetric padding
+                 pads = [0.08, 0.12, 0.18, 0.25, 0.35]
+                 pad_base = pads[attempts % len(pads)] * max(1.0, total_span / 2000.0)
+                 asym = 1.3 if (attempts % 2 == 0) else 0.7
+                 pad_l = pad_base * asym
+                 pad_r = pad_base / max(asym, 1e-9)
+                 candidate = (left - pad_l, right + pad_r)
+                 # slight inner shrink to avoid hitting peak cliques
+                 candidate = (candidate[0] + 0.01 * span, candidate[1] - 0.01 * span)
+ 
+             # clamp to positive coordinates
+             if candidate[0] < 0:
+                 shift = -candidate[0] + 1.0
+                 candidate = (candidate[0] + shift, candidate[1] + shift)
+             if candidate[1] <= candidate[0]:
+                 continue
+ 
+             # try a few shrinking attempts if clique would blow up
+             attempt_candidate = candidate
+             ok = False
+             for _ in range(5):
+                 assigned, clq = evaluate_candidate(intervals, colors, attempt_candidate, target_omega)
+                 if assigned == maxcolor + 1 and clq <= target_omega:
+                     ok = True
+                     break
+                 # shrink symmetrically
+                 L, R = attempt_candidate
+                 mid = (L + R) / 2.0
+                 new_len = (R - L) * 0.92
+                 if new_len <= 0:
+                     break
+                 attempt_candidate = (mid - new_len / 2.0, mid + new_len / 2.0)
+ 
+             if ok:
+                 intervals.append(attempt_candidate)
+                 added += 1
+                 if added >= target_increase:
+                     break
+ 
+         return intervals
+ 
+     # --- Build final sequence ---------------------------------------------
+     # Build a stronger backbone (depth 4 with alternating starts)
+     gadget = make_gadget(depth=4, alternate=True)  # depth 4 pushes FF while keeping omega modest
+ 
+     # Normalize gadget into compact coordinates first to keep numbers modest
+     # shift to positive
+     min_l = min(l for l, r in gadget)
+     if min_l <= 0:
+         shift = -min_l + 1.0
+         gadget = [(l + shift, r + shift) for (l, r) in gadget]
+ 
+     # Optionally run targeted extension to push FirstFit further while preserving small clique
+     # Keep omega at the gadget's level and add only a few caps
+     base_omega = clique_size(gadget)
+     extended = targeted_extend(gadget, max_add=8, target_omega=base_omega)
+ 
+     # Final normalization to integers for evaluator (map to integer grid)
+     # scale so that small gaps are preserved but numbers remain moderate
+     all_intervals = extended
+     # choose scale based on current span
+     lo = min(l for l, r in all_intervals)
+     hi = max(r for l, r in all_intervals)
+     span = hi - lo if hi > lo else 1.0
+     # target about 2000 units across
+     scale = max(1.0, 2000.0 / span)
+     normalized = []
+     for (l, r) in all_intervals:
+         L = int(math.floor(l * scale))
+         R = int(math.ceil(r * scale))
+         if R <= L:
+             R = L + 1
+         normalized.append((float(L), float(R)))
+ 
+     # Deduplicate exactly-equal intervals while preserving order
+     seen = set()
+     final = []
+     for iv in normalized:
+         if iv in seen:
+             continue
+         seen.add(iv)
+         final.append(iv)
+ 
+     return final
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

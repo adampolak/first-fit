@@ -1,0 +1,492 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point.
+
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals (l, r)
+  """
+
+  # ---------------------------
+  # Stage 0: utilities
+  # ---------------------------
+
+  from math import inf
+  import random
+
+  RNG = random.Random(1337)  # deterministic
+
+  def overlaps(a, b):
+    # open intervals overlap iff l1 < r2 and l2 < r1
+    (l1, r1), (l2, r2) = a, b
+    return l1 < r2 and l2 < r1
+
+  def firstfit_color_count(intervals):
+    """Simulate FirstFit in the presented order (interval list)."""
+    # colors[c] = list of intervals assigned to color c (0-based)
+    colors = []
+    for (l, r) in intervals:
+      placed = False
+      for col in colors:
+        # If no conflict against this color-class, place it
+        conflict = False
+        for (cl, cr) in col:
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    return len(colors)
+
+  def clique_number(intervals):
+    """Compute ω via sweep-line. For open intervals,
+    we process ends before starts on ties."""
+    events = []
+    for (l, r) in intervals:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    return best
+
+  def normalize(seq):
+    """Shift so minimum left endpoint is 0.0 (avoid large magnitudes)."""
+    if not seq:
+      return seq
+    lo = min(l for l, r in seq)
+    if lo == 0:
+      return seq
+    return [(l - lo, r - lo) for (l, r) in seq)
+
+  # ---------------------------
+  # Stage 1: interval generators
+  # ---------------------------
+
+  class FractalGenerator:
+    """Recursive 'fractal/tile' construction with cap intervals."""
+    def __init__(self, starts, caps, depth, copy_mode="start_outer"):
+      """
+      starts: tuple/list of integer offsets for replicated blocks
+      caps: list of pairs (a,b) - additional scaled intervals per level
+      depth: recursion depth
+      copy_mode: 'start_outer' or 'tile_outer' to vary copy ordering
+      """
+      self.starts = tuple(starts)
+      self.caps = list(caps)
+      self.depth = depth
+      self.copy_mode = copy_mode
+
+    def generate(self):
+      # Internally keep metadata to enable orderers later (tag, level, group)
+      T = [dict(l=0.0, r=1.0, tag="seed", depth=0, group=0)]
+      for d in range(1, self.depth + 1):
+        lo = min(x["l"] for x in T)
+        hi = max(x["r"] for x in T)
+        delta = hi - lo
+        S = []
+        if self.copy_mode == "tile_outer":
+          # Round-robin by tile first
+          for idx, itm in enumerate(T):
+            li, ri = itm["l"], itm["r"]
+            for s in self.starts:
+              S.append(dict(l=delta * s + li - lo, r=delta * s + ri - lo,
+                            tag="copy", depth=d, group=s))
+        else:
+          # Standard: iterate starts outside, then replicate whole T
+          for s in self.starts:
+            for itm in T:
+              li, ri = itm["l"], itm["r"]
+              S.append(dict(l=delta * s + li - lo, r=delta * s + ri - lo,
+                            tag="copy", depth=d, group=s))
+        # Append caps
+        for (a, b) in self.caps:
+          S.append(dict(l=delta * a, r=delta * b, tag="cap", depth=d, group=-1))
+        T = S
+      # Extract pure pairs; keep a parallel meta list
+      pairs = [(x["l"], x["r"]) for x in T]
+      meta = T
+      return normalize(pairs), meta
+
+  def estimate_size(num_starts, num_caps, depth):
+    # T0=1, Tn = starts*T_{n-1} + caps
+    total = 1
+    for _ in range(depth):
+      total = num_starts * total + num_caps
+      if total > 10**7:  # safety cut
+        break
+    return total
+
+  # Canonical cap-set derived from starts (generalizes the original pattern)
+  def canonical_caps_from_starts(starts):
+    s = list(starts)
+    s.sort()
+    caps = []
+    for i in range(len(s)):
+      if i == 0:
+        caps.append((s[0] - 1, s[0] + 3))
+      else:
+        caps.append((s[i - 1] + 2, s[i] + 3 if i < len(s) - 1 else s[i] + 2))
+    # Additionally, connect middle transitions if possible
+    for i in range(1, len(s) - 1):
+      caps.append((s[i] - 2, s[i] + 2))
+    # Deduplicate and sort
+    caps = sorted(set(caps))
+    return caps
+
+  # ---------------------------
+  # Stage 2: orderers
+  # ---------------------------
+
+  def order_fractal(meta):
+    return list(range(len(meta)))
+
+  def order_reversed(meta):
+    return list(range(len(meta) - 1, -1, -1))
+
+  def order_left_first(meta):
+    return sorted(range(len(meta)), key=lambda i: (meta[i]["l"], meta[i]["r"]))
+
+  def order_right_first(meta):
+    return sorted(range(len(meta)), key=lambda i: (-meta[i]["l"], -meta[i]["r"]))
+
+  def order_short_first(meta):
+    return sorted(range(len(meta)), key=lambda i: ((meta[i]["r"] - meta[i]["l"]), meta[i]["l"]))
+
+  def order_long_first(meta):
+    return sorted(range(len(meta)), key=lambda i: (-(meta[i]["r"] - meta[i]["l"]), meta[i]["l"]))
+
+  def order_caps_first(meta):
+    # Caps first (stable), then copies by left endpoint
+    caps = [i for i, m in enumerate(meta) if m["tag"] == "cap"]
+    copies = [i for i, m in enumerate(meta) if m["tag"] != "cap"]
+    caps.sort(key=lambda i: (meta[i]["depth"], meta[i]["l"]))
+    copies.sort(key=lambda i: (meta[i]["l"], meta[i]["r"]))
+    return caps + copies
+
+  def order_round_robin_levels(meta):
+    # Present increasing depth layers: for each depth, interleave by group
+    levels = {}
+    for i, m in enumerate(meta):
+      levels.setdefault(m["depth"], []).append(i)
+    seq = []
+    for d in sorted(levels.keys()):
+      block = levels[d]
+      # within level: group by group id and interleave
+      groups = {}
+      for idx in block:
+        groups.setdefault(meta[idx]["group"], []).append(idx)
+      # interleave groups deterministically
+      gs = sorted(groups.items(), key=lambda kv: kv[0])
+      while any(groups[g] for g, _ in gs):
+        for g, _ in gs:
+          if groups[g]:
+            seq.append(groups[g].pop(0))
+    return seq
+
+  def order_blockwise_hybrid(meta, block_orders):
+    """
+    Partition the base order (fractal order) into 4 blocks and apply
+    different deterministic orders within each block.
+    block_orders: list of 4 orderer names among a fixed set.
+    """
+    base = order_fractal(meta)
+    n = len(base)
+    if n == 0:
+      return []
+    # split indices into 4 contiguous blocks
+    B = 4
+    splits = [0, n // 4, n // 2, 3 * n // 4, n]
+    blocks = [base[splits[i]:splits[i + 1]] for i in range(B)]
+
+    name_to_key = {
+      "fractal": lambda idxs: idxs,  # keep as is
+      "reversed": lambda idxs: list(reversed(idxs)),
+      "left_first": lambda idxs: sorted(idxs, key=lambda i: (meta[i]["l"], meta[i]["r"])),
+      "right_first": lambda idxs: sorted(idxs, key=lambda i: (-meta[i]["l"], -meta[i]["r"])),
+      "short_first": lambda idxs: sorted(idxs, key=lambda i: ((meta[i]["r"] - meta[i]["l"]), meta[i]["l"])),
+      "long_first": lambda idxs: sorted(idxs, key=lambda i: (-(meta[i]["r"] - meta[i]["l"]), meta[i]["l"])),
+      "caps_first": lambda idxs: sorted(idxs, key=lambda i: (0 if meta[i]["tag"] == "cap" else 1, meta[i]["l"])),
+    }
+
+    out = []
+    for b in range(B):
+      name = block_orders[b] if b < len(block_orders) else "fractal"
+      key = name_to_key.get(name, name_to_key["fractal"])
+      out.extend(key(blocks[b]))
+    return out
+
+  def order_adversarial(pairs):
+    """
+    Greedy adversarial order: build an arrival sequence that tries
+    to maximize the next FirstFit color at each step.
+    Deterministic due to fixed RNG and tie-breaking.
+    """
+    n = len(pairs)
+    remaining = list(range(n))
+    chosen = []
+    colors = []  # list of lists of intervals
+    # Precompute for speed
+    lvals = [pairs[i][0] for i in range(n)]
+    rvals = [pairs[i][1] for i in range(n)]
+
+    while remaining:
+      best_idx = None
+      best_color_used = -1
+      # Evaluate a subset for speed when very large
+      candidates = remaining
+      # Heuristic: prefer longer intervals first in candidate sub-loop
+      candidates = sorted(candidates, key=lambda i: (-(rvals[i] - lvals[i]), lvals[i]))
+      # To bound complexity, reduce candidate set when large
+      if len(candidates) > 500:
+        candidates = candidates[:500]
+      for i in candidates:
+        # Determine smallest available color for interval i
+        # by checking conflicts against each existing color-class
+        used_colors = 0
+        for c, col in enumerate(colors):
+          conflict = False
+          li, ri = lvals[i], rvals[i]
+          for (cl, cr) in col:
+            if cl < ri and li < cr:
+              conflict = True
+              break
+          if conflict:
+            used_colors += 1
+          else:
+            # This would be assigned color c (0-based)
+            if c > best_color_used:
+              best_color_used = c
+              best_idx = i
+            # Since FirstFit chooses smallest free color, no need to try higher c
+            break
+        else:
+          # No available color among existing => use a new color at index len(colors)
+          cnew = len(colors)
+          if cnew > best_color_used:
+            best_color_used = cnew
+            best_idx = i
+      # Place best_idx
+      chosen.append(best_idx)
+      # Update colors with assigned color
+      li, ri = lvals[best_idx], rvals[best_idx]
+      placed = False
+      for col in colors:
+        if all(not (cl < ri and li < cr) for (cl, cr) in col):
+          col.append((li, ri))
+          placed = True
+          break
+      if not placed:
+        colors.append([(li, ri)])
+      # remove best_idx from remaining
+      remaining.remove(best_idx)
+
+    return chosen
+
+  # ---------------------------
+  # Stage 3: Scoring and verification
+  # ---------------------------
+
+  def apply_permutation(pairs, perm):
+    return [pairs[i] for i in perm]
+
+  def evaluate_candidate(pairs, meta, orderers):
+    """Compute colors used by FirstFit for multiple orders over the same set."""
+    omega = max(1, clique_number(pairs))
+    results = []
+    for name, orderer in orderers:
+      perm = orderer(meta) if name != "adversarial" else order_adversarial(pairs)
+      seq = apply_permutation(pairs, perm)
+      c = firstfit_color_count(seq)
+      ratio = c / omega
+      results.append((name, c, omega, ratio, seq))
+    # aggregate statistics
+    best = max(results, key=lambda x: (x[3], x[1]))  # by ratio then colors
+    ratios = [r[3] for r in results]
+    mean_ratio = sum(ratios) / len(ratios) if ratios else 0.0
+    var_ratio = sum((x - mean_ratio) ** 2 for x in ratios) / len(ratios) if ratios else 0.0
+    return {
+      "best": best,              # (name, colors, omega, ratio, seq)
+      "mean_ratio": mean_ratio,
+      "var_ratio": var_ratio,
+      "all": results,
+    }
+
+  def verify(seq):
+    """Lightweight internal verification pass."""
+    colors = firstfit_color_count(seq)
+    omega = max(1, clique_number(seq))
+    ok = (colors >= 1 and omega >= 1)
+    return ok, colors, omega, colors / omega
+
+  # ---------------------------
+  # Stage 4: Orchestrated search
+  # ---------------------------
+
+  # Interval budget to keep instances verifiable
+  MAX_INTERVALS = 800
+
+  # Define anchor sets (starts) inspired by the literature and heuristics
+  anchor_sets = [
+    (2, 6, 10, 14),     # canonical
+    (3, 7, 11, 15),     # shifted by +1
+    (4, 8, 12, 16),     # shifted by +2
+    (2, 6, 10),         # 3-start variant enabling deeper levels
+    (6, 10, 14),        # 3-start (shifted)
+  ]
+
+  # Depth options; actual allowed depth depends on size estimate
+  depth_candidates = [3, 4, 5]
+
+  # Predefined cap-sets per anchor set
+  def capsets_for_starts(starts):
+    s = tuple(starts)
+    caps = []
+    if s == (2, 6, 10, 14):
+      caps.append([(1, 5), (12, 16), (4, 9), (8, 13)])   # original
+      caps.append(canonical_caps_from_starts(starts))    # derived
+    elif s == (3, 7, 11, 15):
+      caps.append([(2, 6), (14, 18), (5, 10), (9, 14)])  # shifted
+      caps.append(canonical_caps_from_starts(starts))
+    elif s == (4, 8, 12, 16):
+      caps.append([(3, 7), (13, 17), (6, 11), (10, 15)])
+      caps.append(canonical_caps_from_starts(starts))
+    else:
+      # 3-start variants: reuse canonical derived caps; include one extended
+      base = canonical_caps_from_starts(starts)
+      caps.append(base)
+      if len(base) >= 4:
+        caps.append(base[:4])
+    # Also add one randomized neighbor capset (deterministic)
+    rng = RNG
+    min_s, max_s = min(starts), max(starts)
+    rand_caps = []
+    C = max(4, len(starts))  # number of caps
+    for _ in range(C):
+      a = rng.randint(min_s - 2, max_s + 1)
+      b = a + rng.randint(3, 6)
+      rand_caps.append((a, b))
+    caps.append(rand_caps)
+    # Deduplicate cap-sets
+    out = []
+    seen = set()
+    for cap in caps:
+      key = tuple(sorted(set(cap)))
+      if key not in seen:
+        seen.add(key)
+        out.append(list(key))
+    return out
+
+  # Orderers to test per candidate base set
+  base_orderers = [
+    ("fractal", order_fractal),
+    ("reversed", order_reversed),
+    ("left_first", order_left_first),
+    ("right_first", order_right_first),
+    ("short_first", order_short_first),
+    ("long_first", order_long_first),
+    ("caps_first", order_caps_first),
+    ("round_robin_levels", order_round_robin_levels),
+    # adversarial is computed against pure pairs
+    ("adversarial", None),
+  ]
+
+  # Blockwise hybrid patterns to probe
+  hybrid_patterns = [
+    ("fractal,left_first,reversed,short_first",
+     lambda m: order_blockwise_hybrid(m, ["fractal", "left_first", "reversed", "short_first"])),
+    ("long_first,right_first,fractal,caps_first",
+     lambda m: order_blockwise_hybrid(m, ["long_first", "right_first", "fractal", "caps_first"])),
+    ("left_first,fractal,short_first,reversed",
+     lambda m: order_blockwise_hybrid(m, ["left_first", "fractal", "short_first", "reversed"])),
+  ]
+
+  # Aggregate orderers for evaluation
+  def collect_orderers():
+    ords = list(base_orderers)
+    for name, fn in hybrid_patterns:
+      ords.append((f"hybrid:{name}", fn))
+    return ords
+
+  orderers = collect_orderers()
+
+  # Search loop
+  best_overall = None  # tuple(score_key, seq, meta)
+  candidates_considered = 0
+
+  for starts in anchor_sets:
+    capsets = capsets_for_starts(starts)
+    for depth in depth_candidates:
+      # Skip too-large instances by estimate
+      est = estimate_size(len(starts), len(capsets[0]) if capsets else 4, depth)
+      if est > MAX_INTERVALS:
+        continue
+
+      for caps in capsets:
+        # Try two copy modes for more structural diversity
+        for copy_mode in ("start_outer", "tile_outer"):
+          fg = FractalGenerator(starts=starts, caps=caps, depth=depth, copy_mode=copy_mode)
+          pairs, meta = fg.generate()
+          if not pairs:
+            continue
+          if len(pairs) > MAX_INTERVALS:
+            continue
+
+          # Evaluate across orderers
+          res = evaluate_candidate(pairs, meta, orderers)
+          best_name, best_c, best_w, best_ratio, best_seq = res["best"]
+          # Combined score key: prioritize best ratio, then mean ratio, then fewer intervals
+          mean_r = res["mean_ratio"]
+          score_key = (best_ratio, mean_r, -len(pairs))
+
+          # Track the global best
+          if (best_overall is None) or (score_key > best_overall[0]):
+            # Verify and accept
+            ok, c2, w2, r2 = verify(best_seq)
+            if ok:
+              best_overall = (score_key, best_seq, {
+                "starts": starts,
+                "caps": caps,
+                "depth": depth,
+                "copy_mode": copy_mode,
+                "best_order": best_name,
+                "colors": c2,
+                "omega": w2,
+                "ratio": r2,
+                "n": len(best_seq),
+                "mean_ratio": mean_r,
+              })
+          candidates_considered += 1
+
+  # Fallback to canonical construction if search fails (should not)
+  if best_overall is None:
+    # Original depth-4 canonical construction
+    starts, caps, depth = (2, 6, 10, 14), [(1, 5), (12, 16), (4, 9), (8, 13)], 4
+    fg = FractalGenerator(starts, caps, depth)
+    seq, meta = fg.generate()
+    return seq
+
+  # Short validation print (post-action validation)
+  meta = best_overall[2]
+  # Example:
+  # print(f"[validate] n={meta['n']} FirstFit={meta['colors']} OPT={meta['omega']} ratio={meta['ratio']:.3f} best_order={meta['best_order']} depth={meta['depth']} starts={meta['starts']}")
+
+  return best_overall[1]
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()
+
+# EVOLVE-BLOCK-END

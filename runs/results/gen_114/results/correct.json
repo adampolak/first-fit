@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "'<' not supported between instances of 'int' and 'list'"
+}

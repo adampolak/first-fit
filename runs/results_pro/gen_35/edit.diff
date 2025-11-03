@@ -1,0 +1,271 @@
+--- a/original.py
++++ b/original.py
+@@ -1,74 +1,230 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals(depth=None):
+   """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-
+-  This implementation follows the recursive "cap" construction
+-  inspired by Figure 4 in https://arxiv.org/abs/1506.00192 and
+-  increases the recursion depth to amplify the FF/omega ratio.
+-
++  Construct a sequence of intervals of real line using an enhanced cap-style
++  recursion plus arrival-order engineering.
++
++  Improvements over the baseline:
++  - two-seed start for diversity,
++  - interleaved copies (round-robin, alternating direction) per recursion level,
++  - distributed bridge insertion among interleaved copies (early blockers),
++  - small deterministic post-processing that attempts to append a few "caps"
++    which touch representatives of many colors to force FirstFit to open new
++    colors while keeping the clique bounded.
+   Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
++    intervals: list of tuples (l, r) representing open intervals
+   """
+ 
+-  # Allow explicit depth control to explore smarter configurations.
+-  # If depth is not provided, fall back to the traditional depth=4.
++  import math
++
+   if depth is None:
+     depth = 4
+ 
+-  # Pattern banks to introduce variety across recursion levels.
++  # Pattern banks (rotating)
+   START_SETS = [
+     [2, 6, 10, 14],
+     [3, 7, 11, 15],
+     [4, 8, 12, 16],
+     [5, 9, 13, 17],
+     [6, 10, 14, 18],
+   ]
+   BRIDGE_SETS = [
+     [(1, 5), (12, 16), (4, 9), (8, 13)],
+     [(2, 6), (13, 17), (5, 10), (9, 14)],
+     [(3, 7), (14, 18), (6, 11), (10, 15)],
+     [(4, 8), (15, 19), (7, 12), (11, 16)],
+     [(5, 9), (16, 20), (8, 13), (12, 17)],
+   ]
+-
+-  SCALING_LIST = [1.0, 1.2, 0.8, 1.15]
+-  T = [(0, 1)]
+-  # Introduce a second spine interval to diversify the recursive growth
+-  T.append((5, 6))
++  SCALING_LIST = [1.0, 1.2, 0.8, 1.15, 1.05]
++
++  # Start with two disjoint seeds to break symmetry early
++  T = [(0.0, 1.0), (5.0, 6.0)]
++
++  # --- Recursive expansion with interleaving and distributed bridges ----------
+   for k in range(depth):
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
++    span = max(hi - lo, 1.0)
+     gamma = SCALING_LIST[k % len(SCALING_LIST)]
+-    delta = (hi - lo) * gamma
++    delta = span * gamma
++
++    starts = START_SETS[k % len(START_SETS)]
++    # build scaled copies
++    copies = []
++    for s in starts:
++      offset = delta * s - lo
++      copies.append([(l + offset, r + offset) for (l, r) in T])
++
++    # interleave copies round-robin; alternate traversal direction per index
++    interleaved = []
++    m = len(T)
++    ccount = len(copies)
++    for i in range(m):
++      if i % 2 == 0:
++        for c in range(ccount):
++          interleaved.append(copies[c][i])
++      else:
++        for c in range(ccount - 1, -1, -1):
++          interleaved.append(copies[c][i])
++
++    # prepare bridge intervals scaled to this layer
++    bridge_set = BRIDGE_SETS[k % len(BRIDGE_SETS)]
++    bridges = [(delta * a, delta * b) for (a, b) in bridge_set]
++
++    # distribute bridges across the interleaved stream to act as early blockers
+     S = []
+-    # Use a rotating start set to diversify the expanded copies of T
+-    start_list = START_SETS[k % len(START_SETS)]
+-    for start in start_list:
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-    # Use a rotating bridge pattern to insert cross-links without inflating omega
+-    bridge_set = BRIDGE_SETS[k % len(BRIDGE_SETS)]
+-    S += [ (delta * a, delta * b) for (a, b) in bridge_set ]
++    chunks = len(bridges) + 1
++    q = max(1, len(interleaved) // chunks)
++    idx = 0
++    for b_idx in range(chunks):
++      end_idx = min(len(interleaved), idx + q)
++      S.extend(interleaved[idx:end_idx])
++      idx = end_idx
++      if b_idx < len(bridges):
++        # Append bridge between chunks (this places blockers throughout the level).
++        S.append(bridges[b_idx])
++
+     T = S
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++
++  # --- Helper routines -----------------------------------------------------
++  def overlap(a, b):
++    return (a[0] < b[1]) and (b[0] < a[1])
++
++  def firstfit_colors(intervals):
++    colors = []
++    for i, iv in enumerate(intervals):
++      used = set()
++      for j in range(i):
++        if overlap(iv, intervals[j]):
++          used.add(colors[j])
++      c = 1
++      while c in used:
++        c += 1
++      colors.append(c)
++    return colors, (max(colors) if colors else 0)
++
++  def clique_size(intervals):
++    events = []
++    for (l, r) in intervals:
++      events.append((l, 1))
++      events.append((r, -1))
++    # process ends before starts at same coordinate
++    events.sort(key=lambda x: (x[0], x[1]))
++    cur = best = 0
++    for _, d in events:
++      cur += d
++      if cur > best:
++        best = cur
++    return best
++
++  # --- Small deterministic targeted caps phase -----------------------------
++  # Try to append a few intervals that each touch one representative interval
++  # from each currently used FirstFit color. If successful (candidate forces a
++  # new color while clique is bounded), keep it.
++  colors, maxcolor = firstfit_colors(T)
++  base_omega = clique_size(T)
++  target_omega = max(base_omega, 4)  # allow a bit flexibility but keep small
++
++  def evaluate_candidate(existing_intervals, existing_colors, candidate):
++    used = set()
++    for idx, iv in enumerate(existing_intervals):
++      if overlap(candidate, iv):
++        used.add(existing_colors[idx])
++    c = 1
++    while c in used:
++      c += 1
++    new_clique = clique_size(existing_intervals + [candidate])
++    return c, new_clique
++
++  # attempt a small bounded number of caps
++  max_add = 10
++  added = 0
++  attempts = 0
++  max_attempts = max_add * 60
++
++  while attempts < max_attempts and added < max_add:
++    attempts += 1
++    colors, maxcolor = firstfit_colors(T)
++    if maxcolor <= 1:
++      break
++
++    # For each color 1..maxcolor pick one representative index (first occurrence)
++    reps = []
++    for c in range(1, maxcolor + 1):
++      idx = next((i for i, col in enumerate(colors) if col == c), None)
++      if idx is None:
++        reps = []
++        break
++      reps.append(idx)
++    if len(reps) != maxcolor:
++      break
++
++    # Build a candidate that touches centers of all representatives
++    centers = [((T[i][0] + T[i][1]) / 2.0) for i in reps]
++    left = min(centers)
++    right = max(centers)
++    # pad minimally and then attempt staged shrink/shift to avoid creating large clique
++    pad = 0.02 * (right - left + 1.0)
++    candidate = (left - pad, right + pad)
++
++    ok = False
++    # try a few shrink/shift rounds deterministically
++    for shrink in range(12):
++      assigned, clq = evaluate_candidate(T, colors, candidate)
++      if assigned == maxcolor + 1 and clq <= target_omega:
++        ok = True
++        break
++      # if clique too big, shrink aggressively
++      if clq > target_omega:
++        L, R = candidate
++        mid = (L + R) / 2.0
++        new_len = max(1e-6, (R - L) * 0.7)
++        candidate = (mid - new_len / 2.0, mid + new_len / 2.0)
++        continue
++      # otherwise slide slightly left/right in deterministic pattern and shrink a bit
++      shift = ((shrink % 5) - 2) * 0.01 * (1 + 0.1 * (shrink // 3))
++      candidate = (candidate[0] + shift, candidate[1] + shift)
++      L, R = candidate
++      mid = (L + R) / 2.0
++      candidate = (mid - (R - L) * 0.95 / 2.0, mid + (R - L) * 0.95 / 2.0)
++
++    if ok:
++      T.append(candidate)
++      added += 1
++      # slightly relax target_omega if we managed some additions successfully
++      target_omega = max(target_omega, clique_size(T) + 0)
++    else:
++      # if we failed repeatedly, stop early to avoid too much hunting
++      if attempts > 8 and added == 0:
++        break
++
++  # --- Final normalization to integer grid (preserve order) ---------------
++  lo = min(l for l, r in T)
++  hi = max(r for l, r in T)
++  span = hi - lo if hi > lo else 1.0
++  scale = max(1.0, 2000.0 / span)
++  normalized = []
++  for (l, r) in T:
++    L = int(math.floor(l * scale))
++    R = int(math.ceil(r * scale))
++    if R <= L:
++      R = L + 1
++    normalized.append((float(L), float(R)))
++
++  # deduplicate exact duplicates while preserving order
++  seen = set()
++  final = []
++  for iv in normalized:
++    if iv in seen:
++      continue
++    seen.add(iv)
++    final.append(iv)
++
++  return final
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

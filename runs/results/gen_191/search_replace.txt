@@ -1,0 +1,529 @@
+<NAME>
+schedule_weave_and_clique_prune
+</NAME>
+
+<DESCRIPTION>
+I introduce two synergistic changes aimed at increasing FirstFit colors without inflating omega, and then explicitly try to decrease omega while preserving colors to improve the ratio:
+
+1) Arrival-order engineering via schedule and weaving
+- Extend the recursive builder to support different blocker/copy schedules per level: before, after, and split. This changes the arrival order of long blockers relative to the four translated copies and is known to materially affect FirstFit behavior.
+- Add an optional weaving of copies: interleave intervals round-robin across the four translated copies, further coupling color classes across substructures. Both mechanisms are deterministic and preserve the normalized intersection structure but can increase the FirstFit count.
+
+2) Clique-targeted pruning (two-stage shrinker)
+- Stage 1: Detect intervals belonging to a maximum cliquewitness, then greedily remove them only if omega decreases while FirstFit colors do not drop. This explicitly targets improving the ratio (colors/omega).
+- Stage 2: Perform conservative pruning to remove any further interval whose removal does not reduce the achieved ratio, keeping the construction compact.
+This “frontier-witness” approach is designed to exploit redundancies in blockers or high-overlap regions without sacrificing the adversarial power that forces colors.
+
+Both upgrades are lightweight, deterministic, and compatible with the existing search loop. They expand the search space with schedule and weaving toggles and then try to tighten omega post hoc, providing a concrete path to ratios exceeding the 13/5 baseline if possible on some configurations.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def make_copies(T, offsets, delta, lo, center, translation):
+    """
+    Create 4 translated copies of T according to offsets and translation rule.
+    translation in {'left', 'center'}.
+    """
+    S = []
+    for start in offsets:
+        if translation == 'left':
+            offset = delta * start - lo
+        else:  # center-based
+            offset = delta * start - center
+        for (l, r) in T:
+            S.append((l + offset, r + offset))
+    return S
+=======
+def make_copies(T, offsets, delta, lo, center, translation, weave=False):
+    """
+    Create translated copies of T according to offsets and translation rule.
+    translation in {'left', 'center'}.
+    If weave=True, interleave intervals round-robin across the translated copies.
+    """
+    shifted_lists = []
+    for start in offsets:
+        if translation == 'left':
+            offset = delta * start - lo
+        else:  # center-based
+            offset = delta * start - center
+        shifted_lists.append([(l + offset, r + offset) for (l, r) in T])
+    if not weave:
+        S = []
+        for arr in shifted_lists:
+            S.extend(arr)
+        return S
+    # Weave: round-robin interleave intervals from each translated copy
+    S = []
+    if not shifted_lists:
+        return S
+    m = len(T)
+    for i in range(m):
+        for arr in shifted_lists:
+            S.append(arr[i])
+    return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def build_pattern(k, base_seed, offsets, blockers, translation, blocker_anchor):
+    """
+    Recursively expand the base_seed k times using the 4-copy + 4-blocker scheme.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        S = []
+        S = make_copies(T, offsets, delta, lo, center, translation)
+        S = add_blockers(S, blockers, delta, blocker_anchor, center)
+
+        T = S
+    return T
+=======
+def build_pattern(k, base_seed, offsets, blockers, translation, blocker_anchor, schedule='after', weave=False):
+    """
+    Recursively expand the base_seed k times using the 4-copy + 4-blocker scheme,
+    with arrival-order engineering:
+      - schedule in {'after','before','split'} controls the placement of blockers
+        relative to the copies.
+      - weave interleaves intervals from the translated copies to couple colors across substructures.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        if schedule == 'before':
+            # blockers first, then all copies
+            S = []
+            S = add_blockers(S, blockers, delta, blocker_anchor, center)
+            S.extend(make_copies(T, offsets, delta, lo, center, translation, weave=weave))
+        elif schedule == 'split':
+            # half the copies, blockers, then remaining copies
+            h = max(1, len(offsets) // 2)
+            first, second = offsets[:h], offsets[h:]
+            S = []
+            S.extend(make_copies(T, first, delta, lo, center, translation, weave=weave))
+            S = add_blockers(S, blockers, delta, blocker_anchor, center)
+            S.extend(make_copies(T, second, delta, lo, center, translation, weave=weave))
+        else:
+            # default: copies first, then blockers
+            S = []
+            S.extend(make_copies(T, offsets, delta, lo, center, translation, weave=weave))
+            S = add_blockers(S, blockers, delta, blocker_anchor, center)
+
+        T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def shrink_prune(intervals, target_ratio):
+    """
+    Conservative pruning: try removing intervals one-by-one (prefer longer ones first).
+    Accept removal only if observed FirstFit/OPT ratio remains >= target_ratio.
+    Deterministic and cheap; helps reduce redundant long blockers while preserving power.
+    """
+    cur = list(intervals)
+    # compute current ratio
+    cur_norm = normalize_intervals(cur)
+    cur_alg = firstfit_colors(cur_norm)
+    cur_opt = clique_number(cur_norm)
+    if cur_opt == 0:
+        return cur
+    base_ratio = cur_alg / cur_opt
+    # target is the maximum allowed drop (we only accept removals that keep ratio >= target_ratio)
+    if target_ratio is None:
+        target_ratio = base_ratio
+
+    # attempt removals in order of decreasing interval length (prefer removing long blockers)
+    def length(iv):
+        return iv[1] - iv[0]
+    order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+    changed = True
+    while changed:
+        changed = False
+        for idx in list(order):
+            if idx >= len(cur):
+                continue
+            cand = cur[:idx] + cur[idx + 1 :]
+            cand_norm = normalize_intervals(cand)
+            alg = firstfit_colors(cand_norm)
+            opt = clique_number(cand_norm)
+            if opt == 0:
+                continue
+            ratio = alg / opt
+            # accept only if ratio not dropping below target_ratio
+            if ratio >= target_ratio:
+                cur = cand
+                # recompute order (lengths changed)
+                order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+                changed = True
+                break
+    return cur
+=======
+def shrink_prune(intervals, target_ratio):
+    """
+    Two-stage deterministic pruning:
+      Stage 1 (clique-targeted): attempt to lower omega while preserving or increasing
+        the FirstFit color count. We identify intervals participating in a maximum clique
+        (via a sample point in a maximum-overlap segment) and greedily remove those whose
+        removal strictly lowers omega without decreasing colors.
+      Stage 2 (conservative): remove any interval whose removal keeps the ratio >= target_ratio.
+    This can strictly increase the ratio by reducing omega while keeping colors intact.
+    """
+    def metrics(L):
+        Tn = normalize_intervals(L)
+        if not Tn:
+            return Tn, 0, 0
+        alg = firstfit_colors(Tn)
+        om = clique_number(Tn)
+        return Tn, alg, om
+
+    def clique_indices(Tn):
+        """Return indices of intervals that cover a point attaining the maximum overlap."""
+        if not Tn:
+            return set()
+        best = clique_number(Tn)
+        if best <= 0:
+            return set()
+        endpoints = sorted({x for seg in Tn for x in seg})
+        sample_p = None
+        # pick any open segment where coverage equals best
+        for i in range(len(endpoints) - 1):
+            a, b = endpoints[i], endpoints[i + 1]
+            if b <= a:
+                continue
+            p = (a + b) / 2.0
+            cnt = 0
+            for (l, r) in Tn:
+                if l < p < r:
+                    cnt += 1
+            if cnt == best:
+                sample_p = p
+                break
+        if sample_p is None:
+            return set()
+        S = set()
+        for j, (l, r) in enumerate(Tn):
+            if l < sample_p < r:
+                S.add(j)
+        return S
+
+    cur = list(intervals)
+    cur_norm, cur_alg, cur_opt = metrics(cur)
+    if cur_opt == 0:
+        return cur
+
+    # Initialize target ratio if not supplied
+    if target_ratio is None:
+        target_ratio = cur_alg / max(1, cur_opt)
+
+    # Stage 1: reduce omega while preserving color count
+    improved = True
+    while improved:
+        improved = False
+        clique_ids = list(clique_indices(cur_norm))
+        # try longer ones first (likely blockers)
+        clique_ids.sort(key=lambda i: -(cur_norm[i][1] - cur_norm[i][0]))
+        for idx in clique_ids:
+            if idx >= len(cur):
+                continue
+            cand = cur[:idx] + cur[idx + 1 :]
+            cand_norm, alg2, om2 = metrics(cand)
+            # accept only if colors don't drop and omega strictly decreases
+            if om2 > 0 and alg2 >= cur_alg and om2 < cur_opt:
+                cur = cand
+                cur_norm, cur_alg, cur_opt = cand_norm, alg2, om2
+                target_ratio = max(target_ratio, cur_alg / cur_opt)
+                improved = True
+                break
+
+    # Stage 2: conservative pruning while maintaining the (possibly improved) ratio
+    def length(iv):
+        return iv[1] - iv[0]
+
+    order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+    changed = True
+    while changed:
+        changed = False
+        for idx in list(order):
+            if idx >= len(cur):
+                continue
+            cand = cur[:idx] + cur[idx + 1 :]
+            cand_norm, alg2, om2 = metrics(cand)
+            if om2 == 0:
+                continue
+            ratio2 = alg2 / om2
+            if ratio2 + 1e-12 >= target_ratio:
+                cur = cand
+                cur_norm, cur_alg, cur_opt = cand_norm, alg2, om2
+                order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+                changed = True
+                break
+
+    return cur
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+    """
+    Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+    We sweep several recommended blueprints and pick the best validated candidate.
+
+    Improvements:
+      - small extra_copies option (0/1) to append a single extra translated copy
+        on the first level to diversify geometry slightly.
+      - conservative shrink_prune postprocessing to remove redundant intervals.
+    """
+    # search space inspired by the provided recommendations
+    offsets_set = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: lengthened first and second
+        ((1, 6), (11, 16), (4, 9), (8, 13)),
+        # Template E: shifted and broadened
+        ((0, 5), (10, 15), (3, 8), (7, 12)),
+    ]
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+    depths = [3, 4, 5]  # sweep as recommended
+    base_seeds = [
+        [(0.0, 1.0)],                      # single seed (classic)
+        [(0.0, 1.0), (2.0, 3.0)],          # richer base: two disjoint seeds
+    ]
+    extra_copies_opts = [0, 1, 2]  # allow a single extra translated copy on first level, or prepended copy
+
+    best = None  # (score, om, cols, n, intervals, raw_intervals)
+    # Enumerate combinations with a guard on worst-case explosion
+    for base in base_seeds:
+        for k in depths:
+            # Hard cap: avoid extremely large instances in the inner evaluator
+            # expected size ~ 4^k * |base| + O(4^k)
+            if (4 ** k) * (len(base) + 2) > 2000:
+                continue
+            for offsets in offsets_set:
+                for blockers in blockers_templates:
+                    for translation in translations:
+                        for anchor in blocker_anchors:
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by extra copies (small geometry variation)
+                                offs = tuple(offsets)
+                                if extra == 1:
+                                    # append an extra copy to the right
+                                    last = offs[-1] if len(offs) > 0 else 0
+                                    offs = tuple(list(offs) + [last + 4])
+                                elif extra == 2:
+                                    # prepend an extra copy to the left
+                                    first = offs[0] if len(offs) > 0 else 0
+                                    offs = tuple([first - 4] + list(offs))
+                                # Build raw pattern using these offsets
+                                T = build_pattern(
+                                    k=k,
+                                    base_seed=base,
+                                    offsets=offs,
+                                    blockers=blockers,
+                                    translation=translation,
+                                    blocker_anchor=anchor,
+                                )
+                                score, om, cols, n, Tn = evaluate(T)
+
+                                cand = (score, om, cols, n, Tn, T)
+                                if best is None:
+                                    best = cand
+                                else:
+                                    # pick better score; tie-break by fewer intervals then larger cols
+                                    if cand[0] > best[0] + 1e-9:
+                                        best = cand
+                                    elif abs(cand[0] - best[0]) <= 1e-9:
+                                        if cand[3] < best[3]:
+                                            best = cand
+                                        elif cand[3] == best[3] and cand[2] > best[2]:
+                                            best = cand
+
+    # Fallback to baseline if search didn't produce anything
+    if best is None:
+        # original baseline as a safe default
+        k = 4
+        T = [(0.0, 1.0)]
+        for _ in range(k):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                offset = delta * start - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            S += [
+                (delta * 1,  delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4,  delta * 9),
+                (delta * 8,  delta * 13),
+            ]
+            T = S
+        return normalize_intervals(T)
+
+    # Apply conservative pruning to the raw best intervals to remove redundant blockers
+    raw_best = best[5]
+    # preserve the measured best ratio (no drop allowed)
+    best_score, best_om, best_cols, _, _, _ = best
+    # target ratio is best_cols / best_om (exact observed)
+    target_ratio = best_cols / best_om if best_om > 0 else None
+    pruned_raw = shrink_prune(raw_best, target_ratio)
+
+    final = normalize_intervals(pruned_raw)
+    # sanity check: if pruning accidentally removed everything, fall back to best normalized
+    if not final:
+        return best[4]
+    return final
+=======
+def construct_intervals():
+    """
+    Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+    We sweep several adversarial blueprints and pick the best validated candidate.
+
+    Improvements in this version:
+      - Add schedule control ('before', 'after', 'split') for blockers vs. copies per level.
+      - Add weaving option to interleave translated copies (arrival-order coupling).
+      - Apply a two-stage, clique-targeted shrink_prune that first tries to reduce omega
+        without losing colors, then conservatively prunes while preserving the achieved ratio.
+      - Keep small optional extra copies on the first level to diversify geometry.
+    """
+    # search space inspired by the provided recommendations
+    offsets_set = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: lengthened first and second
+        ((1, 6), (11, 16), (4, 9), (8, 13)),
+        # Template E: shifted and broadened
+        ((0, 5), (10, 15), (3, 8), (7, 12)),
+    ]
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+    schedules = ['after', 'before', 'split']  # arrival-order engineering
+    weaves = [False, True]  # whether to interleave copies
+    depths = [3, 4, 5]  # sweep as recommended
+    base_seeds = [
+        [(0.0, 1.0)],                      # single seed (classic)
+        [(0.0, 1.0), (2.0, 3.0)],          # richer base: two disjoint seeds
+    ]
+    extra_copies_opts = [0, 1, 2]  # optionally append/prepend an extra copy on the first level
+
+    best = None  # (score, om, cols, n, intervals, raw_intervals)
+    # Enumerate combinations with a guard on worst-case explosion
+    for base in base_seeds:
+        for k in depths:
+            # Hard cap: avoid extremely large instances in the inner evaluator
+            # expected size ~ 4^k * |base| + O(4^k)
+            if (4 ** k) * (len(base) + 2) > 2000:
+                continue
+            for offsets in offsets_set:
+                for blockers in blockers_templates:
+                    for translation in translations:
+                        for anchor in blocker_anchors:
+                            for schedule in schedules:
+                                for weave in weaves:
+                                    for extra in extra_copies_opts:
+                                        # build offsets possibly extended by extra copies (small geometry variation)
+                                        offs = tuple(offsets)
+                                        if extra == 1:
+                                            # append an extra copy to the right
+                                            last = offs[-1] if len(offs) > 0 else 0
+                                            offs = tuple(list(offs) + [last + 4])
+                                        elif extra == 2:
+                                            # prepend an extra copy to the left
+                                            first = offs[0] if len(offs) > 0 else 0
+                                            offs = tuple([first - 4] + list(offs))
+                                        # Build raw pattern using these offsets and schedule
+                                        T = build_pattern(
+                                            k=k,
+                                            base_seed=base,
+                                            offsets=offs,
+                                            blockers=blockers,
+                                            translation=translation,
+                                            blocker_anchor=anchor,
+                                            schedule=schedule,
+                                            weave=weave,
+                                        )
+                                        score, om, cols, n, Tn = evaluate(T)
+
+                                        cand = (score, om, cols, n, Tn, T)
+                                        if best is None:
+                                            best = cand
+                                        else:
+                                            # pick better score; tie-break by fewer intervals then larger cols
+                                            if cand[0] > best[0] + 1e-9:
+                                                best = cand
+                                            elif abs(cand[0] - best[0]) <= 1e-9:
+                                                if cand[3] < best[3]:
+                                                    best = cand
+                                                elif cand[3] == best[3] and cand[2] > best[2]:
+                                                    best = cand
+
+    # Fallback to baseline if search didn't produce anything
+    if best is None:
+        # original baseline as a safe default
+        k = 4
+        T = [(0.0, 1.0)]
+        for _ in range(k):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                offset = delta * start - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            S += [
+                (delta * 1,  delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4,  delta * 9),
+                (delta * 8,  delta * 13),
+            ]
+            T = S
+        return normalize_intervals(T)
+
+    # Apply clique-targeted pruning to the raw best intervals
+    raw_best = best[5]
+    # preserve at least the measured best ratio (no drop allowed)
+    best_score, best_om, best_cols, _, _, _ = best
+    target_ratio = best_cols / best_om if best_om > 0 else None
+    pruned_raw = shrink_prune(raw_best, target_ratio)
+
+    final = normalize_intervals(pruned_raw)
+    # sanity check: if pruning accidentally removed everything, fall back to best normalized
+    if not final:
+        return best[4]
+    return final
+>>>>>>> REPLACE
+</DIFF>

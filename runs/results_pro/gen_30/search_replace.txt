@@ -1,0 +1,94 @@
+<NAME>
+cycle_four_patterns_four_bridges
+</NAME>
+
+<DESCRIPTION>
+Introduce a more diverse gadget construction by cycling four start-patterns and four bridge-sets across the layers, instead of only two patterns with a fixed bridge sequence. This adds asymmetry and cross-coupling, which heuristically tends to push FirstFit to use more colors without inflating the clique number. Also switch the final normalization scale from 10 to 12 to keep coordinates compact while preserving interval relationships. The changes are confined to the multilayer construction and the normalization routine to keep the rest of the code intact.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def build_multilayer(depth):
+        """
+        Build the gadget by repeatedly expanding the template `depth` times.
+        We alternate two start‐shift patterns to induce asymmetry.
+        """
+        # initial seed: single unit interval
+        T = [(0.0, 1.0)]
+        # fixed bridge‐interval factors from Figure 4
+        bridge_factors = [(1,5), (12,16), (4,9), (8,13)]
+        # two alternating start‐factor patterns
+        patterns = [
+            (2,6,10,14),
+            (3,7,11,15),
+        ]
+        for i in range(depth):
+            starts = patterns[i % 2]
+            T = expand_layer(T, starts, bridge_factors)
+        return T
+=======
+def build_multilayer(depth):
+        """
+        Build the gadget by repeatedly expanding the template depth times.
+        Cycle four start-patterns and four bridge-sets to increase asymmetry.
+        """
+        T = [(0.0, 1.0)]
+        # four-pattern cycle
+        patterns = [
+            (2,6,10,14),
+            (3,7,11,15),
+            (4,8,12,16),
+            (5,9,13,17),
+        ]
+        # four bridge-set cycle
+        bridge_sets = [
+            [(1,5), (12,16), (4,9), (8,13)],
+            [(2,6), (11,15), (5,10), (9,14)],
+            [(3,7), (10,14), (6,11), (7,12)],
+            [(4,8), (13,17), (7,12), (8,13)]
+        ]
+        for i in range(depth):
+            starts = patterns[i % len(patterns)]
+            bridges = bridge_sets[i % len(bridge_sets)]
+            T = expand_layer(T, starts, bridges)
+        return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def normalize(intervals, scale=10):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+=======
+def normalize(intervals, scale=12):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+>>>>>>> REPLACE
+</DIFF>

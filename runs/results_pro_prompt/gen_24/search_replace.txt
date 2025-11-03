@@ -1,0 +1,139 @@
+<NAME>ff-binary-search-firstfit</NAME>
+<DESCRIPTION>Introduce a binary-search based placement check for FirstFit within the cached evaluator. This replaces the naive per-interval color assignment with per-color blocks that are kept sorted by left endpoint and tested using O(log k) neighbor checks, reducing overall evaluation time for long sequences while preserving correctness for open intervals.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  @lru_cache(maxsize=None)
+  def eval_seq_cached(seq_tuple):
+    """Return (colors_used, omega) for a given sequence tuple representation."""
+    seq = list(seq_tuple)
+
+    # FirstFit coloring
+    colors = []
+    for (l, r) in seq:
+      placed = False
+      for col in colors:
+        conflict = False
+        for (cl, cr) in col:
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    colors_used = len(colors)
+
+    # Clique number (omega) via sweep-line for open intervals
+    events = []
+    for (l, r) in seq:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    omega = best
+    return (colors_used, omega)
+
+  def firstfit_color_count(intervals):
+    """Simulate FirstFit on the given arrival-ordered intervals."""
+    colors = []
+    for (l, r) in intervals:
+      placed = False
+      for col in colors:
+        conflict = False
+        for (cl, cr) in col:
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    return len(colors)
+
+  def clique_number(intervals):
+    """Compute the clique number (ω) by sweep-line for open intervals."""
+    events = []
+    for (l, r) in intervals:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    return best
+=======
+  @lru_cache(maxsize=None)
+  def eval_seq_cached(seq_tuple):
+    """Return (colors_used, omega) for a given sequence tuple representation."""
+    seq = list(seq_tuple)
+
+    # Fast FirstFit coloring using per-color sorted-blocks with binary search
+    color_blocks = []
+
+    def can_place(block, new):
+      l, r = new
+      lo, hi = 0, len(block)
+      while lo < hi:
+        mid = (lo + hi) // 2
+        if block[mid][0] < l:
+          lo = mid + 1
+        else:
+          hi = mid
+      pos = lo
+      if pos > 0 and block[pos - 1][1] > l:
+        return False
+      if pos < len(block) and block[pos][0] < r:
+        return False
+      return True
+
+    def insert_pos(block, l):
+      lo, hi = 0, len(block)
+      while lo < hi:
+        mid = (lo + hi) // 2
+        if block[mid][0] < l:
+          lo = mid + 1
+        else:
+          hi = mid
+      return lo
+
+    for (l, r) in seq:
+      placed = False
+      for block in color_blocks:
+        if can_place(block, (l, r)):
+          pos = insert_pos(block, l)
+          block.insert(pos, (l, r))
+          placed = True
+          break
+      if not placed:
+        color_blocks.append([(l, r)])
+    colors_used = len(color_blocks)
+
+    # Omega (clique number) via sweep-line on the full sequence
+    events = []
+    for (l, r) in seq:
+      events.append((l, 1))
+      events.append((r, -1))
+    events.sort(key=lambda x: (x[0], x[1]))
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    omega = best
+
+    return (colors_used, omega)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,175 @@
+from collections import defaultdict, deque
+from functools import lru_cache
+
+# EVOLVE-BLOCK-START
+
+# --- Stage 1: Blueprint Generation ---
+
+def cycle_skeleton(base, pattern_index, perturb_eps=0.1):
+    """
+    Generate a 4-copy skeleton, rotating through 4 offset patterns (A,B,C,D)
+    and applying a tiny deterministic perturbation.
+    """
+    patterns = [
+        (2,6,10,14),
+        (1,5,9,13),
+        (3,7,11,15),
+        (0,4,8,12),
+    ]
+    offsets = patterns[pattern_index % 4]
+    lo, hi = 0.0, 1.0
+    delta = hi-lo
+    eps = perturb_eps * ((pattern_index % 3) + 1)
+    T = []
+    for idx, o in enumerate(offsets):
+        off = delta*o + eps * ((idx%2)*2-1)
+        for l,r in base:
+            T.append((l+off, r+off))
+    # 4 canonical blockers
+    blk = [(delta*1, delta*5),
+           (delta*4, delta*9),
+           (delta*8, delta*13),
+           (delta*12,delta*16)]
+    return T + blk
+
+def recursive_expand(depth, base=None, pattern_index=0):
+    """
+    Recursively expand the skeleton 'depth' times, cycling through patterns.
+    """
+    if base is None:
+        base = [(0.0,1.0)]
+    T = base
+    for d in range(depth):
+        T = cycle_skeleton(T, pattern_index + d)
+    return T
+
+# --- Stage 2: Deterministic Wave Augmentation ---
+
+def non_overlaps(a,b):
+    return a[1] <= b[0] or b[1] <= a[0]
+
+def partition_by_firstfit(intervals):
+    """Return list of color classes under FirstFit."""
+    classes = []
+    for iv in intervals:
+        placed = False
+        for cls in classes:
+            if all(non_overlaps(iv, u) for u in cls):
+                cls.append(iv)
+                placed = True
+                break
+        if not placed:
+            classes.append([iv])
+    return classes
+
+def add_waves(intervals, omega_cap):
+    """
+    Deterministically add up to two corridor waves at low-coverage runs
+    ensuring each adds a new FirstFit color without raising omega.
+    """
+    # Precompute coverage cells
+    events = [(l,1) for l,_ in intervals] + [(r,-1) for _,r in intervals]
+    events.sort(key=lambda x:(x[0], x[1]))
+    cov, runs = [], []
+    cur=0
+    prev_x=None
+    for x,delta in events:
+        if prev_x is not None and cur<omega_cap:
+            runs.append((prev_x, x, cur))
+        cur+=delta
+        prev_x = x
+    classes = partition_by_firstfit(intervals)
+    full_hit = len(classes)
+    added = 0
+    for L,R,m in runs:
+        if added>=2 or m>omega_cap-2: continue
+        seg = (L+1e-3, R-1e-3)
+        # Check it hits all existing colors
+        hits = sum(1 for cls in classes if any(not non_overlaps(iv,seg) for iv in cls))
+        if hits<full_hit: continue
+        # Evaluate
+        new = intervals + [seg]
+        if firstfit_count(new)==firstfit_count(intervals)+1 and omega_open(new)==omega_cap:
+            intervals = new
+            added+=1
+    return intervals
+
+# --- Stage 3: Memoized Evaluation ---
+
+@lru_cache(maxsize=1024)
+def firstfit_count(intervals_tuple):
+    intervals = list(intervals_tuple)
+    last = []
+    for l,r in intervals:
+        placed=False
+        for i,le in enumerate(last):
+            if l>=le:
+                last[i]=r
+                placed=True
+                break
+        if not placed:
+            last.append(r)
+    return len(last)
+
+@lru_cache(maxsize=1024)
+def omega_open(intervals_tuple):
+    intervals = list(intervals_tuple)
+    ev=[]
+    for l,r in intervals:
+        if l<r:
+            ev.append((l,1)); ev.append((r,-1))
+    ev.sort(key=lambda x:(x[0], x[1]))
+    cur=best=0
+    for _,d in ev:
+        cur+=d
+        best=max(best,cur)
+    return best
+
+# --- Stage 4: Frontier-Preserving Pruning ---
+
+def prune_intervals(intervals, target_ratio):
+    """
+    Greedy remove longest intervals if ratio stays ≥ target_ratio.
+    """
+    cur = list(intervals)
+    # sort indices by descending length
+    order = sorted(range(len(cur)), key=lambda i:cur[i][1]-cur[i][0], reverse=True)
+    for idx in order:
+        cand = cur[:idx]+cur[idx+1:]
+        t = tuple(cand)
+        alg = firstfit_count(t)
+        opt = omega_open(t)
+        if opt>0 and alg/opt >= target_ratio:
+            cur = cand
+    return cur
+
+# --- Orchestrator: Search and Build ---
+
+def construct_intervals(depth=4, normalize=True):
+    best_ratio=-1.0
+    best_inst=None
+    # Try small cycle shifts
+    for pat in range(4):
+        raw = recursive_expand(depth, pattern_index=pat)
+        raw = add_waves(raw, omega_open(tuple(raw)))
+        t = tuple(raw)
+        alg = firstfit_count(t)
+        opt = omega_open(t)
+        if opt==0: continue
+        ratio=alg/opt
+        if ratio>best_ratio+1e-9:
+            best_ratio=ratio
+            best_inst=raw
+    # Prune
+    final = prune_intervals(best_inst, best_ratio)
+    # Normalize
+    if normalize:
+        pts = sorted({x for l,r in final for x in (l,r)})
+        mp={x:i*2 for i,x in enumerate(pts)}
+        final=[(mp[l],mp[r]) for l,r in final]
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    return construct_intervals(**kwargs)

@@ -1,5 +1,11 @@
 # Lower bound for FirstFit for interval coloring
 
+This is an experiment trying to use ShinkaEvolve in order to obtain a better lower bound for the competitive ratio of FirstFit for online interval coloring. The best known lower is 5 (https://arxiv.org/abs/1506.00192).
+
+The `initial.py` solution in this repo produces an instance that proves 7/3=2.333..., and the best that ShinkaEvolve found (after burning $250 in OpenAI API calls) is 22/8=2.75.
+
+## Quick start
+
 ```bash
 # Install uv if you haven't already
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -16,4 +22,16 @@ uv pip install pulp[open_py]
 # Set api key and url
 export OPENAI_API_KEY=sk...
 export OPENAI_BASE_URL=https://eu.api.openai.com/v1
+
+# Run Shinka
+python3 main.py
 ```
+
+## Runs history
+
+The `runs` folder contains logs from five most successful runs. Some files changed their names along the way, the code was cleaned up, etc., so they can be somewhat inconsistent with what the current code would produce.
+
+- `runs/results` -- baseline, optimizes competitive ratio, run for ~200 iterations, the best solution is 13/5=2.6 found in the 2nd iteration;
+– `runs/resuts_pro` -- same as above but with the gpt-5-pro model added to the list of models (uncomment two lines in `main.py` to get it), run for ~50 iterations, results the same as previously;
+– `runs/resuts_pro_prompt` -- same as above but with prompt optimized with OpenAI Prompt Optimizer (uncomment a line in `main.py` to get it), run for ~40 iterations, results still the same;
+

@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 100, in run_shinka_eval
+    module = load_program(program_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 29, in load_program
+    spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 936, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1074, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1004, in source_to_code
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73v4prolpsat/gen_14/main.py", line 72
+    return [(l - lo, r - lo) for (l, r) in seq)
+                                              ^
+SyntaxError: closing parenthesis ')' does not match opening parenthesis '['
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 98, in <module>
+    main(parsed_args.program_path, parsed_args.results_dir)
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 71, in main
+    metrics, correct, error_msg = run_shinka_eval(
+                                  ^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 176, in run_shinka_eval
+    if all_run_results is not None:
+       ^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'all_run_results' where it is not associated with a value

@@ -1,0 +1,91 @@
+<NAME>add_pruning_pass_for_efficiency</NAME>
+
+<DESCRIPTION>
+Introduce a lightweight deterministic post-processing prune pass to the existing interval construction pipeline. The goal is to shave the final interval footprint (reduce n) without lowering the observed FirstFit/omega ratio for the frontier witness. The prune pass explicitly keeps the current target ratio (best observed) and greedily removes intervals that do not decrease this ratio. The final returned instance is the pruned version normalized to a compact integer grid. This should help reduce memory/time footprint in downstream evaluations while preserving frontier properties.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+=======
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+
++  def prune_intervals(intervals):
++    """
++    Lightweight deterministic pruning:
++    - Attempt to remove intervals while preserving the observed frontier ratio (cols/om)
++    - Use a greedy, repeat-until-stable approach
++    - Return a pruned list (may be identical if no removal is beneficial)
++    """
++    if not intervals:
++      return intervals
++    # Normalize once to compute a reliable ratio
++    norm0 = normalize_grid(intervals)
++    om0 = clique_number(norm0)
++    if om0 <= 0:
++      return intervals
++    cols0 = firstfit_colors(norm0)
++    target_ratio = cols0 / om0
++    cur = list(intervals)
++    improved = True
++    # Greedily try removing intervals while preserving ratio
++    while improved:
++      improved = False
++      for i in range(len(cur)):
++        cand = cur[:i] + cur[i+1:]
++        if not cand:
++          continue
++        nrm = normalize_grid(cand)
++        om = clique_number(nrm)
++        if om <= 0:
++          continue
++        cols = firstfit_colors(nrm)
++        r = cols / om
++        if r >= target_ratio - 1e-9:
++          cur = cand
++          improved = True
++          break
++    return cur
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # ------------ parameter sweep ------------
+=======
+  # ------------ parameter sweep ------------
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(best[4])
+=======
+  # Normalize endpoints to compact integer grid and return
+  # Additionally, apply a pruning pass to reduce footprint without hurting frontier ratio
+  final_raw = best[4]
+  pruned = prune_intervals(final_raw) if 'prune_intervals' in globals() else final_raw
+  return normalize_grid(pruned)
+>>>>>>> REPLACE
+</DIFF>

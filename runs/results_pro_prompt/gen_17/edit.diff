@@ -1,0 +1,311 @@
+--- a/original.py
++++ b/original.py
+@@ -1,49 +1,269 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+-  """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
+-
+-  Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+-  """
+-
+-  T = [(0, 1)]
+-  for _ in range(4):
+-    lo = min(l for l, r in T)
+-    hi = max(r for l, r in T)
+-    delta = hi - lo
+-    S = []
+-    for start in (2, 6, 10, 14):
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-    S += [
+-      (delta * 1, delta * 5),
+-      (delta * 12, delta * 16),
+-      (delta * 4, delta * 9),
+-      (delta * 8, delta * 13)
++    """
++    Construct a sequence of open intervals presented to FirstFit
++    to maximize the FirstFit / OPT ratio.
++
++    This implementation combines:
++    - a recursive fractal/capping construction (as in the referenced paper),
++    - multiple seed patterns,
++    - a block-hybrid reordering heuristic,
++    - a deterministic, sampled greedy ordering that picks intervals
++      which (when appended) would be assigned the largest color by FirstFit.
++
++    Returns:
++      intervals: list of tuples (l, r) representing open intervals.
++    """
++    import math
++    import random
++
++    # --- Core utilities -------------------------------------------------
++    def first_fit_color(intervals):
++        """Simulate FirstFit on a sequence of open intervals. Return number of colors."""
++        end_times = []  # end time for each color in color-id order
++        for l, r in intervals:
++            placed = False
++            for i, et in enumerate(end_times):
++                if et <= l:
++                    end_times[i] = r
++                    placed = True
++                    break
++            if not placed:
++                end_times.append(r)
++        return len(end_times)
++
++    def clique_bound(intervals):
++        """Compute maximum clique size (OPT) via sweep-line on open intervals."""
++        events = []
++        for l, r in intervals:
++            events.append((l, 1))
++            events.append((r, -1))
++        # Process ends before starts on ties (so open intervals treat touching endpoints as non-overlapping)
++        events.sort(key=lambda e: (e[0], e[1]))
++        cur = best = 0
++        for _, delta in events:
++            cur += delta
++            if cur > best:
++                best = cur
++        return best
++
++    # --- Fractal builder ------------------------------------------------
++    def build_fractal(base, depth, starts, caps):
++        """
++        Build fractal by repeatedly placing scaled copies of T at offsets 'starts'
++        and adding cap intervals 'caps' in each iteration.
++        """
++        T = list(base)
++        for _ in range(depth):
++            lo = min(l for l, _ in T)
++            hi = max(r for _, r in T)
++            delta = hi - lo
++            S = []
++            # scaled copies
++            for s in starts:
++                off = delta * s
++                S.extend([(off + l - lo, off + r - lo) for l, r in T])
++            # cap intervals (placed relative to the current scale)
++            for a, b in caps:
++                S.append((delta * a, delta * b))
++            T = S
++        return T
++
++    # --- Reordering heuristics ------------------------------------------
++    def block_hybrid_order(seq):
++        """Split seq into 4 blocks and reorder each block differently to create adversarial ordering."""
++        n = len(seq)
++        if n == 0:
++            return []
++        bs = max(1, math.ceil(n / 4))
++        blocks = [seq[i*bs:(i+1)*bs] for i in range(4)]
++        # catch any remainder
++        tail = seq[4*bs:]
++        if tail:
++            blocks[-1].extend(tail)
++        b0 = blocks[0]                                   # keep order
++        b1 = list(reversed(blocks[1]))                   # reversed
++        b2 = sorted(blocks[2], key=lambda iv: (iv[1]-iv[0], iv[0]))   # short-first
++        b3 = sorted(blocks[3], key=lambda iv: (-(iv[1]-iv[0]), iv[0]))# long-first
++        return b0 + b1 + b2 + b3
++
++    def order_short_first(seq):
++        return sorted(seq, key=lambda iv: (iv[1]-iv[0], iv[0]))
++
++    def order_long_first(seq):
++        return sorted(seq, key=lambda iv: (-(iv[1]-iv[0]), iv[0]))
++
++    def order_left_first(seq):
++        return sorted(seq, key=lambda iv: (iv[0], iv[1]))
++
++    def order_right_first(seq):
++        return sorted(seq, key=lambda iv: (-iv[0], -iv[1]))
++
++    # --- Deterministic sampled greedy ordering --------------------------
++    def greedy_max_assigned_color(seq, sample_size=60, seed=0):
++        """
++        Deterministic greedy that builds an order by repeatedly sampling a subset
++        of remaining intervals and picking the one that would receive the largest
++        FirstFit color index if appended next. This tends to force FirstFit to
++        create new colors early.
++        """
++        rng = random.Random(seed)
++        remaining = list(seq)
++        order = []
++        end_times = []  # current FirstFit end times
++
++        while remaining:
++            k = min(sample_size, len(remaining))
++            # sample indices deterministically via rng
++            if k == len(remaining):
++                candidates_idx = list(range(len(remaining)))
++            else:
++                candidates_idx = rng.sample(range(len(remaining)), k)
++
++            best_idx = candidates_idx[0]
++            best_color = -1
++            # evaluate candidates
++            for idx in candidates_idx:
++                l, r = remaining[idx]
++                # simulate assigned color index
++                assigned = None
++                for i, et in enumerate(end_times):
++                    if et <= l:
++                        assigned = i
++                        break
++                if assigned is None:
++                    assigned = len(end_times)
++                if assigned > best_color:
++                    best_color = assigned
++                    best_idx = idx
++
++            # append chosen interval and update end_times by FirstFit rule
++            l, r = remaining.pop(best_idx)
++            placed = False
++            for i, et in enumerate(end_times):
++                if et <= l:
++                    end_times[i] = r
++                    placed = True
++                    break
++            if not placed:
++                end_times.append(r)
++            order.append((l, r))
++
++        return order
++
++    def greedy_max_overlap(seq, sample_size=60, seed=1):
++        """
++        Greedy that picks intervals overlapping the largest number of currently
++        active colors (a heuristic to block reuse of low colors). Deterministic via seed.
++        """
++        rng = random.Random(seed)
++        remaining = list(seq)
++        order = []
++        end_times = []
++
++        while remaining:
++            k = min(sample_size, len(remaining))
++            if k == len(remaining):
++                candidates_idx = list(range(len(remaining)))
++            else:
++                candidates_idx = rng.sample(range(len(remaining)), k)
++
++            best_idx = candidates_idx[0]
++            best_overlap = -1
++            for idx in candidates_idx:
++                l, r = remaining[idx]
++                overlap = sum(1 for et in end_times if et > l)
++                if overlap > best_overlap:
++                    best_overlap = overlap
++                    best_idx = idx
++
++            l, r = remaining.pop(best_idx)
++            placed = False
++            for i, et in enumerate(end_times):
++                if et <= l:
++                    end_times[i] = r
++                    placed = True
++                    break
++            if not placed:
++                end_times.append(r)
++            order.append((l, r))
++
++        return order
++
++    # --- Candidate generation and evaluation ---------------------------
++    base = [(0, 1)]
++
++    # Three seeds (shifted anchor patterns) to diversify fractal geometry
++    seeds = [
++        {'starts': (2, 6, 10, 14), 'caps': [(1, 5), (4, 9), (8, 13), (12, 16)]},
++        {'starts': (3, 7, 11, 15), 'caps': [(2, 6), (5, 10), (9, 14), (13, 17)]},
++        {'starts': (4, 8, 12, 16), 'caps': [(3, 7), (6, 11), (10, 15), (14, 18)]},
+     ]
+-    T = S
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++
++    # depth choice: deeper means many more intervals; 4 worked well in prior experiments
++    depth = 4
++
++    # Build candidates
++    candidates = []
++    for i, sd in enumerate(seeds):
++        seq = build_fractal(base, depth, sd['starts'], sd['caps'])
++        candidates.append((f'seed{i}', seq))
++
++    # Also include a shallower variant (different trade-off)
++    shallow = build_fractal(base, 3, seeds[0]['starts'], seeds[0]['caps'])
++    candidates.append(('shallow_seed0', shallow))
++
++    # Evaluate many orderings for each candidate and keep best ordering
++    orderings = [
++        ('identity', lambda x: list(x)),
++        ('reversed', lambda x: list(reversed(x))),
++        ('short_first', order_short_first),
++        ('long_first', order_long_first),
++        ('left_first', order_left_first),
++        ('right_first', order_right_first),
++        ('block_hybrid', block_hybrid_order),
++        # greedy samplers with deterministic seeds and moderate sample sizes
++        ('greedy_sample60_seed0', lambda x: greedy_max_assigned_color(x, sample_size=60, seed=0)),
++        ('greedy_sample80_seed0', lambda x: greedy_max_assigned_color(x, sample_size=80, seed=0)),
++        ('greedy_overlap60_seed1', lambda x: greedy_max_overlap(x, sample_size=60, seed=1)),
++    ]
++
++    best_seq = None
++    best_ratio = -1.0
++    best_stats = None
++
++    # Evaluate
++    for cname, seq in candidates:
++        # normalize and shift intervals to integers (they are already typically integers in this construction)
++        # but to be safe, convert all endpoints to integers by rounding (preserve ordering)
++        seq_int = [(int(l), int(r)) for l, r in seq]
++
++        for oname, ofunc in orderings:
++            try:
++                seq_o = ofunc(seq_int)
++            except Exception:
++                # In case an ordering fails for unexpected reasons, skip
++                continue
++            alg = first_fit_color(seq_o)
++            opt = clique_bound(seq_o)
++            if opt <= 0:
++                continue
++            ratio = alg / opt
++            if ratio > best_ratio:
++                best_ratio = ratio
++                best_seq = seq_o
++                best_stats = (cname, oname, alg, opt, len(seq_o))
++
++    # Post-check: if no candidate was selected (shouldn't happen), fall back to the simple fractal
++    if best_seq is None:
++        best_seq = build_fractal(base, 2, seeds[0]['starts'], seeds[0]['caps'])
++
++    # Return the best sequence found
++    return best_seq
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

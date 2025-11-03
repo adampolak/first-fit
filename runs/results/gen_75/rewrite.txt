@@ -1,0 +1,295 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4, extra_first=True):
+  """
+  Deterministic search-based generator for an adversarial sequence of open intervals
+  aimed to maximize FirstFit colors / clique-number ratio.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 4)
+    extra_first: initial toggle for allowing an extra copy on the first level (default True)
+
+  Returns:
+    normalized list of integer-encoded open intervals [(l,r), ...] representing arrival order.
+  """
+
+  # --- Deterministic pseudo-random helper (fixed seed for reproducibility) ---
+  from random import Random
+  rnd = Random(0)
+
+  # --- Core utilities: FirstFit simulation and clique computation ---
+  def firstfit_colors(intervals):
+    """Simulate FirstFit on the given arrival-ordered intervals (open intervals)."""
+    last_end = []  # last end for each color (we maintain increasing arrival order)
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        # For open intervals, reuse if l >= le
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def clique_number(intervals):
+    """Compute clique number (maximum number overlapping a point) for open intervals."""
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        # open intervals: entering at l, leaving at r; tie-break: exit before entry
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def normalize_grid(intervals):
+    """Map unique endpoints to compact even integer grid (0,2,4,...)."""
+    if not intervals:
+      return []
+    endpoints = sorted(set(x for seg in intervals for x in seg))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+      coord[e] = cur
+      cur += 2
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+  # --- Basic recursive builder (parameterized) ---
+  def build_recursive(base_iterations,
+                      offsets_by_level,
+                      schedule_by_level,
+                      include_extra_first):
+    """
+    offsets_by_level: list of tuples with offsets for each level
+    schedule_by_level: list with 'after'|'before'|'split' values per level
+    include_extra_first: boolean to optionally add a fifth copy on level 0
+    """
+    T = [(0.0, 1.0)]
+    for lvl in range(base_iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      # get per-level offsets and schedule (fallback to default if not enough entries)
+      offsets = offsets_by_level[lvl] if lvl < len(offsets_by_level) else (2, 6, 10, 14)
+      if include_extra_first and lvl == 0 and len(offsets) < 5:
+        offsets = tuple(list(offsets) + [18])
+      schedule = schedule_by_level[lvl] if lvl < len(schedule_by_level) else 'after'
+
+      # produce copies (left anchored)
+      def make_copies(from_T, offs):
+        out = []
+        for start in offs:
+          off = delta * start - lo
+          for (l, r) in from_T:
+            out.append((l + off, r + off))
+        return out
+
+      blockers = [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13),
+      ]
+
+      if schedule == 'after':
+        S = make_copies(T, offsets) + blockers
+      elif schedule == 'before':
+        S = blockers + make_copies(T, offsets)
+      else:  # split
+        h = max(1, len(offsets) // 2)
+        S = make_copies(T, offsets[:h]) + blockers + make_copies(T, offsets[h:])
+      T = S
+    return T
+
+  # --- Greedy deterministic shrinker to remove redundant intervals preserving witness ---
+  def shrink_witness(T, target_cols, target_omega, max_passes=3):
+    """
+    Greedy removal: attempt to remove each interval if after removal
+    the clique_number == target_omega and FirstFit colors >= target_cols.
+    Do forward and backward passes deterministically.
+    """
+    changed = True
+    passes = 0
+    while changed and passes < max_passes:
+      changed = False
+      # forward pass
+      i = 0
+      while i < len(T):
+        cand = T[:i] + T[i+1:]
+        if clique_number(cand) == target_omega and firstfit_colors(cand) >= target_cols:
+          T = cand
+          changed = True
+          # keep same index to test the item now in this position
+        else:
+          i += 1
+      # backward pass
+      i = len(T) - 1
+      while i >= 0:
+        cand = T[:i] + T[i+1:]
+        if clique_number(cand) == target_omega and firstfit_colors(cand) >= target_cols:
+          T = cand
+          changed = True
+        i -= 1
+      passes += 1
+    return T
+
+  # --- Initial template family to seed the search (variants of the Figure 4 gadget) ---
+  base_offsets_opts = [
+    (2, 6, 10, 14),   # canonical
+    (1, 5, 9, 13),    # shifted
+    (3, 7, 11, 15),   # alternate
+    (2, 6, 10, 14, 18)  # with an extra copy up front
+  ]
+  schedule_opts = ['after', 'before', 'split']
+
+  # Build a small deterministic population of seeds
+  seeds = []
+  for off in base_offsets_opts:
+    # create per-level repetition of the chosen offsets
+    offsets_by_level = [off] * iterations
+    # vary schedule patterns: uniform and alternating
+    for sch in schedule_opts:
+      schedule_by_level = [sch] * iterations
+      seeds.append((offsets_by_level, schedule_by_level, extra_first))
+    # try alternating schedule pattern
+    alt_schedules = [('after' if i % 2 == 0 else 'split') for i in range(iterations)]
+    seeds.append(([off] * iterations, alt_schedules, extra_first))
+
+  # --- Scoring and search loop (small bounded deterministic search) ---
+  def evaluate_candidate(offsets_by_level, schedule_by_level, include_extra_first):
+    T = build_recursive(iterations, offsets_by_level, schedule_by_level, include_extra_first)
+    om = clique_number(T)
+    if om == 0:
+      return -1.0, None, None, None  # invalid
+    cols = firstfit_colors(T)
+    ratio = cols / om
+    return ratio, cols, om, T
+
+  # Seed best candidate
+  best_ratio = -1.0
+  best_T = None
+  best_cols = best_om = 0
+  best_n = None
+
+  for (offs_by_lvl, sch_by_lvl, inc_first) in seeds:
+    ratio, cols, om, T = evaluate_candidate(offs_by_lvl, sch_by_lvl, inc_first)
+    if T is None:
+      continue
+    n = len(T)
+    if ratio > best_ratio + 1e-12 or (abs(ratio - best_ratio) <= 1e-12 and (best_n is None or n < best_n)):
+      best_ratio = ratio
+      best_T = T
+      best_cols = cols
+      best_om = om
+      best_n = n
+
+  # Local search: deterministic pseudo-random hill-climb with small budget
+  # Mutations: tweak an offset at a level, change a level schedule, toggle extra_first
+  search_budget = 250  # small and deterministic; tuneable
+  # start from the best seed offsets/schedules found (fallback to canonical)
+  if best_T is None:
+    cur_offsets = [base_offsets_opts[0]] * iterations
+    cur_schedule = ['after'] * iterations
+    cur_extra = extra_first
+  else:
+    # attempt to reconstruct offsets/schedules that generated best_T modestly:
+    # start from canonical and rely on mutations to improve
+    cur_offsets = [base_offsets_opts[0]] * iterations
+    cur_schedule = ['after'] * iterations
+    cur_extra = extra_first
+
+  for step in range(search_budget):
+    # propose mutation
+    new_offsets = [tuple(x) for x in cur_offsets]
+    new_schedule = list(cur_schedule)
+    new_extra = cur_extra
+
+    # choose mutation type deterministically via rnd
+    mtype = rnd.choice(['change_offset', 'swap_schedule', 'toggle_extra', 'swap_level_offsets', 'shift_offsets'])
+    lvl = rnd.randrange(iterations)
+    if mtype == 'change_offset':
+      # replace offsets at one level with another pattern from options
+      new_offsets[lvl] = rnd.choice(base_offsets_opts)
+    elif mtype == 'swap_schedule':
+      new_schedule[lvl] = rnd.choice(schedule_opts)
+    elif mtype == 'toggle_extra':
+      new_extra = not new_extra
+    elif mtype == 'swap_level_offsets':
+      # swap offsets between two levels
+      j = rnd.randrange(iterations)
+      new_offsets[lvl], new_offsets[j] = new_offsets[j], new_offsets[lvl]
+    else:  # shift_offsets: add a small shift to each offset at level (deterministic additive tweak)
+      base = list(new_offsets[lvl])
+      # shift each offset by +/-1 within a safe small range [0..20]
+      base = tuple(max(0, min(20, int(x + rnd.choice([-1, 1])))) for x in base)
+      new_offsets[lvl] = base
+
+    # evaluate
+    ratio, cols, om, T = evaluate_candidate(new_offsets, new_schedule, new_extra)
+    if T is None:
+      continue
+    n = len(T)
+    # acceptance: strictly better ratio, or equal ratio with fewer intervals (deterministic)
+    accept = False
+    if ratio > best_ratio + 1e-12:
+      accept = True
+    elif abs(ratio - best_ratio) <= 1e-12:
+      if n < best_n:
+        accept = True
+      elif n == best_n and cols > best_cols:
+        accept = True
+    if accept:
+      best_ratio = ratio
+      best_T = T
+      best_cols = cols
+      best_om = om
+      best_n = n
+      # adopt new config as current for further exploration
+      cur_offsets = new_offsets
+      cur_schedule = new_schedule
+      cur_extra = new_extra
+
+  # If we have a best candidate, apply deterministic shrink to tighten witness
+  if best_T is not None:
+    cols = best_cols
+    om = best_om
+    # Run shrinker with target preserving best observed columns and omega
+    shrunk = shrink_witness(best_T, cols, om, max_passes=3)
+    # Re-evaluate after shrink; if it keeps same stats accept it
+    if firstfit_colors(shrunk) >= cols and clique_number(shrunk) == om:
+      best_T = shrunk
+
+  # Final normalization to compact integer grid and return
+  if best_T is None:
+    # fallback: canonical 4-copy figure-4 construction
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    return normalize_grid(T)
+
+  return normalize_grid(best_T)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

@@ -1,0 +1,40 @@
+<NAME>
+alternating_blocker_schedule
+</NAME>
+
+<DESCRIPTION>
+Introduce an alternating schedule for inserting the long "blocker" intervals: on even iterations append blockers after the copies (as before), but on odd iterations prepend blockers before the copies. This variation in arrival order can increase the pressure on FirstFit by altering the overlap structure dynamically, potentially improving the FirstFit/ω ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    for start in offsets:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+=======
+    for start in offsets:
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Prepare the four connecting long intervals (blockers)
+    blockers = [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    # Alternate insertion schedule: even iterations after copies, odd before
+    if i % 2 == 0:
+      # even: append blockers
+      S += blockers
+    else:
+      # odd: prepend blockers
+      S = blockers + S
+    T = S
+>>>>>>> REPLACE
+</DIFF>

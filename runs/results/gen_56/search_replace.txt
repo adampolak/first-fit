@@ -1,0 +1,79 @@
+<NAME>
+add_extra_copies_option</NAME>
+
+<DESCRIPTION>
+Introduce an `extra_copies_opts` parameter allowing up to two additional translated copies on the first recursion level. This increases geometry diversity and may force FirstFit to use more colors without increasing ω. We define `extra_copies_opts = [0,1,2]` and adjust the offsets before building each pattern.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+    depths = [3, 4, 5]  # sweep as recommended
+    base_seeds = [
+        [(0.0, 1.0)],                      # single seed (classic)
+        [(0.0, 1.0), (2.0, 3.0)],          # richer base: two disjoint seeds
+    ]
+
+    best = None  # (score, om, cols, n, intervals)
+    # Enumerate combinations with a guard on worst-case explosion
+    for base in base_seeds:
+        for k in depths:
+            # Hard cap: avoid extremely large instances in the inner evaluator
+            # expected size ~ 4^k * |base| + O(4^k)
+            if (4 ** k) * (len(base) + 2) > 2000:
+                continue
+            for offsets in offsets_set:
+                for blockers in blockers_templates:
+                    for translation in translations:
+                        for anchor in blocker_anchors:
+                            T = build_pattern(
+                                k=k,
+                                base_seed=base,
+                                offsets=offsets,
+                                blockers=blockers,
+                                translation=translation,
+                                blocker_anchor=anchor,
+                            )
+                            score, om, cols, n, Tn = evaluate(T)
+=======
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+    depths = [3, 4, 5]  # sweep as recommended
+    base_seeds = [
+        [(0.0, 1.0)],                      # single seed (classic)
+        [(0.0, 1.0), (2.0, 3.0)],          # richer base: two disjoint seeds
+    ]
+    extra_copies_opts = [0, 1, 2]  # allow up to two extra copies on first level
+
+    best = None  # (score, om, cols, n, intervals)
+    # Enumerate combinations with a guard on worst-case explosion
+    for base in base_seeds:
+        for k in depths:
+            # Hard cap: avoid extremely large instances in the inner evaluator
+            # expected size ~ 4^k * |base| + O(4^k)
+            if (4 ** k) * (len(base) + 4) > 2000:
+                continue
+            for offsets in offsets_set:
+                for extra in extra_copies_opts:
+                    # build potentially extended offsets list
+                    offs = list(offsets)
+                    if extra >= 1:
+                        offs.append(offsets[-1] + 4)
+                    if extra >= 2:
+                        offs.append(offsets[-1] + 8)
+                    offs = tuple(offs)
+                    for blockers in blockers_templates:
+                        for translation in translations:
+                            for anchor in blocker_anchors:
+                                T = build_pattern(
+                                    k=k,
+                                    base_seed=base,
+                                    offsets=offs,
+                                    blockers=blockers,
+                                    translation=translation,
+                                    blocker_anchor=anchor,
+                                )
+                                score, om, cols, n, Tn = evaluate(T)
+>>>>>>> REPLACE
+</DIFF>

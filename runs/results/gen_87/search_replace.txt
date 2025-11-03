@@ -1,0 +1,54 @@
+<NAME>
+add_halfstep_offsets_and_extra_blocker_template
+</NAME>
+
+<DESCRIPTION>
+I propose a targeted improvement: expand the compact search space to include half-step staggered offsets and a denser blocker template. These small, focused changes encourage more cross-copy interference (raising FirstFit) without increasing the clique size much, and they are cheap to evaluate.
+
+Concretely:
+- Add start_sets entries including (1.5, 5.5, 9.5, 13.5) and a slightly skewed (2,6,9,14) to test more stagger patterns.
+- Add a blocker template with 6 couplers (two extra caps) to more aggressively occupy low-numbered colors and couple copies across layers. This template expands the search without altering the recursive machinery.
+- Keep schedules, translations and extras unchanged.
+
+This edit is small and deterministic, keeps the program runnable, and increases the chance of discovering a stronger adversarial instance for FirstFit by including well-known heuristics (half-step offsets and extra blockers) from the literature and the suggestions you provided.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    start_sets = [
+        (2, 6, 10, 14),   # canonical
+        (1, 5, 9, 13),    # shift left
+        (3, 7, 11, 15),   # shift right
+        (0, 4, 8, 12),    # leftmost
+    ]
+    blocker_templates = [
+        [(1, 5), (12, 16), (4, 9), (8, 13)],             # canonical
+        [(1, 5), (11, 15), (4, 9), (8, 13)],             # slight shift
+        [(2, 6), (12, 16), (4, 9), (8, 13)],             # shift first
+        [(1, 6), (11, 16), (3, 9), (7, 13)],             # lengthened
+    ]
+    schedules = ['after', 'before', 'split', 'interleaved']
+    translations = ['left', 'center']
+    extra_options = [(False, False), (True, False), (False, True), (True, True)]
+=======
+    start_sets = [
+        (2, 6, 10, 14),   # canonical
+        (1, 5, 9, 13),    # shift left
+        (3, 7, 11, 15),   # shift right
+        (0, 4, 8, 12),    # leftmost
+        (1.5, 5.5, 9.5, 13.5),  # half-step stagger (may increase cross-copy overlap)
+        (2, 6, 9, 14),    # slight skew to couple copies differently
+    ]
+    blocker_templates = [
+        [(1, 5), (12, 16), (4, 9), (8, 13)],             # canonical
+        [(1, 5), (11, 15), (4, 9), (8, 13)],             # slight shift
+        [(2, 6), (12, 16), (4, 9), (8, 13)],             # shift first
+        [(1, 6), (11, 16), (3, 9), (7, 13)],             # lengthened
+        # Denser coupling: add two cap-like blockers to pressure many colors
+        [(1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)],
+    ]
+    schedules = ['after', 'before', 'split', 'interleaved']
+    translations = ['left', 'center']
+    extra_options = [(False, False), (True, False), (False, True), (True, True)]
+>>>>>>> REPLACE
+</DIFF>

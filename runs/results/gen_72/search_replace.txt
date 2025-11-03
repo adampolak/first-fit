@@ -1,0 +1,168 @@
+<NAME>
+add_blocker_and_prune
+</NAME>
+
+<DESCRIPTION>
+I propose two targeted improvements to the recursive adversarial construction:
+
+1) Add an extra offsets pattern and a sixth blocker template (a denser "coupler" with 5/6 blockers). These increase the search space with symmetric variants that historically raise FirstFit pressure without increasing clique size.
+
+2) Add a deterministic pruning pass after the best candidate is found: attempt to remove individual intervals one-by-one if their removal does not reduce FirstFit colors or change the clique number. This deterministic shrinker reduces instance size (helpful for tie-breaking and score normalization) while preserving the adversarial effect.
+
+The changes are localized: they extend the offsets and blocker template lists and add a light-weight pruning loop before endpoint normalization. The pruning is conservative (single-interval removals only, in original arrival order) so runtime stays modest and correctness (preserving score/omega/colors) is ensured by re-checking both FirstFit and omega for each attempted removal.
+
+This should yield smaller witnesses for equal ratio and may discover slightly better ratios by enabling search to prefer compact high-ratio patterns.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  offsets_set = [
+    (2, 6, 10, 14),      # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+    (2, 6, 9, 14),       # slight skew to tighten mid overlap
+    (2, 7, 11, 14),      # shifted second copy
+    (1.5, 5.5, 9.5, 13.5)  # half-step stagger
+  ]
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # D: asymmetric early/late pushers
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # F: six-blocker couplers (two extra caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+  ]
+  translations = ['left', 'center']
+  blocker_anchors = ['left', 'center']
+  depths = [d for d in {3, 4, 5, iterations} if d in (3, 4, 5)]
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)],
+    [(0.0, 1.0), (0.5, 1.5)],  # new overlapping base seed to increase initial FF pressure
+  ]
+=======
+  offsets_set = [
+    (2, 6, 10, 14),      # canonical
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+    (2, 6, 9, 14),       # slight skew to tighten mid overlap
+    (2, 7, 11, 14),      # shifted second copy
+    (1.5, 5.5, 9.5, 13.5),  # half-step stagger
+    (2, 6, 10, 14, 18)   # extra-copy offsets (explore 5-copy variants)
+  ]
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+    # D: asymmetric early/late pushers
+    ((1, 5), (12, 16), (3, 7), (9, 13)),
+    # E: lengthened extremes
+    ((1, 6), (11, 16), (4, 8), (10, 14)),
+    # F: six-blocker couplers (two extra caps)
+    ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+    # G: dense 5-blocker coupler (extra cap to more tightly couple copies)
+    ((1, 5), (3, 9), (6, 10), (11, 15), (8, 13))
+  ]
+  translations = ['left', 'center']
+  blocker_anchors = ['left', 'center']
+  depths = [d for d in {3, 4, 5, iterations} if d in (3, 4, 5)]
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)],
+    [(0.0, 1.0), (0.5, 1.5)],  # new overlapping base seed to increase initial FF pressure
+  ]
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Fallback to the known-safe baseline if sweep failed (should not happen)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return normalize_grid(T)
+=======
+  # Fallback to the known-safe baseline if sweep failed (should not happen)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return normalize_grid(T)
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(best[4])
+=======
+  # Attempt deterministic pruning: try removing single intervals (in arrival order)
+  # if both the clique number and FirstFit color count remain unchanged.
+  # This is conservative (single removals only) and preserves the adversarial effect.
+  final_T = list(best[4])
+  try:
+    base_om = clique_number(final_T)
+    base_cols = firstfit_colors(final_T)
+    i = 0
+    # single pass deterministic shrink: iterate once left-to-right
+    while i < len(final_T):
+      cand = final_T[:i] + final_T[i+1:]
+      if not cand:
+        i += 1
+        continue
+      om_c = clique_number(cand)
+      cols_c = firstfit_colors(cand)
+      # only accept removal if both metrics unchanged
+      if om_c == base_om and cols_c == base_cols:
+        # accept removal (do not increment i because list shifted left)
+        final_T = cand
+        # do not change base_om/base_cols
+      else:
+        i += 1
+  except Exception:
+    # If anything goes wrong in pruning, fall back to the unpruned best
+    final_T = list(best[4])
+
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(final_T)
+>>>>>>> REPLACE
+
+</DIFF>

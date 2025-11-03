@@ -1,0 +1,449 @@
+<NAME>
+weave_and_reverse_odd_levels_search
+</NAME>
+
+<DESCRIPTION>
+Add two targeted adversary-engineering techniques that are known to raise FirstFit usage without proportionally increasing the clique number:
+
+1) Weaving copies: when enabled, instead of appending all intervals of each translated copy sequentially, round-robin interleave one interval from each copy. This couples colors across copies and tends to force FirstFit to open new colors earlier.
+
+2) Reverse odd levels: optionally reverse the arrival order at odd recursion levels. This arrival-order engineering can prevent FirstFit from reusing low-numbered colors effectively across levels.
+
+Also expand the offset patterns to include the (0,4,8,12) layout and sweep over the new boolean flags in the small deterministic configuration search. The change is local, small, and deterministic: it adds two parameters to the search and implements their effects in the template builder. It keeps runtime small (search space increases by factor 4) but explores powerful geometries that have been effective in prior literature and the provided heuristics.
+
+I kept the rest of the code and normalization unchanged. The new options are deterministic and conservative; they should improve the best observed FirstFit/omega ratio for many depths without introducing pathological intervals.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of intervals to maximize FirstFit/omega.
+  Modular, fast variant with a small, fixed set of template patterns.
+
+  Returns:
+    List of tuples (l, r) on a compact integer grid.
+  """
+
+  # Lightweight helpers (pure-Python, no external deps)
+
+  def _normalize_grid(intervals):
+    """Map unique endpoints to increasing even integers starting at 0."""
+    if not intervals:
+      return []
+    endpoints = sorted({x for seg in intervals for x in seg})
+    coord = {}
+    cur = 0
+    for e in endpoints:
+      coord[e] = cur
+      cur += 2  # keep even gaps
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+  def _firstfit_colors(intervals):
+    """
+    Simulated FirstFit with a simple per-color end-tracking rule.
+    We keep for each color the rightmost end of its last interval and allow
+    reuse if the new interval starts after that end.
+    Returns number of colors used.
+    """
+    last_end = []  # per-color last end
+    for (l, r) in intervals:
+      placed = False
+      for i, end in enumerate(last_end):
+        if l >= end:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def _clique_number(intervals):
+    """
+    Exact clique number via sweep-line on open intervals.
+    Treat (l, r) as open; count active intervals between endpoints.
+    """
+    # Build events: (position, delta); open at l, close at r
+    ev = []
+    for (l, r) in intervals:
+      if l < r:
+        ev.append((l, 1))
+        ev.append((r, -1))
+    # sort by position; for ties, end (-1) before start (+1) to model open intervals
+    ev.sort(key=lambda x: (x[0], x[1]))
+    cur = 0
+    best = 0
+    for _, d in ev:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+
+  def _make_candidate_template(k, offsets=(2,6,10,14), extra_first=False, translation='left', schedule='after'):
+    """
+    Construct a k-level recursive pattern with four copies per level plus the four blockers.
+    translation: 'left' (baseline) or 'center' (center-based shifting).
+    schedule: how to lay out (simplified to 'after','before','split' variants).
+    extra_first: optionally add a 5th copy on level 0 to increase geometry.
+    """
+    T = [(0.0, 1.0)]
+    for lvl in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      offs = list(offsets)
+      if extra_first and lvl == 0:
+        offs.append(18)
+
+      def _offset_for(start):
+        if translation == 'left':
+          return delta * start - lo
+        else:  # center translation
+          return delta * start - center
+
+      # build copies
+      copy_seq = []
+      for s in offs:
+        off = _offset_for(s)
+        for (l, r) in T:
+          copy_seq.append((l + off, r + off))
+
+      blockers = [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13),
+      ]
+
+      if schedule == 'after':
+        T = copy_seq + blockers
+      elif schedule == 'before':
+        T = blockers + copy_seq
+      else:  # 'split'
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        first_seq = []
+        for s in first:
+          off = _offset_for(s)
+          for (l, r) in T:
+            first_seq.append((l + off, r + off))
+        second_seq = []
+        for s in second:
+          off = _offset_for(s)
+          for (l, r) in T:
+            second_seq.append((l + off, r + off))
+        T = first_seq + blockers + second_seq
+
+    return T
+
+  # Candidate configuration space (compact and deterministic)
+  depths = [max(2, iterations - 1), iterations]
+  translations = ['left', 'center']
+  offset_sets = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted
+    (3, 7, 11, 15),  # alternate
+  ]
+  schedules = ['after', 'before', 'split']
+  extras = [False, True]
+
+  best_T = None
+  best_ratio = -1.0
+  best_n = None
+  best_cols = 0
+  best_om = 0
+
+  # Exhaust a small, fixed set of combinations (keeps runtime small)
+  for k in depths:
+    for sch in schedules:
+      for ex in extras:
+        for trans in translations:
+          for offs in offset_sets:
+            T = _make_candidate_template(k, offsets=offs, extra_first=ex, translation=trans, schedule=sch)
+            om = _clique_number(T)
+            if om == 0:
+              continue
+            cols = _firstfit_colors(T)
+            ratio = cols / om
+
+            n = len(T)
+            better = False
+            if ratio > best_ratio + 1e-12:
+              better = True
+            elif abs(ratio - best_ratio) <= 1e-12:
+              if best_n is None or n < best_n:
+                better = True
+              elif n == best_n and cols > best_cols:
+                better = True
+
+            if better:
+              best_ratio = ratio
+              best_T = T
+              best_n = n
+              best_cols = cols
+              best_om = om
+
+  # Fallback: canonical canonical-4-iteration pattern if search failed
+  if best_T is None:
+    best_T = []
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for (l, r) in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    best_T = T
+
+  # Normalize and return
+  return _normalize_grid(best_T)
+
+# EVOLVE-BLOCK-END
+=======
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of intervals to maximize FirstFit/omega.
+  Modular, fast variant with a small, fixed set of template patterns.
+
+  Returns:
+    List of tuples (l, r) on a compact integer grid.
+  """
+
+  # Lightweight helpers (pure-Python, no external deps)
+
+  def _normalize_grid(intervals):
+    """Map unique endpoints to increasing even integers starting at 0."""
+    if not intervals:
+      return []
+    endpoints = sorted({x for seg in intervals for x in seg})
+    coord = {}
+    cur = 0
+    for e in endpoints:
+      coord[e] = cur
+      cur += 2  # keep even gaps
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+  def _firstfit_colors(intervals):
+    """
+    Simulated FirstFit with a simple per-color end-tracking rule.
+    We keep for each color the rightmost end of its last interval and allow
+    reuse if the new interval starts after that end.
+    Returns number of colors used.
+    """
+    last_end = []  # per-color last end
+    for (l, r) in intervals:
+      placed = False
+      for i, end in enumerate(last_end):
+        if l >= end:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def _clique_number(intervals):
+    """
+    Exact clique number via sweep-line on open intervals.
+    Treat (l, r) as open; count active intervals between endpoints.
+    """
+    # Build events: (position, delta); open at l, close at r
+    ev = []
+    for (l, r) in intervals:
+      if l < r:
+        ev.append((l, 1))
+        ev.append((r, -1))
+    # sort by position; for ties, end (-1) before start (+1) to model open intervals
+    ev.sort(key=lambda x: (x[0], x[1]))
+    cur = 0
+    best = 0
+    for _, d in ev:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+
+  def _make_candidate_template(
+      k,
+      offsets=(2,6,10,14),
+      extra_first=False,
+      translation='left',
+      schedule='after',
+      weave=False,
+      reverse_odd_levels=False
+    ):
+    """
+    Construct a k-level recursive pattern with copies plus the four blockers.
+    - translation: 'left' or 'center'
+    - schedule: 'after'|'before'|'split'
+    - weave: if True, interleave intervals from the translated copies (round-robin)
+    - reverse_odd_levels: if True, reverse arrival order at odd levels
+    - extra_first: optionally add a 5th copy on level 0 to increase geometry
+    """
+    T = [(0.0, 1.0)]
+    for lvl in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      offs = list(offsets)
+      if extra_first and lvl == 0:
+        offs.append(18)
+
+      def _offset_for(start):
+        if translation == 'left':
+          return delta * start - lo
+        else:  # center translation
+          return delta * start - center
+
+      # Build shifted copies; optionally prepare lists for weaving
+      shifted_lists = []
+      for s in offs:
+        off = _offset_for(s)
+        shifted_lists.append([(l + off, r + off) for (l, r) in T])
+
+      copy_seq = []
+      if weave and shifted_lists:
+        # Round-robin interleave one interval from each copy
+        m = len(T)
+        for i in range(m):
+          for arr in shifted_lists:
+            # arr has exactly m entries
+            copy_seq.append(arr[i])
+      else:
+        # Flatten copies in order
+        for arr in shifted_lists:
+          copy_seq.extend(arr)
+
+      # Blockers (connectors) - long intervals that couple the copies
+      blockers = [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13),
+      ]
+
+      # Arrange according to schedule
+      if schedule == 'after':
+        S = copy_seq + blockers
+      elif schedule == 'before':
+        S = blockers + copy_seq
+      else:  # 'split' roughly interleaves half/blocks/half
+        h = max(1, len(offs) // 2)
+        first_lists = shifted_lists[:h]
+        second_lists = shifted_lists[h:]
+        first_seq = []
+        for arr in first_lists:
+          first_seq.extend(arr)
+        second_seq = []
+        for arr in second_lists:
+          second_seq.extend(arr)
+        S = first_seq + blockers + second_seq
+
+      # Arrival-order engineering: optionally reverse at odd levels
+      if reverse_odd_levels and (lvl % 2 == 1):
+        S.reverse()
+
+      # Next level
+      T = S
+
+    return T
+
+  # Candidate configuration space (compact and deterministic)
+  depths = [max(2, iterations - 1), iterations]
+  translations = ['left', 'center']
+  offset_sets = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted
+    (3, 7, 11, 15),  # alternate
+    (0, 4, 8, 12),   # dense near-left (added)
+  ]
+  schedules = ['after', 'before', 'split']
+  extras = [False, True]
+  weaves = [False, True]               # sweep weaving option
+  reverse_odd = [False, True]          # sweep reversal option
+
+  best_T = None
+  best_ratio = -1.0
+  best_n = None
+  best_cols = 0
+  best_om = 0
+
+  # Exhaust a modest deterministic set of combinations (keeps runtime modest)
+  for k in depths:
+    for sch in schedules:
+      for ex in extras:
+        for trans in translations:
+          for offs in offset_sets:
+            for w in weaves:
+              for rev in reverse_odd:
+                T = _make_candidate_template(
+                  k,
+                  offsets=offs,
+                  extra_first=ex,
+                  translation=trans,
+                  schedule=sch,
+                  weave=w,
+                  reverse_odd_levels=rev
+                )
+                om = _clique_number(T)
+                if om == 0:
+                  continue
+                cols = _firstfit_colors(T)
+                ratio = cols / om
+
+                n = len(T)
+                better = False
+                if ratio > best_ratio + 1e-12:
+                  better = True
+                elif abs(ratio - best_ratio) <= 1e-12:
+                  if best_n is None or n < best_n:
+                    better = True
+                  elif n == best_n and cols > best_cols:
+                    better = True
+
+                if better:
+                  best_ratio = ratio
+                  best_T = T
+                  best_n = n
+                  best_cols = cols
+                  best_om = om
+
+  # Fallback: canonical canonical-4-iteration pattern if search failed
+  if best_T is None:
+    best_T = []
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for (l, r) in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    best_T = T
+
+  # Normalize and return
+  return _normalize_grid(best_T)
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

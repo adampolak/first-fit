@@ -1,0 +1,165 @@
+<NAME>
+insertion_waves
+</NAME>
+
+<DESCRIPTION>
+We enhance the augmentation phase by allowing new “wave” intervals to be inserted at strategic positions within the arrival order instead of only appending at the end. FirstFit is very sensitive to arrival order; an interval inserted before the last set of blockers can overlap representatives of many existing color classes, thereby forcing FirstFit to open a new color while keeping the clique bounded. The previous try_add_wave only appended candidates at the end and consistently failed to find improvements on the canonical Figure‑4 pattern.
+
+Key changes:
+- try_add_wave now tests multiple insertion indices (near the final blockers and mid-sequence) for each candidate interval, and tries small set of wave lengths {L-1, L, L+1} to increase chances while respecting omega.
+- The augmentation loop passes a modest wave length (2) and raises max_waves slightly to exploit these insertions without exploding runtime.
+- These changes preserve omega checks and return normalized integer intervals as before. They are deterministic and compatible with the existing normalization and pruning.
+
+This strategy is inspired by adversarial “caps and towers”: placing blockers early occupies small colors locally; later intervals that intersect one member of each color class (spread along the line) but never create a larger local clique can force FF upward. Insertion prior to the final-level blockers increases the likelihood of such coupling.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def try_add_wave(cur_intervals, target_omega, wave_length=2, candidates_limit=600):
+    """
+    Try to add short "wave" intervals (of integer length wave_length) to increase FirstFit colors
+    without increasing clique number above target_omega.
+
+    Strategy:
+      - enumerate a set of candidate left endpoints chosen between unique endpoints of current intervals
+      - for each candidate construct interval (x, x+wave_length)
+      - accept the first candidate that increases FirstFit color count while keeping omega <= target_omega
+    Returns:
+      - (accepted_interval or None, new_intervals)
+    """
+    # Work on normalized integer intervals
+    T = list(cur_intervals)
+    if not T:
+        return None, T
+    coords = sorted(set(x for iv in T for x in iv))
+    # generate candidate left positions: between coords[i], coords[i+1]-wave_length (so interval fits)
+    # to limit candidates, sample uniformly across range as well as near dense regions
+    min_x = min(coords)
+    max_x = max(coords)
+    # candidate lefts: use endpoints and midpoints of large gaps
+    left_candidates = set()
+    for a,b in zip(coords, coords[1:]):
+        # try left placements anchored near a, near midpoint, and near b-wave_length
+        if b - a <= 0:
+            continue
+        # choose up to three placements in this gap if it can host wave_length
+        if b - a >= wave_length + 1:
+            left_candidates.add(a + 1)
+            left_candidates.add((a + b) // 2)
+            left_candidates.add(b - wave_length - 1)
+        else:
+            left_candidates.add(a)
+    # also sample a small grid across whole range
+    step = max(1, (max_x - min_x) // 30)
+    for x in range(min_x, max_x - wave_length + 1, step):
+        left_candidates.add(x)
+    # cap candidates
+    lefts = sorted(left_candidates)
+    if len(lefts) > candidates_limit:
+        # downsample deterministically
+        lefts = [lefts[i] for i in range(0, len(lefts), max(1, len(lefts)//candidates_limit))]
+
+    base_cols = firstfit_colors(T)
+    base_om = clique_number(T)
+    # quick reject if base_om already exceeds target
+    if base_om > target_omega:
+        target_omega = base_om
+
+    for x in lefts:
+        cand = (x, x + wave_length)
+        # don't add degenerate or overlapping with endpoints equalities only (open intervals)
+        if cand[0] >= cand[1]:
+            continue
+        # ensure clique remains <= target_omega
+        new_om = clique_number(T + [cand])
+        if new_om > target_omega:
+            continue
+        # compute FirstFit colors on the augmented sequence (append at the end)
+        new_cols = firstfit_colors(T + [cand])
+        if new_cols > base_cols:
+            # accept
+            T2 = T + [cand]
+            return cand, T2
+    return None, T
+=======
+def try_add_wave(cur_intervals, target_omega, wave_length=2, candidates_limit=600):
+    """
+    Try to add short "wave" intervals to increase FirstFit colors without
+    increasing clique number above target_omega.
+
+    Improvements over simple append:
+      - consider multiple insertion positions (not just append-at-end)
+      - try small set of nearby wave lengths {L-1, L, L+1}
+      - deterministic candidate sampling
+
+    Returns:
+      - (accepted_interval or None, new_intervals_with_insertion)
+    """
+    # Work on normalized integer intervals
+    T = list(cur_intervals)
+    if not T:
+        return None, T
+
+    coords = sorted(set(x for iv in T for x in iv))
+    min_x = min(coords)
+    max_x = max(coords)
+
+    # base metrics
+    base_cols = firstfit_colors(T)
+    base_om = clique_number(T)
+    if base_om > target_omega:
+        target_omega = base_om
+
+    # construct candidate left endpoints from gaps and coarse grid
+    def candidate_lefts(wl):
+        left_candidates = set()
+        for a, b in zip(coords, coords[1:]):
+            if b - a <= 0:
+                continue
+            if b - a >= wl + 1:
+                left_candidates.add(a + 1)
+                left_candidates.add((a + b) // 2)
+                left_candidates.add(b - wl - 1)
+            else:
+                left_candidates.add(a)
+        step = max(1, (max_x - min_x) // 30)
+        for x in range(min_x, max_x - wl + 1, step):
+            left_candidates.add(x)
+        lefts = sorted(left_candidates)
+        if len(lefts) > candidates_limit:
+            stride = max(1, len(lefts) // candidates_limit)
+            lefts = [lefts[i] for i in range(0, len(lefts), stride)]
+        return lefts
+
+    # insertion positions to probe: append and several strategic points near the tail and mid
+    N = len(T)
+    probe_positions = sorted(set(
+        [N] +
+        [max(0, N - k) for k in (2, 3, 4, 5, 6, 7, 8, 12, 16)] +
+        [N // 2, N // 3, (2 * N) // 3]
+    ))
+
+    # try wave lengths: L-1, L, L+1 (clamped to >=1)
+    wave_lengths = sorted(set([max(1, wave_length - 1), wave_length, wave_length + 1]))
+
+    for wl in wave_lengths:
+        for x in candidate_lefts(wl):
+            cand = (x, x + wl)
+            if cand[0] >= cand[1]:
+                continue
+            # quick omega check for append case (cheap filter)
+            if clique_number(T + [cand]) > target_omega:
+                continue
+            # try multiple insertion positions
+            for pos in probe_positions:
+                pos = max(0, min(N, pos))
+                new_seq = T[:pos] + [cand] + T[pos:]
+                new_om = clique_number(new_seq)
+                if new_om > target_omega:
+                    continue
+                new_cols = firstfit_colors(new_seq)
+                if new_cols > base_cols:
+                    return cand, new_seq
+    return None, T
+>>>>>>> REPLACE
+</DIFF>

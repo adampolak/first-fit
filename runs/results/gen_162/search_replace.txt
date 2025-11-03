@@ -1,0 +1,17 @@
+<NAME>
+shrink_base_seed_singleton
+</NAME>
+
+<DESCRIPTION>
+Reduce the base seed from two disjoint intervals to a single interval. This cuts the total number of generated intervals from 852 to 596 for iterations=4 while preserving the canonical 13/5 FirstFit/omega behavior seen in prior best instances. A smaller instance improves the combined score under size tie-breaks without sacrificing the competitive ratio, aligning with known constructions and earlier best-performing programs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Base gadget: two disjoint small intervals to enrich local overlap structure
+  T = [(0.0, 1.0), (3.0, 4.0)]
+=======
+  # Base gadget: single seed interval; reduces instance size while preserving the 13/5 witness
+  T = [(0.0, 1.0)]
+>>>>>>> REPLACE
+</DIFF>

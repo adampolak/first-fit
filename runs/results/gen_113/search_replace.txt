@@ -1,0 +1,85 @@
+<NAME>
+greedy_reorder_firstfit_worsen
+</NAME>
+
+<DESCRIPTION>
+Introduce a deterministic greedy reordering of the chosen interval set before returning it. The idea: keep the geometric instance that yields the best FF/OPT ratio, but change the arrival order to one that forces FirstFit to open as many color classes as possible while not increasing the clique number (omega). This uses a simple greedy adversarial ordering: repeatedly pick (from remaining intervals) an interval whose assigned FirstFit color under the current partial order would be maximized; tie-break by longest interval (so blockers tend to be chosen earlier). This is a cheap, deterministic postprocessing that often increases the observed FirstFit colors for the same geometric instance and thus improves the combined score, without changing the interval geometry (hence omega stays the same). The edit replaces the final return of best[4] by a call that reorders it via this greedy heuristic and returns the normalized reordered list.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Return the best found normalized intervals
+    return best[4]
+=======
+    # Return the best found normalized intervals, but first apply a
+    # deterministic greedy adversarial reordering to (often) increase
+    # FirstFit color usage without changing the geometry (omega).
+    #
+    # Greedy rule:
+    #  - maintain color_last_end array representing the right endpoint of the
+    #    last interval placed into each current color class;
+    #  - at each step, for every remaining interval compute the color index
+    #    FirstFit would assign it given color_last_end (the first color i with
+    #    interval.left >= color_last_end[i], or new color len(color_last_end));
+    #  - pick an interval that maximizes this assigned index (tie-break by
+    #    longest length then leftmost).
+    base_norm = best[4]
+
+    def greedy_worst_order(intervals):
+        remaining = list(intervals)
+        order = []
+        # color_last_end stores the current right endpoint for each color class
+        color_last_end = []
+
+        # compute assigned index quickly
+        def assigned_index(iv):
+            l, r = iv
+            for i, le in enumerate(color_last_end):
+                # open intervals: can place in color i if l >= last_end
+                if l >= le:
+                    return i
+            return len(color_last_end)
+
+        while remaining:
+            # compute assigned indices for all remaining intervals and pick best
+            best_idx = -1
+            best_cands = []
+            for iv in remaining:
+                idx = assigned_index(iv)
+                if idx > best_idx:
+                    best_idx = idx
+                    best_cands = [iv]
+                elif idx == best_idx:
+                    best_cands.append(iv)
+            # tie-break among candidates: prefer longest interval, then leftmost
+            if len(best_cands) == 1:
+                pick = best_cands[0]
+            else:
+                pick = max(best_cands, key=lambda x: ((x[1] - x[0]), -x[0]))
+            # assign pick into color_last_end (simulate FirstFit placement)
+            placed = False
+            l, r = pick
+            for i, le in enumerate(color_last_end):
+                if l >= le:
+                    color_last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                color_last_end.append(r)
+            order.append(pick)
+            remaining.remove(pick)
+        return order
+
+    # Apply greedy reordering and return it (already normalized coordinates)
+    try:
+        reordered = greedy_worst_order(base_norm)
+        # sanity: ensure omega unchanged (geometry unchanged so should be same)
+        # but if something odd happens, fall back to base_norm
+        if reordered and len(reordered) == len(base_norm):
+            return reordered
+        else:
+            return base_norm
+    except Exception:
+        return base_norm
+>>>>>>> REPLACE
+</DIFF>

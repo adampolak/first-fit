@@ -1,0 +1,38 @@
+<NAME>
+inject_wave_intervals</NAME>
+
+<DESCRIPTION>
+After completing the recursive expansion, inject a small “wave” of short intervals—one in each copy region—that overlap the existing large structure but do not overlap each other. These intervals will force FirstFit to use additional colors without increasing the clique number, boosting the FF/OPT ratio. The wave intervals are placed at 0.1·δ into each copy region and have length 0.1·δ, where δ = hi−lo is the final span.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Recursive expansion: at each level replace T by four copies plus blockers
+  for _ in range(iterations):
+    T = _compute_four_copies_and_blockers(T)
+
+  if normalize:
+    return _normalize_grid(T)
+  else:
+    return T
+=======
+  # Recursive expansion: at each level replace T by four copies plus blockers
+  for _ in range(iterations):
+    T = _compute_four_copies_and_blockers(T)
+
+  # Inject a wave of short intervals to consume extra FirstFit colors without raising omega
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+  small_len = delta * 0.1
+  for start in (2, 6, 10, 14):
+    offset = delta * start - lo
+    # place a short interval inside each copy region
+    T.append((offset + 0.1 * delta, offset + 0.1 * delta + small_len))
+
+  if normalize:
+    return _normalize_grid(T)
+  else:
+    return T
+>>>>>>> REPLACE
+</DIFF>

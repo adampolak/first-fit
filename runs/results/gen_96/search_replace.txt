@@ -1,0 +1,30 @@
+<NAME>
+extend_depth_and_offsets
+</NAME>
+
+<DESCRIPTION>
+Expand the search to include depth=5 for greater recursive pressure, and augment the offset_templates list with the alternate stagger pattern (3,7,11,15) to diversify the tiling and potentially improve the FirstFit/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    depths = [3, 4]  # try a couple of depths (keeps sizes manageable)
+=======
+    depths = [3, 4, 5]  # try a couple of depths and a deeper recursion for increased pressure
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+    ]
+=======
+    offset_templates = [
+        (2,6,10,14),    # canonical
+        (1,5,9,13),     # alternative
+        (3,7,11,15),    # alternate stagger
+    ]
+>>>>>>> REPLACE
+</DIFF>

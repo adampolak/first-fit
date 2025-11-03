@@ -1,0 +1,230 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+  Strategy:
+    - 4-copy recursive expansion + 4 blockers per level (Figure-4 style)
+    - Parameter sweep over offsets, blocker templates, translation anchors, and depth
+    - Evaluate each candidate via an internal FirstFit simulation and clique sweep
+    - Normalize endpoints to a compact integer grid before returning
+
+  Arguments:
+    iterations: optional hint; included in the depth sweep if in {3,4,5}
+
+  Returns:
+    intervals: list[(l,r)] of open intervals with integer endpoints
+  """
+
+  # ------------ helpers ------------
+  def overlaps(a, b):
+    (l1, r1), (l2, r2) = a, b
+    # open-interval overlap:
+    return max(l1, l2) < min(r1, r2)
+
+  def firstfit_colors(intervals):
+    """
+    Simulate FirstFit on the given arrival order.
+    Colors are independent sets w.r.t. open-interval overlap.
+    """
+    colors = []  # list of color classes
+    for iv in intervals:
+      placed = False
+      for c in colors:
+        conflict = False
+        for u in c:
+          if overlaps(u, iv):
+            conflict = True
+            break
+        if not conflict:
+          c.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+
+  def clique_number(intervals):
+    """
+    Max number of intervals covering a single point (omega) using sweep.
+    For open intervals, at equal coordinates process right(-1) before left(+1).
+    """
+    events = []  # (x, type) type=-1 for right, +1 for left
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def normalize_grid(intervals):
+    """
+    Map each unique endpoint to an increasing integer grid (even spacing).
+    Preserves open-interval overlap and arrival order.
+    """
+    if not intervals:
+      return []
+    pts = sorted(set([x for seg in intervals for x in seg]))
+    coord = {e: 2*i for i, e in enumerate(pts)}
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left'):
+    """
+    Recursively expand base_seed k times with 4 copies and 4 blockers.
+    translation in {'left','center'} controls copy offsets.
+    blocker_anchor in {'left','center'} controls blocker placement.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      S = []
+      for start in offsets:
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        for (l, r) in T:
+          S.append((l + off, r + off))
+
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S.append((delta * a, delta * b))
+        else:
+          S.append((delta * a - center, delta * b - center))
+
+      T = S
+    return T
+
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+
++  def deterministic_prune(intervals):
++    """
++    Deterministic pruning pass:
++    - remove intervals greedily by decreasing length (longest first)
++    - only remove if the FirstFit/omega ratio does not decrease
++    - deterministic tie-breaking by left coordinate then by length
++    - returns pruned list preserving an existing FF/ω ratio
++    """
++    cur = list(intervals)
++    if not cur:
++      return cur
++    # baseline ratio to preserve
++    norm = cur
++    om = clique_number(norm)
++    cols = firstfit_colors(norm)
++    base_ratio = cols / om if om > 0 else 0.0
++    # prune longest first
++    changed = True
++    while changed:
++      changed = False
++      # sort by length desc, then by left endpoint asc
++      order = sorted(range(len(cur)), key=lambda i: (-(cur[i][1]-cur[i][0]), cur[i][0]))
++      for idx in order:
++        cand = cur[:idx] + cur[idx+1:]
++        if not cand:
++          continue
++        cand_norm = cand  # already in integer grid
++        om2 = clique_number(cand_norm)
++        cols2 = firstfit_colors(cand_norm)
++        if om2 > 0 and (cols2 / om2) >= base_ratio - 1e-12:
++          cur = cand
++          base_ratio = cols2 / om2
++          changed = True
++          break
++    return cur
+*** End Patch
+
+  # ------------ parameter sweep ------------
+  offsets_set = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+  ]
+  blockers_templates = [
+    # A: baseline as in Figure 4
+    ((1, 5), (12, 16), (4, 9), (8, 13)),
+    # B: variant geometry
+    ((0, 4), (6, 10), (8, 12), (14, 18)),
+    # C: tighter mid coupling
+    ((2, 6), (4, 8), (10, 14), (12, 16)),
+  ]
+  translations = ['left', 'center']
+  blocker_anchors = ['left', 'center']
+  depths = [d for d in {3, 4, 5, iterations} if d in (3, 4, 5)]
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)],
+  ]
+
+  best = None  # (score, om, cols, n, intervals)
+
+  for base in base_seeds:
+    for k in depths:
+      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+      if (4 ** k) * (len(base) + 2) > 3000:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              T = build_pattern(base_seed=base, k=k, offsets=offsets,
+                                blockers=blockers, translation=tr, blocker_anchor=ba)
+              score, om, cols, n = evaluate(T)
+              cand = (score, om, cols, n, T)
+              if best is None:
+                best = cand
+              else:
+                if cand[0] > best[0] + 1e-9:
+                  best = cand
+                elif abs(cand[0] - best[0]) <= 1e-9:
+                  # tie-break by fewer intervals, then more colors
+                  if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                    best = cand
+
+  # Fallback to the known-safe baseline if sweep failed (should not happen)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return normalize_grid(T)
+
+  # Normalize endpoints to compact integer grid and return
+  return normalize_grid(best[4])
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

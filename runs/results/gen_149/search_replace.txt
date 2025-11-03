@@ -1,0 +1,121 @@
+<NAME>add_extra_last_option</NAME>
+<DESCRIPTION>Extend build_recursive_pattern to support extra_last option: add extra copy at final level, and update signature to include extra_last parameter.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def build_recursive_pattern(base_seed, depth, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), extra_first=False):
+    """
+    Build the recursive four-copy + four-blocker pattern.
+      - base_seed: list of (l,r) floats
+      - depth: number of recursive levels
+      - offsets: tuple of copy-start multipliers
+      - blockers: list of (a,b) multipliers for long connectors
+      - extra_first: if True, add one extra copy at level 0 (small variant)
+    """
+    T = [tuple(iv) for iv in base_seed]
+    for lvl in range(depth):
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        delta = hi - lo
+        S = []
+        offs = list(offsets)
+        if extra_first:
+            # add a further copy step (+4) at every level
+            offs = offs + [offs[-1] + 4]
+        for start in offs:
+            off = delta * start - lo
+            for (l,r) in T:
+                S.append((l + off, r + off))
+        for (a,b) in blockers:
+            S.append((delta * a, delta * b))
+        T = S
+    return T
+=======
+def build_recursive_pattern(base_seed, depth, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), extra_first=False, extra_last=False):
+    """
+    Build the recursive four-copy + four-blocker pattern.
+      - base_seed: list of (l,r) floats
+      - depth: number of recursive levels
+      - offsets: tuple of copy-start multipliers
+      - blockers: list of (a,b) multipliers for long connectors
+      - extra_first: if True, add one extra copy at every level
+      - extra_last: if True, add one extra copy at the final level
+    """
+    T = [tuple(iv) for iv in base_seed]
+    for lvl in range(depth):
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        delta = hi - lo
+        S = []
+        offs = list(offsets)
+        if extra_first:
+            # add a further copy step (+4) at every level
+            offs = offs + [offs[-1] + 4]
+        if extra_last and lvl == depth - 1:
+            # add an extra copy step at the last level
+            offs = offs + [offs[-1] + 4]
+        for start in offs:
+            off = delta * start - lo
+            for (l,r) in T:
+                S.append((l + off, r + off))
+        for (a,b) in blockers:
+            S.append((delta * a, delta * b))
+        T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>enable_extra_last_in_construct</NAME>
+<DESCRIPTION>Enumerate extra_last flag in construct_intervals loops to try patterns with additional copy at last level.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    extra_first_choices = [False, True]
+
+    # Evaluate baseline candidates and pick the best one by FF/OPT ratio
+    best = None  # tuple (ratio, cols, om, intervals_raw)
+    for base in base_seeds:
+        for depth in depths:
+            for offs in offset_templates:
+                for blks in blocker_templates:
+                    for extra in extra_first_choices:
+                        T = build_recursive_pattern(base_seed=base, depth=depth, offsets=offs, blockers=blks, extra_first=extra)
+                        Tn = normalize_to_grid(T)
+                        if not Tn:
+                            continue
+                        om = clique_number(Tn)
+                        if om == 0:
+                            continue
+                        cols = firstfit_colors(Tn)
+                        ratio = cols / om
+                        cand = (ratio, cols, om, T)
+                        if best is None or cand[0] > best[0] + 1e-12 or (abs(cand[0]-best[0])<=1e-12 and len(T) < len(best[3])):
+                            best = cand
+=======
+    extra_first_choices = [False, True]
+    extra_last_choices = [False, True]
+
+    # Evaluate baseline candidates and pick the best one by FF/OPT ratio
+    best = None  # tuple (ratio, cols, om, intervals_raw)
+    for base in base_seeds:
+        for depth in depths:
+            for offs in offset_templates:
+                for blks in blocker_templates:
+                    for extra_first in extra_first_choices:
+                        for extra_last in extra_last_choices:
+                            T = build_recursive_pattern(base_seed=base, depth=depth, offsets=offs,
+                                                        blockers=blks,
+                                                        extra_first=extra_first,
+                                                        extra_last=extra_last)
+                            Tn = normalize_to_grid(T)
+                            if not Tn:
+                                continue
+                            om = clique_number(Tn)
+                            if om == 0:
+                                continue
+                            cols = firstfit_colors(Tn)
+                            ratio = cols / om
+                            cand = (ratio, cols, om, T)
+                            if best is None or cand[0] > best[0] + 1e-12 or (
+                                    abs(cand[0] - best[0]) <= 1e-12 and len(T) < len(best[3])):
+                                best = cand
+>>>>>>> REPLACE
+</DIFF>

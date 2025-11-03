@@ -1,0 +1,27 @@
+<NAME>
+deepen_recursion_to_boost_ratio
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Extend the recursive “tower + bridges” construction so that each new layer adds many FirstFit colors while increasing the clique number by only 1.
+- Preserve open-interval semantics and the geometric layout so that ω remains small.
+- Keep intervals aligned via scaling to maintain the self-similar structure.
+- Validate that FF increases by about 3 per level while ω increases by 1, improving FF/OPT.
+
+Argumentation:
+- The current construction is the 2-level instance of the Figure 4 gadget; empirically it yields FF=7, ω=3, ratio 7/3.
+- Each additional level of this gadget replicates the prior structure in four disjoint blocks and adds four “bridges,” which forces roughly three new FirstFit colors while increasing ω by only one.
+- Increasing the recursion depth from 2 to 4 should raise the ratio from 2.33 toward about 13/5 ≈ 2.6, while keeping the instance size moderate (~596 intervals), thus improving the combined score.
+
+Post-action validation:
+- After this change, expect alg colors to increase to around 13 with opt around 5; if runtime remains acceptable, a next step would be to parameterize depth and explore 3–5 levels to balance size vs. ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(2):
+=======
+  for _ in range(4):
+>>>>>>> REPLACE
+</DIFF>

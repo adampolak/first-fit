@@ -1,0 +1,45 @@
+<NAME>
+extra_middle_copy
+</NAME>
+
+<DESCRIPTION>
+Introduce an `extra_middle` parameter to `_build_candidate` so a fifth copy at multiplier 18 is injected at the middle iteration. Update the function signature, add the conditional insertion in the loop, expand `extra_options` to tuples of three booleans, and adjust the enumeration loop to unpack the middle flag. This enhancement gives the adversary additional coupling power between the recursive layers.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, extra_last=False, translation='left'):
+=======
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, extra_middle=False, extra_last=False, translation='left'):
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        if extra_last and i == depth - 1 and 18 not in offs:
+            offs = offs + (18,)
+=======
+        if extra_last and i == depth - 1 and 18 not in offs:
+            offs = offs + (18,)
+        if extra_middle and i == depth // 2 and 18 not in offs:
+            offs = offs + (18,)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    extra_options = [(False, False), (True, False), (False, True), (True, True)]
+=======
+    extra_options = [(False, False, False), (True, False, False), (False, True, False), (False, False, True)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                        for extra_first, extra_last in extra_options:
+                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=extra_first, extra_last=extra_last, translation=tr)
+=======
+                        for extra_first, extra_middle, extra_last in extra_options:
+                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=extra_first, extra_middle=extra_middle, extra_last=extra_last, translation=tr)
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,60 @@
+<NAME>
+alternate_schedule_per_level
+</NAME>
+
+<DESCRIPTION>
+Introduce a new scheduling mode `'alternate'` that flips between `'after'` and `'before'` at each recursion level. This dynamic blocker placement varies the overlap structure across levels, potentially increasing the FirstFit color pressure without raising the clique size.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+      - schedule: 'after' (copies then blockers), 'before' (blockers then copies),
+                  'split' (first half copies, blockers, second half copies)
+      - interleave: 'block' (emit full copies contiguously), 'zip' (round-robin)
+=======
+      - schedule: 'after' (copies then blockers), 'before' (blockers then copies),
+                  'split' (first half copies, blockers, second half copies),
+                  'alternate' (alternate 'after'/'before' each level)
+      - interleave: 'block' (emit full copies contiguously), 'zip' (round-robin)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+=======
+    for lvl in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+        # dynamic scheduling: allow 'alternate' to flip per level
+        actual_schedule = schedule
+        if schedule == 'alternate':
+            actual_schedule = 'before' if lvl % 2 == 1 else 'after'
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        if schedule == 'before':
+            S = S_blockers + S_copies
+        elif schedule == 'split' and copy_lists:
+=======
+        if actual_schedule == 'before':
+            S = S_blockers + S_copies
+        elif actual_schedule == 'split' and copy_lists:
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    schedules = ['after', 'before', 'split']
+=======
+    schedules = ['after', 'before', 'split', 'alternate']
+>>>>>>> REPLACE
+</DIFF>

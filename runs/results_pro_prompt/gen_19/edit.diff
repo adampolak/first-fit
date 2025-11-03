@@ -1,0 +1,632 @@
+--- a/original.py
++++ b/original.py
+@@ -1,246 +1,442 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+   """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
++  Construct a sequence of open intervals presented to FirstFit.
++  Structural redesign: multi-stage pipeline with candidate generation,
++  multi-order screening, adversarial reordering, and verification.
+ 
+   Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
++    intervals: list of tuples (l, r) representing open intervals (l, r)
+   """
+ 
+   import random
++  from dataclasses import dataclass
++  from typing import List, Tuple, Iterable
++
+   random.seed(0)
+ 
+-  def firstfit_color_count(intervals):
+-    """Simulate FirstFit on the given arrival-ordered intervals."""
++  # -------------------- Utilities --------------------
++
++  Interval = Tuple[float, float]
++
++  def overlaps(a: Interval, b: Interval) -> bool:
++    # Open intervals overlap iff a.l < b.r and b.l < a.r
++    return a[0] < b[1] and b[0] < a[1]
++
++  def clique_number(intervals: List[Interval]) -> int:
++    # Sweep-line; ends before starts on ties (open intervals)
++    events = []
++    for (l, r) in intervals:
++      events.append((l, 1))
++      events.append((r, -1))
++    events.sort(key=lambda x: (x[0], x[1]))
++    active = 0
++    best = 0
++    for _, delta in events:
++      active += delta
++      if active > best:
++        best = active
++    return best
++
++  def firstfit_color_count(intervals: List[Interval]) -> int:
++    # Plain FirstFit with given order
+     colors = []
+     for (l, r) in intervals:
+       placed = False
+       for col in colors:
+         conflict = False
+         for (cl, cr) in col:
+-          # open intervals overlap iff cl < r and l < cr
+           if cl < r and l < cr:
+             conflict = True
+             break
+         if not conflict:
+           col.append((l, r))
+           placed = True
+           break
+       if not placed:
+         colors.append([(l, r)])
+     return len(colors)
+ 
+-  def clique_number(intervals):
+-    """Compute the clique number (ω) by sweep-line. For open intervals we
+-    process ends before starts at the same coordinate so [a,b) and [b,c)
+-    don't overlap."""
+-    events = []
+-    for (l, r) in intervals:
+-      events.append((l, 1))   # start
+-      events.append((r, -1))  # end
+-    events.sort(key=lambda x: (x[0], x[1]))  # end (-1) comes before start (+1) at same coord
+-    active = 0
+-    best = 0
+-    for _, delta in events:
+-      active += delta
+-      if active > best:
+-        best = active
+-    return best
+-
+-  def generate_recursive(starts, caps, depth, interleave=False, caps_before=False):
+-    """Generate a recursive construction parameterized by:
+-       - starts: sequence of integer offsets for block copies per level
+-       - caps: list of (a,b) base intervals appended each level (scaled by delta)
+-       - depth: recursion depth
+-       - interleave: if True, use a round-robin copy order (increases cross-copy interference)
+-       - caps_before: if True, present caps first at each level to pre-block low colors
++  # -------------------- Orderings --------------------
++
++  def order_fractal(seq: List[Interval]) -> List[Interval]:
++    return list(seq)
++
++  def order_reversed(seq: List[Interval]) -> List[Interval]:
++    return list(reversed(seq))
++
++  def order_left_first(seq: List[Interval]) -> List[Interval]:
++    return sorted(seq, key=lambda x: (x[0], x[1]))
++
++  def order_right_first(seq: List[Interval]) -> List[Interval]:
++    return sorted(seq, key=lambda x: (-x[0], -x[1]))
++
++  def order_short_first(seq: List[Interval]) -> List[Interval]:
++    return sorted(seq, key=lambda x: (x[1] - x[0], x[0]))
++
++  def order_long_first(seq: List[Interval]) -> List[Interval]:
++    return sorted(seq, key=lambda x: (-(x[1] - x[0]), x[0]))
++
++  def order_hybrid_blockwise(seq: List[Interval]) -> List[Interval]:
++    # Partition into 4 blocks and apply different local orders to each block
++    n = len(seq)
++    if n < 12:
++      return list(seq)
++    k = 4
++    b = n // k
++    parts = [list(seq[i * b:(i + 1) * b]) for i in range(k - 1)]
++    parts.append(list(seq[(k - 1) * b:]))
++    out = []
++    out += parts[0]  # keep original local
++    if len(parts) > 1:
++      out += order_left_first(parts[1])
++    if len(parts) > 2:
++      out += list(reversed(parts[2]))
++    if len(parts) > 3:
++      out += order_short_first(parts[3])
++    return out
++
++  def order_by_right_endpoint(seq: List[Interval]) -> List[Interval]:
++    return sorted(seq, key=lambda x: (x[1], x[0]))
++
++  ORDERERS = [
++    ("fractal", order_fractal),
++    ("reversed", order_reversed),
++    ("left_first", order_left_first),
++    ("right_first", order_right_first),
++    ("short_first", order_short_first),
++    ("long_first", order_long_first),
++    ("hybrid_blockwise", order_hybrid_blockwise),
++    ("right_endpoint", order_by_right_endpoint),
++  ]
++
++  # -------------------- Adversarial orderer --------------------
++
++  def adversarial_order(seq: List[Interval]) -> List[Interval]:
++    """
++    Bitset-based adaptive adversary: at each step choose the interval that blocks
++    all currently used colors if possible (forcing a new color). Break ties by
++    maximizing future coverage (# of remaining intervals it intersects).
++    If none can force a new color, choose one that blocks the most colors.
++    """
++    n = len(seq)
++    if n == 0:
++      return []
++
++    # Precompute adjacency bitsets (Python int as bitset)
++    # Map index -> bit position
++    neighbors = [0] * n
++    for i in range(n):
++      li, ri = seq[i]
++      mask = 0
++      # Optimize by scanning only j>i then mirror
++      for j in range(i + 1, n):
++        lj, rj = seq[j]
++        if li < rj and lj < ri:
++          mask |= (1 << j)
++          neighbors[j] |= (1 << i)
++      neighbors[i] |= mask
++
++    unplaced = set(range(n))
++    # color_sets[c] is bitset of indices colored with color c (0-based)
++    color_sets = []  # list[int]
++    assigned_color = [-1] * n
++    order_indices = []
++
++    # Helper: how many currently used colors are blocked by interval i
++    def blocked_color_count(i: int) -> int:
++      ni = neighbors[i]
++      cnt = 0
++      for cmask in color_sets:
++        if (ni & cmask) != 0:
++          cnt += 1
++      return cnt
++
++    # Helper: will interval i force a new color now?
++    def forces_new_color(i: int) -> bool:
++      ni = neighbors[i]
++      for cmask in color_sets:
++        if (ni & cmask) == 0:
++          return False
++      return True
++
++    # Helper: future coverage among unplaced
++    def future_coverage(i: int) -> int:
++      # Intersections with unplaced excluding self if present
++      ni = neighbors[i]
++      mask_unplaced = 0
++      for j in unplaced:
++        mask_unplaced |= (1 << j)
++      cover = (ni & mask_unplaced)
++      if i in unplaced:
++        cover &= ~(1 << i)
++      return cover.bit_count()
++
++    # Assign FirstFit color for i w.r.t. current color_sets
++    def assign_color(i: int) -> int:
++      ni = neighbors[i]
++      for c, cmask in enumerate(color_sets):
++        if (ni & cmask) == 0:
++          assigned_color[i] = c
++          color_sets[c] |= (1 << i)
++          return c
++      # Create new color
++      assigned_color[i] = len(color_sets)
++      color_sets.append(1 << i)
++      return assigned_color[i]
++
++    # Main loop
++    while unplaced:
++      best_i = None
++      best_key = None
++      used_colors = len(color_sets)
++
++      # Pre-compose mask of unplaced for coverage metric
++      mask_unplaced = 0
++      for j in unplaced:
++        mask_unplaced |= (1 << j)
++
++      for i in list(unplaced):
++        # Compute metrics
++        block_cnt = 0
++        ni = neighbors[i]
++        for cmask in color_sets:
++          if (ni & cmask) != 0:
++            block_cnt += 1
++        new_color = (block_cnt == used_colors)
++        coverage = ((ni & mask_unplaced) & ~(1 << i)).bit_count()
++        # Prefer forcing a new color, then more blocked colors, then more coverage, then shorter length
++        length = seq[i][1] - seq[i][0]
++        key = (1 if new_color else 0, block_cnt, coverage, -length)
++        if best_key is None or key > best_key:
++          best_key = key
++          best_i = i
++
++      # Place best_i
++      order_indices.append(best_i)
++      assign_color(best_i)
++      unplaced.remove(best_i)
++
++    return [seq[i] for i in order_indices]
++
++  # -------------------- Fractal/Tiles builder --------------------
++
++  def build_fractal(depth: int,
++                    starts: Tuple[int, ...],
++                    caps: List[Tuple[int, int]],
++                    interleave: bool = False,
++                    caps_before: bool = False) -> List[Interval]:
++    """
++    Recursive fractal-like builder:
++    - starts: tuple of integer offsets for block copies per level
++    - caps: list of (a,b) base intervals appended each level (scaled by delta)
++    - interleave: copy order variant
++    - caps_before: present caps before copies at each level
+     """
+     T = [(0.0, 1.0)]
+     for _ in range(depth):
+       lo = min(l for l, r in T)
+       hi = max(r for l, r in T)
+       delta = hi - lo
+       S = []
+       if caps_before:
+-        # Place caps first this round to occupy low colors early
+         for a, b in caps:
+           S.append((delta * a, delta * b))
+       if interleave:
+-        # Round-robin copy to increase color interactions across blocks
+         for i in range(len(T)):
+           li, ri = T[i]
+-          for start in starts:
+-            S.append((delta * start + li - lo, delta * start + ri - lo))
++          for s in starts:
++            S.append((delta * s + li - lo, delta * s + ri - lo))
+       else:
+-        for start in starts:
+-          S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
++        for s in starts:
++          for (l, r) in T:
++            S.append((delta * s + l - lo, delta * s + r - lo))
+       if not caps_before:
+-        # Append caps after block copies (original behavior)
+         for a, b in caps:
+           S.append((delta * a, delta * b))
+       T = S
+-    return T
+-
+-  def hybrid_blockwise(seq):
+-    """Block-wise hybrid ordering to exploit local fractal structure."""
+-    n = len(seq)
+-    if n < 8:
+-      return list(seq)
+-    k = 4
+-    b = n // k
+-    parts = [list(seq[i * b:(i + 1) * b]) for i in range(k - 1)]
+-    parts.append(list(seq[(k - 1) * b:]))
+-    out = []
+-    # block 0: keep original local structure
+-    out += parts[0]
+-    # block 1: left-first
+-    if len(parts) > 1:
+-      out += sorted(parts[1], key=lambda x: (x[0], x[1]))
+-    # block 2: reversed
+-    if len(parts) > 2:
+-      out += list(reversed(parts[2]))
+-    # block 3: short-first
+-    if len(parts) > 3:
+-      out += sorted(parts[3], key=lambda x: (x[1] - x[0], x[0]))
+-    return out
+-
+-  # baseline original construction (kept as fallback)
+-  def original():
+-    T = [(0, 1)]
+-    for _ in range(4):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-      S = []
+-      for start in (2, 6, 10, 14):
+-        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-      S += [
+-        (delta * 1, delta * 5),
+-        (delta * 12, delta * 16),
+-        (delta * 4, delta * 9),
+-        (delta * 8, delta * 13)
++    # Normalize so leftmost is 0.0
++    lo = min(l for l, r in T)
++    return [(l - lo, r - lo) for l, r in T]
++
++  def cap_templates_for_starts(starts: Tuple[int, ...]) -> List[List[Tuple[int, int]]]:
++    """
++    Produce several cap sets from starts. Templates aim to bridge adjacent
++    blocks and couple non-adjacent ones.
++    """
++    s = starts
++    t = []
++    if len(s) >= 4:
++      # canonical pattern
++      t.append([(s[0] - 1, s[0] + 3),
++                (s[1] + 2, s[2] + 2),
++                (s[2] - 1, s[3] + 1),
++                (s[1] - 2, s[2] + 3)])
++      # balanced bridges
++      t.append([(s[0], s[1] + 2),
++                (s[1] + 1, s[2] + 3),
++                (s[2], s[3] + 2),
++                (s[0] + 2, s[2] + 1)])
++      # wider caps
++      t.append([(s[0] - 1, s[1] + 3),
++                (s[1] - 1, s[2] + 3),
++                (s[2] - 1, s[3] + 3),
++                (s[0] + 1, s[3] + 1)])
++      # sparse caps
++      t.append([(s[0] - 1, s[1] + 1),
++                (s[2] - 1, s[3] + 1),
++                (s[1], s[2] + 2),
++                (s[0] + 2, s[3])])
++    else:
++      # fallback: simple adjacent bridging
++      for i in range(len(s) - 1):
++        t.append([(s[i], s[i + 1] + 2)] * 4)
++    return t
++
++  # -------------------- Search pipeline --------------------
++
++  @dataclass
++  class Candidate:
++    intervals: List[Interval]
++    omega: int
++
++  def screen_candidates(cands: Iterable[Candidate], top_k: int = 4):
++    """
++    Quickly evaluate several canonical orders; pick top_k candidates by best ratio.
++    """
++    scored = []
++    for cand in cands:
++      if cand.omega <= 0:
++        continue
++      best_colors = -1
++      best_ordered_seq = None
++      for name, ord_fn in ORDERERS:
++        seq_ord = ord_fn(cand.intervals)
++        colors = firstfit_color_count(seq_ord)
++        if colors > best_colors:
++          best_colors = colors
++          best_ordered_seq = seq_ord
++      scored.append((best_colors / cand.omega, best_colors, cand.omega, len(cand.intervals), cand, best_ordered_seq))
++    # sort by ratio desc, then fewer intervals
++    scored.sort(key=lambda x: (-x[0], x[3]))
++    return scored[:top_k]
++
++  def refine_with_adversary(top_entries):
++    """
++    For top entries from screening, apply adversarial ordering and keep the best.
++    """
++    best_ratio = -1.0
++    best_seq = None
++    best_meta = None
++    for ratio0, colors0, omega, n, cand, seq_ord in top_entries:
++      # Try adversarial ordering on raw set
++      seq_adv = adversarial_order(cand.intervals)
++      colors_adv = firstfit_color_count(seq_adv)
++      ratio_adv = colors_adv / omega if omega > 0 else 0.0
++
++      # Also try adversarial ordering on the screened-best order as seed (stability)
++      seq_adv2 = adversarial_order(seq_ord)
++      colors_adv2 = firstfit_color_count(seq_adv2)
++      ratio_adv2 = colors_adv2 / omega if omega > 0 else 0.0
++
++      # Choose the best among original, screened, adversarial variants
++      candidates = [
++        (ratio0, seq_ord, colors0),
++        (ratio_adv, seq_adv, colors_adv),
++        (ratio_adv2, seq_adv2, colors_adv2),
+       ]
+-      T = S
+-    return T
+-
+-  # Search for an improved variant (time/size-bounded)
+-  best_seq = None
+-  best_score = -1.0
+-  best_meta = None
+-  max_intervals = 2200
+-
+-  starts_options = [
++      for r, seq, cols in candidates:
++        if r > best_ratio or (abs(r - best_ratio) < 1e-12 and len(seq) < len(best_seq or [])):
++          best_ratio = r
++          best_seq = seq
++          best_meta = (cols, omega, len(seq))
++    return best_seq, best_meta
++
++  # -------------------- Parameter sweep --------------------
++
++  # Limits
++  max_intervals = 800
++  depths = [3, 4, 5]
++  starts_pool = [
+     (2, 6, 10, 14),
+     (3, 7, 11, 15),
+     (4, 8, 12, 16),
++    (2, 5, 9, 13),
++    (3, 6, 9, 12),
+   ]
+-  depth_options = [3, 4]
+-  trials_per_combo = 6
+-
+-  # Start with the baseline as a safe candidate (evaluate multiple orders)
+-  baseline = original()
+-  baseline_omega = clique_number(baseline)
+-  if baseline_omega > 0:
+-    orders = []
+-    base = list(baseline)
+-    orders.append(("fractal", base))
+-    orders.append(("reversed", list(reversed(base))))
+-    orders.append(("left_first", sorted(base, key=lambda x: (x[0], x[1]))))
+-    orders.append(("right_first", sorted(base, key=lambda x: (-x[0], -x[1]))))
+-    orders.append(("short_first", sorted(base, key=lambda x: (x[1] - x[0], x[0]))))
+-    orders.append(("long_first", sorted(base, key=lambda x: (-(x[1] - x[0]), x[0]))))
+-    orders.append(("hybrid_blockwise", hybrid_blockwise(base)))
+-    for order_name, seq0 in orders:
+-      colors0 = firstfit_color_count(seq0)
+-      score0 = colors0 / baseline_omega
+-      if score0 > best_score:
+-        best_seq = seq0
+-        best_score = score0
+-        best_meta = ("baseline order=%s" % order_name, colors0, baseline_omega, len(seq0))
+-
+-  # Randomized exploration of caps and interleaving (deterministic seed)
+-  for starts in starts_options:
+-    for depth in depth_options:
+-      # quick estimate of explosion: skip patterns that will definitely exceed budget
+-      p_est = max(4, len(starts))
+-      est = 1
+-      for _ in range(depth):
+-        est = len(starts) * est + p_est
+-        if est > max_intervals:
+-          break
+-      if est > max_intervals:
+-        continue
+-
+-      min_s = min(starts)
+-      max_s = max(starts)
+-
+-      # heuristic cap set derived from the starts sequence
+-      cap_heur = []
+-      for i in range(len(starts)):
+-        if i == 0:
+-          a = starts[0] - 1
+-          b = starts[0] + 3
+-        elif i == len(starts) - 1:
+-          a = starts[i - 1] + 2
+-          b = starts[i] + 2
+-        else:
+-          a = starts[i - 1] + 2
+-          b = starts[i] + 3
+-        cap_heur.append((a, b))
+-
+-      candidates = [cap_heur]
+-      # add random cap-sets to explore the local neighborhood
+-      for _ in range(trials_per_combo):
+-        caps = []
+-        for _i in range(max(4, len(starts))):
+-          a = random.randint(min_s - 2, max_s + 1)
+-          b = a + random.randint(3, 6)
+-          caps.append((a, b))
+-        candidates.append(caps)
+-
+-      for interleave in (False, True):
+-        for caps_before in (False, True):
+-          for caps in candidates:
+-            seq = generate_recursive(starts, caps, depth, interleave=interleave, caps_before=caps_before)
+-            if len(seq) == 0 or len(seq) > max_intervals:
+-              continue
+-            omega = clique_number(seq)
+-            if omega <= 0:
+-              continue
+-
+-            # Evaluate several principled arrival orders
+-            base = list(seq)
+-            orderings = [
+-              ("fractal", base),
+-              ("reversed", list(reversed(base))),
+-              ("left_first", sorted(base, key=lambda x: (x[0], x[1]))),
+-              ("right_first", sorted(base, key=lambda x: (-x[0], -x[1]))),
+-              ("short_first", sorted(base, key=lambda x: (x[1] - x[0], x[0]))),
+-              ("long_first", sorted(base, key=lambda x: (-(x[1] - x[0]), x[0]))),
+-              ("hybrid_blockwise", hybrid_blockwise(base)),
+-            ]
+-
+-            for order_name, candidate_seq in orderings:
+-              colors = firstfit_color_count(candidate_seq)
+-              score = colors / omega
+-              if score > best_score or (abs(score - best_score) < 1e-9 and len(candidate_seq) < len(best_seq)):
+-                best_score = score
+-                best_seq = candidate_seq
+-                best_meta = ("starts=%s depth=%d interleave=%s caps_before=%s caps=%s order=%s" % (starts, depth, interleave, caps_before, caps, order_name), colors, omega, len(candidate_seq))
+-
++  bool_flags = [(False, False), (True, False), (False, True), (True, True)]
++
++  # Generate candidates within budget
++  candidates: List[Candidate] = []
++  # Always include the baseline (from literature) as a safe seed
++  baseline_caps = [(1, 5), (12, 16), (4, 9), (8, 13)]
++  base_seq = build_fractal(4, (2, 6, 10, 14), baseline_caps, interleave=False, caps_before=False)
++  base_omega = clique_number(base_seq)
++  candidates.append(Candidate(base_seq, base_omega))
++
++  # Controlled exploration
++  rng = random.Random(1337)
++  for starts in starts_pool:
++    templates = cap_templates_for_starts(starts)
++    # enrich with a few randomized jitters around templates
++    jittered_caps = []
++    for tpl in templates:
++      # make two noisy variants around template
++      for _ in range(2):
++        cc = []
++        for (a, b) in tpl:
++          da = rng.choice([-2, -1, 0, 1, 2])
++          db = rng.choice([-1, 0, 1, 2, 3])
++          aa = a + da
++          bb = b + db
++          if bb - aa < 3:
++            bb = aa + 3
++          cc.append((aa, bb))
++        jittered_caps.append(cc)
++    all_caps_sets = templates + jittered_caps
++
++    for depth in depths:
++      for caps in all_caps_sets:
++        for interleave, caps_before in bool_flags:
++          # rough size estimate: len(T) -> s * len(T) + |caps| each level
++          est = 1
++          for _ in range(depth):
++            est = len(starts) * est + len(caps)
++            if est > max_intervals:
++              break
++          if est > max_intervals:
++            continue
++          seq = build_fractal(depth, starts, caps, interleave=interleave, caps_before=caps_before)
++          if len(seq) == 0 or len(seq) > max_intervals:
++            continue
++          omega = clique_number(seq)
++          if omega <= 0:
++            continue
++          candidates.append(Candidate(seq, omega))
++
++  # Screen quickly across canonical orderings
++  screened = screen_candidates(candidates, top_k=6)
++
++  # Adversarial refinement on screened set
++  best_seq, best_meta = refine_with_adversary(screened)
++
++  # Verification: recompute FF and clique
+   if best_seq is None:
+-    best_seq = original()
++    # Fallback to base
++    best_seq = base_seq
++  # A final internal verification
++  _ff = firstfit_color_count(best_seq)
++  _opt = clique_number(best_seq)
++  # No print; return the final best sequence
+   return best_seq
++
++def run_experiment(**kwargs):
++  """Main called by evaluator"""
++  return construct_intervals()
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

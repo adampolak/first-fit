@@ -1,0 +1,85 @@
+<NAME>
+add_extra_copy_first_iteration
+</NAME>
+
+<DESCRIPTION>
+Add an extra fifth copy at the first recursive iteration to increase overlap pressure on initial colors without increasing clique size. Modify `_compute_four_copies_and_blockers` to accept an `extra_offset` flag and update `construct_intervals` to pass `extra_offset=True` on iteration 0.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _compute_four_copies_and_blockers(T):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing four translated copies and appending four long blockers.
+  Offsets used are canonical: 2, 6, 10, 14 (relative to current delta/lo).
+  """
+  # current span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  # four copies at offsets 2,6,10,14
+  S = []
+  for start in (2, 6, 10, 14):
+    offset = delta * start - lo
+    S.extend([(offset + l, offset + r) for (l, r) in T])
+
+  # four connecting long intervals
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13)
+  ]
+  return S
+=======
+def _compute_four_copies_and_blockers(T, extra_offset=False):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing translated copies and appending four long blockers.
+  By default uses four offsets (2,6,10,14); if extra_offset=True adds 18.
+  """
+  # current span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  # determine offsets
+  if extra_offset:
+    offsets = (2, 6, 10, 14, 18)
+  else:
+    offsets = (2, 6, 10, 14)
+
+  # copies at specified offsets
+  S = []
+  for start in offsets:
+    offset = delta * start - lo
+    S.extend([(offset + l, offset + r) for (l, r) in T])
+
+  # four connecting long intervals
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13)
+  ]
+  return S
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Recursive expansion: at each level replace T by four copies plus blockers
+  for _ in range(iterations):
+    T = _compute_four_copies_and_blockers(T)
+=======
+  # Recursive expansion: at each level replace T by copies plus blockers,
+  # with an extra copy on the first iteration to heighten initial conflict.
+  for i in range(iterations):
+    if i == 0:
+      T = _compute_four_copies_and_blockers(T, extra_offset=True)
+    else:
+      T = _compute_four_copies_and_blockers(T)
+>>>>>>> REPLACE
+</DIFF>

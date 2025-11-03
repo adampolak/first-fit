@@ -1,0 +1,36 @@
+<NAME>
+allow_two_extra_copies</NAME>
+
+<DESCRIPTION>
+Extend the “extra_copies” option to allow two extra translated copies on the first level. This increases the geometry variants from 5 copies total (4+1) to 6 copies (4+2), potentially creating more overlap patterns that force FirstFit to use additional colors without raising ω significantly.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    extra_copies_opts = [0, 1]  # allow a single extra translated copy on first level
+=======
+    extra_copies_opts = [0, 1, 2]  # allow up to two extra translated copies on first level
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by one extra copy (small geometry variation)
+                                offs = tuple(offsets)
+                                if extra == 1:
+                                    last = offs[-1] if len(offs) > 0 else 0
+                                    offs = tuple(list(offs) + [last + 4])
+=======
+                            for extra in extra_copies_opts:
+                                # build offsets possibly extended by one or two extra copies
+                                offs = list(offsets)
+                                if extra >= 1:
+                                    last = offs[-1] if offs else 0
+                                    offs.append(last + 4)
+                                if extra == 2:
+                                    # add a second extra copy further shifted
+                                    offs.append(last + 8)
+                                offs = tuple(offs)
+>>>>>>> REPLACE
+</DIFF>

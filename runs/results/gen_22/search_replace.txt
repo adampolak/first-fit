@@ -1,0 +1,147 @@
+<NAME>
+alternating_starts_and_blocker_templates
+</NAME>
+
+<DESCRIPTION>
+I propose a targeted improvement to the recursive construction that keeps the overall Figure-4 style expansion but increases adversarial pressure on FirstFit by:
+- Using a slightly richer base gadget (two disjoint small intervals) instead of a single interval. This gives more internal structure at the leaf level and helps create extra color interactions when copies are tiled.
+- Alternating the four-copy starting offsets between two staggerings ((2,6,10,14) and (1,5,9,13)) across iterations. Alternation produces different phasing between levels and reduces the risk that repeated identical tilings align too "nicely" (which makes FirstFit easier to pack).
+- Alternating between two blocker/templates per iteration. The second template is offset by 0.5 units (relative) so connectors are slightly shifted; this creates more overlaps with different parts of the copies while still following the Figure-4 blueprint. Alternating these connector sets couples colors across levels in a less-regular way, which tends to force FirstFit to open more colors.
+- Keep endpoints normalized to compact even integers as before.
+
+All changes are deterministic and conservative (they keep the same high-level structure), so the validator and downstream code still work unchanged. This is a small surgical edit intended to increase the FirstFit load without blowing up the clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of open intervals (l, r) presented in order to FirstFit.
+  The construction is a recursive expansion inspired by Figure 4 of
+  https://arxiv.org/abs/1506.00192. Increasing 'iterations' strengthens the
+  adversary and typically increases the FirstFit/OPT ratio.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 4)
+
+  Returns:
+    intervals: list of tuples (l, r) with integer endpoints (open intervals)
+  """
+
+  # Base gadget: a canonical small pattern (one unit interval)
+  T = [(0.0, 1.0)]
+
+  # For each iteration we replace T by four translated/scaled copies
+  # plus four long connector intervals (as in the Figure-4 construction).
+  # This preserves a small clique size while amplifying FirstFit colors.
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled/translated copies at staggered offsets
+    for start in (2, 6, 10, 14):
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+    # Add the four connecting long intervals (these create the coupling
+    # between copies but are designed not to increase the clique beyond
+    # the intended constant)
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    T = S
+
+  # Normalize endpoints to a compact integer grid while preserving order.
+  # Map each unique endpoint to an increasing even integer (to ensure
+  # positive lengths and avoid degeneracy).
+  eps = 1e-9
+  endpoints = sorted(set([x for seg in T for x in seg]))
+  # Use a dictionary mapping each float endpoint to an integer coordinate.
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    # assign increasing even integers (spacing by 2)
+    coord[e] = cur
+    cur += 2
+
+  normalized = [(coord[l], coord[r]) for (l, r) in T]
+
+  return normalized
+
+# EVOLVE-BLOCK-END
+=======
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of open intervals (l, r) presented in order to FirstFit.
+  The construction is a recursive expansion inspired by Figure 4 of
+  https://arxiv.org/abs/1506.00192. Increasing 'iterations' strengthens the
+  adversary and typically increases the FirstFit/OPT ratio.
+
+  Improvements in this variant:
+  - Use a slightly richer base gadget (two disjoint unit intervals).
+  - Alternate the four-copy starting offsets between two staggerings across
+    iterations to break alignment regularity.
+  - Alternate two blocker/connector templates (one shifted by 0.5 units
+    relative to the other) across iterations to couple colors in a less
+    regular way, making FirstFit more likely to open extra colors.
+  """
+
+  # Base gadget: two disjoint small intervals (provides richer local structure)
+  T = [(0.0, 1.0), (3.0, 4.0)]
+
+  # Two choices of starts to alternate between iterations (breaks perfect repetition)
+  starts_options = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13)
+  ]
+
+  # Two blocker/connector templates. The second is shifted by 0.5 (relative)
+  # to introduce fractional-phase overlaps (kept as floats until normalization).
+  blocker_templates = [
+    [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)],
+    [(1.5, 5.5), (12.5, 16.5), (4.5, 9.5), (8.5, 13.5)]
+  ]
+
+  # Recursive expansion: alternate starts and blocker templates each level.
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    starts = starts_options[i % len(starts_options)]
+    blockers = blocker_templates[i % len(blocker_templates)]
+
+    # Place four scaled/translated copies at staggered offsets (with current starts)
+    for start in starts:
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+
+    # Add the four connecting long intervals using the currently selected blocker template.
+    # Each blocker is expressed in template coordinates and scaled by delta.
+    for (a, b) in blockers:
+      S.append((delta * a, delta * b))
+
+    T = S
+
+  # Normalize endpoints to a compact integer grid while preserving order.
+  endpoints = sorted(set([x for seg in T for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2
+
+  normalized = [(coord[l], coord[r]) for (l, r) in T]
+
+  return normalized
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,109 @@
+--- a/original.py
++++ b/original.py
+@@ -1,64 +1,84 @@
+ # EVOLVE-BLOCK-START
+ 
+-def construct_intervals(iterations=4):
++def construct_intervals(iterations=5):
+   """
+   Construct a sequence of open intervals (l, r) presented in order to FirstFit.
+-  The construction is a recursive expansion inspired by Figure 4 of
+-  https://arxiv.org/abs/1506.00192. Increasing 'iterations' strengthens the
+-  adversary and typically increases the FirstFit/OPT ratio.
++  We use a recursive expansion inspired by and extending Figure 4 of
++  https://arxiv.org/abs/1506.00192. We rotate among multiple tilings and
++  blocker templates and alternate the anchoring rule to engineer arrival order.
+ 
+   Arguments:
+-    iterations: number of recursive expansion steps (default 4)
++    iterations: number of recursive expansion steps (default 5)
+ 
+   Returns:
+     intervals: list of tuples (l, r) with integer endpoints (open intervals)
+   """
+ 
+   # Base gadget: a canonical small pattern (one unit interval)
+   T = [(0.0, 1.0)]
+ 
++  # Predefined sets of tile starts (offset multipliers) to rotate through
++  starts_options = [
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (0, 4, 8, 12),
++  ]
++
++  # Blocker templates to rotate through; each tuple (a,b) yields (delta*a, delta*b)
++  blocker_templates = [
++    # Template A: the baseline four blockers
++    [(1, 5), (12, 16), (4, 9), (8, 13)],
++    # Template B: shifted pairs that still couple all four copies
++    [(0, 4), (6, 10), (8, 12), (14, 18)],
++    # Template C: interleaved spans
++    [(2, 6), (4, 8), (10, 14), (12, 16)],
++  ]
++
+   # For each iteration we replace T by four translated/scaled copies
+-  # plus four long connector intervals (as in the Figure-4 construction).
+-  # This preserves a small clique size while amplifying FirstFit colors.
+-  for _ in range(iterations):
++  # plus four long connector intervals. We vary geometry across depths.
++  for it in range(iterations):
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+     delta = hi - lo
++    center = 0.5 * (lo + hi)
+     S = []
++
++    # Choose starts and blockers for this level
++    starts = starts_options[it % len(starts_options)]
++    blockers = blocker_templates[it % len(blocker_templates)]
++
++    # Alternate anchoring: even -> left anchored; odd -> center anchored
++    use_center_anchor = (it % 2 == 1)
++
+     # Place four scaled/translated copies at staggered offsets
+-    for start in (2, 6, 10, 14):
+-      offset = delta * start - lo
++    for start in starts:
++      base = delta * start
++      offset = (base - (center if use_center_anchor else lo))
+       S.extend([(offset + l, offset + r) for l, r in T])
+-    # Add the four connecting long intervals (these create the coupling
+-    # between copies but are designed not to increase the clique beyond
+-    # the intended constant)
+-    S += [
+-      (delta * 1,  delta * 5),
+-      (delta * 12, delta * 16),
+-      (delta * 4,  delta * 9),
+-      (delta * 8,  delta * 13)
+-    ]
++
++    # Add the four connecting long intervals (coupling between copies)
++    for a, b in blockers:
++      S.append((delta * a, delta * b))
++
+     T = S
+ 
+   # Normalize endpoints to a compact integer grid while preserving order.
+   # Map each unique endpoint to an increasing even integer (to ensure
+   # positive lengths and avoid degeneracy).
+-  eps = 1e-9
+   endpoints = sorted(set([x for seg in T for x in seg]))
+-  # Use a dictionary mapping each float endpoint to an integer coordinate.
+   coord = {}
+   cur = 0
+   for e in endpoints:
+-    # assign increasing even integers (spacing by 2)
+     coord[e] = cur
+     cur += 2
+ 
+   normalized = [(coord[l], coord[r]) for (l, r) in T]
+ 
+   return normalized
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

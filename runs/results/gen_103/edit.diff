@@ -1,0 +1,185 @@
+--- a/original.py
++++ b/original.py
+@@ -1,78 +1,119 @@
+ # EVOLVE-BLOCK-START
+ 
+-def _normalize_grid(intervals):
+-  """
+-  Normalize endpoints to a compact integer grid while preserving order.
+-  Each unique endpoint is mapped to an increasing even integer.
+-  Returns a new list of (l, r) with integer coordinates.
+-  """
+-  endpoints = sorted(set([x for seg in intervals for x in seg]))
+-  coord = {}
+-  cur = 0
+-  for e in endpoints:
+-    coord[e] = cur
+-    cur += 2  # keep even gaps
++def construct_intervals(iterations: int = 4):
++    """
++    Search for the best adversarial interval sequence by varying recursion depth,
++    blocker template, and optional extra copy. Return the normalized list of
++    integer intervals that maximizes FirstFit/omega ratio.
++    """
++    # --- Helpers ---
++    def normalize(intervals):
++        pts = sorted({x for seg in intervals for x in seg})
++        m = {x: i*2 for i, x in enumerate(pts)}
++        return [(m[l], m[r]) for l, r in intervals]
+ 
+-  return [(coord[l], coord[r]) for (l, r) in intervals]
++    def clique_number(intervals):
++        events = []
++        for l, r in intervals:
++            if l < r:
++                events.append((l, +1))
++                events.append((r, -1))
++        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++        cur = best = 0
++        for _, t in events:
++            cur += t
++            if cur > best: best = cur
++        return best
+ 
++    def firstfit(intervals):
++        # track end of last interval in each color
++        ends = []
++        for l, r in intervals:
++            placed = False
++            for i in range(len(ends)):
++                if l >= ends[i]:
++                    ends[i] = r
++                    placed = True
++                    break
++            if not placed:
++                ends.append(r)
++        return len(ends)
+ 
+-def _compute_four_copies_and_blockers(T):
+-  """
+-  Given a current template T (list of intervals), produce the next level
+-  by placing four translated copies and appending four long blockers.
+-  Offsets used are canonical: 2, 6, 10, 14 (relative to current delta/lo).
+-  """
+-  # current span
+-  lo = min(l for l, r in T)
+-  hi = max(r for l, r in T)
+-  delta = hi - lo
++    def build_pattern(k, blockers, extra_first):
++        T = [(0.0, 1.0)]
++        base_offsets = (2, 6, 10, 14)
++        for i in range(k):
++            lo = min(l for l, _ in T)
++            hi = max(r for _, r in T)
++            delta = hi - lo
++            # decide copy offsets
++            offs = list(base_offsets)
++            if extra_first and i == 0:
++                offs.append(18)
++            S = []
++            # place copies
++            for start in offs:
++                off = delta*start - lo
++                for l, r in T:
++                    S.append((l + off, r + off))
++            # place blockers for this level
++            for a, b in blockers:
++                S.append((delta*a, delta*b))
++            T = S
++        return T
+ 
+-  # four copies at offsets 2,6,10,14
+-  S = []
+-  for start in (2, 6, 10, 14):
+-    offset = delta * start - lo
+-    S.extend([(offset + l, offset + r) for (l, r) in T])
++    # Alternative blocker templates (all scaled by delta each level)
++    templates = [
++        ((1,5), (12,16), (4,9), (8,13)),   # baseline
++        ((0,4), (6,10), (8,12), (14,18)),  # template B
++        ((1,6), (11,16), (4,8), (10,14)),  # template C
++    ]
+ 
+-  # four connecting long intervals
+-  S += [
+-    (delta * 1,  delta * 5),
+-    (delta * 12, delta * 16),
+-    (delta * 4,  delta * 9),
+-    (delta * 8,  delta * 13)
+-  ]
+-  return S
++    best = None  # (ratio, n, cols, omega, normalized_intervals)
++    depths = [max(1, iterations-1), iterations, iterations+1]
++    for k in depths:
++        for tpl in templates:
++            for extra in (False, True):
++                raw = build_pattern(k, tpl, extra)
++                norm = normalize(raw)
++                om = clique_number(norm)
++                if om == 0:
++                    continue
++                cols = firstfit(norm)
++                ratio = cols / om
++                n = len(norm)
++                cand = (ratio, n, cols, om, norm)
++                if best is None:
++                    best = cand
++                else:
++                    br, bn, bc, bo, _ = best
++                    # prefer higher ratio, then fewer intervals, then more colors
++                    if ratio > br + 1e-12 or (
++                       abs(ratio - br) <= 1e-12 and
++                       (n < bn or (n == bn and cols > bc))):
++                        best = cand
+ 
++    # Fallback to classic if search fails
++    if best is None:
++        T = [(0.0,1.0)]
++        for _ in range(iterations):
++            lo = min(l for l, _ in T)
++            hi = max(r for _, r in T)
++            delta = hi - lo
++            S = []
++            for start in (2,6,10,14):
++                off = delta*start - lo
++                for l, r in T:
++                    S.append((l+off, r+off))
++            S += [(delta*1,delta*5),(delta*12,delta*16),(delta*4,delta*9),(delta*8,delta*13)]
++            T = S
++        return normalize(T)
+ 
+-def construct_intervals(iterations=4, normalize=True):
+-  """
+-  Build a sequence of open intervals that forces FirstFit
+-  to use many colors while keeping the clique size controlled.
+-  This is a cross-over of:
+-    - Figure-4 style recursive expansion (four copies per level, plus four blockers)
+-    - a normalization step to map endpoints to a compact integer grid
+-
+-  Arguments:
+-    iterations: number of recursive expansion steps (default 4)
+-    normalize: whether to apply endpoint normalization (default True)
+-
+-  Returns:
+-    intervals: list of tuples (l, r) with integer endpoints (open intervals)
+-  """
+-  # Base gadget: a canonical unit interval
+-  T = [(0.0, 1.0)]
+-
+-  # Recursive expansion: at each level replace T by four copies plus blockers
+-  for _ in range(iterations):
+-    T = _compute_four_copies_and_blockers(T)
+-
+-  if normalize:
+-    return _normalize_grid(T)
+-  else:
+-    return T
+-
++    # return the best normalized witness
++    return best[4]
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

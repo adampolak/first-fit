@@ -1,0 +1,42 @@
+<NAME>
+implement_block_hybrid_order
+</NAME>
+
+<DESCRIPTION>
+Insert a nested hybrid ordering function inside construct_intervals and apply it to the final T before returning. This splits the interval list into 4 blocks and permutes each block using different heuristics, which should push FirstFit to use more colors while keeping the clique bound unchanged.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+=======
+  # define a hybrid ordering to diversify interval presentation
+  def block_hybrid_order(seq):
+    n = len(seq)
+    bs = (n + 3) // 4
+    blocks = [seq[i*bs:(i+1)*bs] for i in range(4)]
+    b0 = blocks[0]
+    b1 = list(reversed(blocks[1]))
+    b2 = sorted(blocks[2], key=lambda iv: (iv[1]-iv[0], iv[0]))
+    b3 = sorted(blocks[3], key=lambda iv: (-(iv[1]-iv[0]), iv[0]))
+    return b0 + b1 + b2 + b3
+
+  T = [(0, 1)]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+reorder_final_T
+</NAME>
+
+<DESCRIPTION>
+Replace the direct return of T with a call to block_hybrid_order on T to apply the new hybrid ordering before outputting the interval sequence.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  return T
+=======
+  return block_hybrid_order(T)
+>>>>>>> REPLACE
+</DIFF>

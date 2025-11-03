@@ -1,0 +1,115 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Utilities: FirstFit and clique number (ω) for open intervals
+  def firstfit_colors(seq):
+    end_times = []
+    for l, r in seq:
+      for i, et in enumerate(end_times):
+        if et <= l:
+          end_times[i] = r
+          break
+      else:
+        end_times.append(r)
+    return len(end_times)
+
+  def clique_number(seq):
+    events = []
+    for l, r in seq:
+      events.append((l, 1))
+      events.append((r, -1))
+    # ends (-1) before starts (+1) at ties: open-interval semantics
+    events.sort(key=lambda e: (e[0], e[1]))
+    cur = best = 0
+    for _, d in events:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+
+  # define a hybrid ordering to diversify interval presentation
+  def block_hybrid_order(seq):
+    n = len(seq)
+    if n == 0:
+      return []
+    bs = (n + 3) // 4
+    blocks = [seq[i*bs:(i+1)*bs] for i in range(4)]
+    # ensure missing blocks are treated as empty lists
+    while len(blocks) < 4:
+      blocks.append([])
+    b0 = blocks[0]
+    b1 = list(reversed(blocks[1]))
+    b2 = sorted(blocks[2], key=lambda iv: (iv[1]-iv[0], iv[0]))
+    b3 = sorted(blocks[3], key=lambda iv: (-(iv[1]-iv[0]), iv[0]))
+    return b0 + b1 + b2 + b3
+
+  # Classic Figure 4 fractal backbone (depth 4)
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+
+  # Order selection: evaluate several principled orders and pick the best ratio
+  omega = clique_number(T)  # order-invariant
+  # Candidate orderings
+  candidates = [
+    T,                                           # identity (fractal)
+    list(reversed(T)),                           # reversed
+    sorted(T, key=lambda x: (x[0], x[1])),       # left-first
+    sorted(T, key=lambda x: (-x[0], -x[1])),     # right-first
+    sorted(T, key=lambda x: (x[1]-x[0], x[0])),  # short-first
+    sorted(T, key=lambda x: (-(x[1]-x[0]), x[0])),# long-first
+    block_hybrid_order(T),                       # block-hybrid
+  ]
+
+  best_seq = None
+  best_ratio = -1.0
+  for seq in candidates:
+    colors = firstfit_colors(seq)
+    ratio = colors / omega if omega > 0 else 0.0
+    if ratio > best_ratio:
+      best_ratio = ratio
+      best_seq = seq
+
+  return best_seq
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

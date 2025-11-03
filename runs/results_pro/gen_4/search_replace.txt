@@ -1,0 +1,81 @@
+<NAME>
+four_expansions_variant
+</NAME>
+
+<DESCRIPTION>
+Extend the gadget depth from 3 to 4 recursive expansions and diversify the geometry of each expansion by alternating the starting offsets used for the four scaled copies. The idea is to push FirstFit to use more colors while keeping the clique (offline optimum) modest. Alternating the placement patterns across iterations helps avoid symmetric overlaps that could dampen FF’s color growth and potentially increases the observed ratio (FF colors / clique) in practice. This is a targeted, low-risk adjustment that preserves the overall structure (Figure 4 gadget) but explores a deeper construction to potentially improve the combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals on the real line presented to FirstFit,
+  based on the Figure 4 gadget from https://arxiv.org/abs/1506.00192,
+  iterated three times to force FirstFit to use many colors while
+  the clique number (optimum) remains 3.
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals.
+  """
+
+  # Start with a single unit interval.
+  T = [(0.0, 1.0)]
+  # Perform three recursive expansions (was two originally).
+  for _ in range(3):
+    # Compute current span
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Create four scaled copies of T at shifted positions
+    for start in (2, 6, 10, 14):
+      offset = delta * start - lo
+      S += [ (l + offset, r + offset) for (l, r) in T ]
+    # Add the four bridging intervals as in Figure 4
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13),
+    ]
+    T = S
+  return T
+=======
+def construct_intervals():
+  """
+  Construct a sequence of intervals on the real line presented to FirstFit,
+  based on the Figure 4 gadget from https://arxiv.org/abs/1506.00192,
+  iterated four times to further inflate the color usage while keeping the
+  clique number near 3–4.
+  Returns:
+    intervals: list of tuples (l, r) representing open intervals.
+  """
+
+  # Start with a single unit interval.
+  T = [(0.0, 1.0)]
+  # Perform four recursive expansions, with alternating placement to diversify gadget
+  for i in range(4):
+    # Compute current span
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Alternate starting positions to diversify the gadget across iterations
+    if i % 2 == 0:
+      starts = (2, 6, 10, 14)
+    else:
+      starts = (3, 7, 11, 15)
+    for start in starts:
+      offset = delta * start - lo
+      S += [ (l + offset, r + offset) for (l, r) in T ]
+    # Add the four bridging intervals as in Figure 4
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13),
+    ]
+    T = S
+  return T
+>>>>>>> REPLACE
+</DIFF>

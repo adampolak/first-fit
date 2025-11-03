@@ -1,0 +1,27 @@
+<NAME>
+deepen_recursion_to_7
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Extend the recursive tower/cap construction depth to amplify FirstFit’s color blow-up while keeping the clique growth linear.
+- Preserve the original 4-clone + 4-bridge gadget to maintain the proven incremental (+3 FF, +1 ω) per level behavior from the literature (Figure 4 in the cited paper).
+- Keep the arrival order unchanged to ensure the intended adversarial blocking persists.
+- Validate expected impact: with m levels, FF ≈ 3m+1 and ω ≈ m+1, so ratio approaches 3 from below.
+
+Rationale:
+The current implementation performs 4 recursive levels achieving FF=13, ω=5 (ratio 2.60). This gadget is known to add roughly +3 colors to FirstFit per level while increasing the offline optimum by only +1, driving the ratio toward 3. Increasing the depth to 7 levels should raise FF to about 22 and ω to about 8, yielding a ratio near 2.75, improving the combined score without structural changes or risk to correctness.
+
+Post-action validation:
+- Expect num_intervals to rise to approximately 4^7 + O(4^6) ≈ 38k, still feasible for evaluation.
+- Expect combined_score ≈ 22/8 = 2.75 (+0.15 over the current 2.60).
+- If runtime or memory becomes a concern, reduce depth to 6 (ratio ≈ 19/7 ≈ 2.714) as a safe fallback.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(4):
+=======
+  for _ in range(7):
+>>>>>>> REPLACE
+</DIFF>

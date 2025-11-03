@@ -1,0 +1,247 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Figure-4 Inspired Interval Construction for FirstFit**
+- **Implementation**: Builds an initial interval T = [(0, 1)], then repeats twice: compute lo, hi from T to get delta = hi - lo, and construct S by translating T with delta across starts (2,6,10,14), then appends four delta-scaled fixed intervals (1,5), (12,16), (4,9), (8,13); sets T = S each iteration and finally returns T as a list of open intervals (l, r). The approach mirrors the Figure 4 construction from arXiv:1506.00192 and uses explicit interval scaling/translation to generate a larger schedule.
+- **Performance**: Produces 36 intervals with a combined score of 2.33 (alg: 7, opt: 3).
+- **Feedback**: The implementation is correct and passes all validation tests; it adheres to the referenced construction, yielding the expected interval set and performance metrics.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Recursive Cap Construction for FF/ω Interval Sequences**
+- **Implementation**: Builds a sequence of open intervals by an iterative cap-like transformation. Starts with T = [(0,1)], then repeats a fixed number of depths (depth = 4): compute lo/hi, delta, generate transformed copies of T via affine shifts (using starts 2,6,10,14), and append four delta-scaled fixed intervals; update T each iteration and return the final list. The run_experiment function simply returns construct_intervals().
+- **Performance**: Combined score 2.60 with 596 intervals generated; the produced interval set is extensive and reflects the intended amplification of FF relative to omega.
+- **Feedback**: The approach uses a small, fixed recursion depth to empirically amplify FirstFit’s performance relative to omega, producing a large interval set that adheres to the cap-construction idea. Potential refinements include parameterizing depth and exploring dynamic depth for different target FF/ω trade-offs, as well as analyzing memory/time costs for very large interval sequences.
+**Program Identifier:** Generation 1 - Patch Name deepen_recursive_cap - Correct Program: True
+
+**Program Name: Deterministic-Randomized Interval Forcing FirstFit**
+- **Implementation**: Implements online FirstFit coloring for open intervals and a sweep-line-based clique size check. It uses a seeded, multi-phase constructive search that adds candidate intervals intended to force a new color while keeping the clique size under a target omega; includes representative-spread selection, randomization for exploration, and a final normalization to an integer grid.
+- **Performance**: Achieves a final 10-interval sequence with alg_colors=3 and opt_clique=3, yielding a combined score of 1.00 (best ratio achieved; passes validation).
+- **Feedback**: Demonstrates effective balancing of color growth against clique constraints via targeted and random candidate generation, with a fallback pattern to guarantee a result. The approach is computationally heavier (O(n^2) coloring, extensive randomized search) but resolves deterministically due to a fixed seed and normalization step.
+**Program Identifier:** Generation 2 - Patch Name ff_search_builder - Correct Program: True
+
+**Program Name: Three-Iteration Evolve-Block Interval Gadget**
+
+- **Implementation**: Starts with a single unit interval and, for three iterations, expands by creating four translated copies of the current interval set (via offsets based on the current span delta) and then appending four bridging intervals scaled by delta. This yields a deterministic recurrence where the interval count follows a_n = 4*a_{n-1} + 4 with a_0 = 1, resulting in 148 intervals after three iterations; the function returns the final list of (l, r) tuples representing open intervals.
+
+- **Performance**: Deterministic construction producing 148 intervals; evaluation reports alg: 10, opt: 4, and a combined score of 2.50.
+
+- **Feedback**: The approach yields exponential growth in interval count (148 after 3 iterations) and closely mirrors the intended Figure-4 gadget to stress FirstFit, while remaining straightforward and validation-passing; potential optimization could focus on memory efficiency or streaming output instead of building the full list in memory.
+**Program Identifier:** Generation 3 - Patch Name ff_fig4_three_iterations - Correct Program: True
+
+**Program Name: Four-Iteration Gadget Interval Generator for FirstFit**
+- **Implementation**: Builds a sequence of open intervals by starting from the unit interval and performing four iterations. In each iteration, it computes delta as the current span, creates four translated copies of the previous set with alternating start offsets (2,6,10,14 then 3,7,11,15), then appends four bridging intervals based on delta: (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13), and repeats.
+- **Performance**: Final interval count is 596; the growth follows 1 -> 8 -> 36 -> 148 -> 596 across four iterations, with a reported combined score of 2.60.
+- **Feedback**: The approach deterministically realizes the Figure 4 gadget with alternating translations to diversify placement, yielding large coordinate ranges as delta scales; validation confirms correctness and expected metrics (alg: 13, opt: 5) across the 596 intervals.
+**Program Identifier:** Generation 4 - Patch Name four_expansions_variant - Correct Program: True
+
+**Program Name: Recursive Cap Construction for FF/ω**
+
+- **Implementation**: The code builds a sequence of open intervals using a recursive cap (cap) construction. It determines a maximum recursion depth by comparing the interval count n_d = (7*4^d - 4)/3 against a 10,000-interval budget, starting from depth 6 and decreasing if needed. Starting from T = [(0,1)], it expands depth times: at each step it computes lo and hi over T, sets delta = hi - lo, and builds a new set S by translating four scaled copies of T (scaled by delta and offset via starts 2,6,10,14) plus four additional delta-scaled template intervals. The new T is S. After all expansions, it shifts all intervals so the leftmost endpoint is 0. The function returns the final list T of open intervals. run_experiment delegates to construct_intervals.
+
+- **Performance**: With target_depth 6, the approach yields 9556 intervals (within the budget) and achieves an FF/omega ratio of 19/7 ≈ 2.714, corresponding to a combined score around 2.71. Endpoints become extremely large due to the recursive delta-scaling, producing a long, large-number interval set.
+
+- **Feedback**: The evaluator notes that the program is incorrect and fails validation tests, despite producing a near-3 FF/omega ratio at depth 6. The fixed-depth cap, aggressive interval growth, and huge coordinate values likely clash with test constraints or invariants expected by the validation harness. In particular, although the construction demonstrates the intended theoretical FF/ω behavior (approaching 3), the implementation does not pass all checks, suggesting robustness or correctness gaps under varied budgets or interval semantics.
+**Program Identifier:** Generation 5 - Patch Name deeper_cap_with_budget_and_shift - Correct Program: False
+
+**Program Name: Five-Iteration Interval Gadget Expander**
+- **Implementation**: Starts from a unit interval and iteratively builds four translated copies of the current set plus four bridging intervals per iteration, alternating the starting offsets each time. After five iterations, it returns the resulting list of open intervals; run_experiment simply calls this constructor.
+- **Performance**: Final interval set contains 2,388 intervals with a reported combined score of 2.67.
+- **Feedback**: The evaluator marks the program as incorrect and failing validation tests. Notable issues include a mismatch between docstring claims (five iterations vs. four iterates mentioned in comments) and the resulting intervals expanding to very large coordinate ranges, which likely violates intended invariants of the gadget (e.g., FirstFit/clique constraints). Suggested fixes include aligning iteration count with documentation, tightening/invariant-checks, and adding validation to ensure the produced interval set satisfies the target properties rather than solely expanding scale.
+**Program Identifier:** Generation 6 - Patch Name increase_depth_iter5 - Correct Program: False
+
+**Program Name: Four-layer interval gadget for FirstFit**
+
+- **Implementation**: The code builds a recursive interval gadget by expanding a template through layers. expand_layer duplicates the current template shifted by span-based offsets for each start pattern and then appends fixed bridge intervals scaled by the current span. build_multilayer(depth) seeds with a unit interval and alternates two start-patterns while applying a constant set of bridge factors, running for depth=4. normalize shifts intervals to positive coordinates, scales by 10, and rounds to integers to preserve valid open intervals, returning the final interval list.
+
+- **Performance**: Combined score: 2.60; intervals: 596; validation confirms correctness and test-pass.
+
+- **Feedback**: The 4-layer gadget with alternating shift patterns and canonical bridges successfully yields a dense interval set intended to force FirstFit to use many colors while keeping clique number at 4; normalization ensures a clean, grid-aligned open-interval representation. The approach is deterministic and reproducible, though results are sensitive to depth and pattern choices and yield a large interval set.
+**Program Identifier:** Generation 7 - Patch Name modular_gadget - Correct Program: True
+
+**Program Name: Hybrid recursive interval gadget with bridges**
+- **Implementation**: Seeds a unit interval and recursively expands it via expand_layer, which replicates the template shifted by two alternating start-factor patterns and appends bridge intervals scaled by the current span; after four expansion layers, it maps all intervals to a positive integer grid with scale 12 and rounds to preserve open-interval semantics.
+- **Performance**: Achieves a combined score of 2.60, producing 596 open intervals.
+- **Feedback**: The design uses deterministic bridge factors and alternating patterns to create a dense, structured interval set; normalization preserves open-interval validity and passes all validation tests, though the approach yields a very large interval list that may impact downstream processing.
+**Program Identifier:** Generation 8 - Patch Name ff_gadget4cross - Correct Program: True
+
+**Program Name: Recursive Cap Construction for FF/omega**
+- **Implementation**: Uses a depth-controlled recursive “cap” construction (depth = 6) starting from T = [(0, 1)]; each level computes lo, hi, delta and builds a new set S by translating all intervals in T by delta times specific starts (2, 6, 10, 14), plus four additional translated blocks; updates T = S and finally returns T. The evaluator’s run_experiment simply calls construct_intervals; intervals are represented as open intervals (l, r) with integer endpoints.
+- **Performance**: Combined score to maximize: 2.71; num_intervals: 9556; alg: 19; opt: 7
+- **Feedback**: The program is incorrect and does not pass all validation tests. The fixed-depth cap-construction without verification of FirstFit/omega properties appears to produce intervals that fail required constraints or validations, leading to test failures despite the large interval set.
+**Program Identifier:** Generation 9 - Patch Name increase_recursion_depth - Correct Program: False
+
+**Program Name: Cap-based Recursive Interval Set Generator**
+- **Implementation**: Builds a sequence of open intervals via a recursive “cap” style construction. Starting from T = [(0,1)], it iterates depth = 7 times, at each step deriving delta from current bounds, creating four affine copies of T with offsets (using delta * start for starts 2,6,10,14), then appending a fixed set of intervals, and reassigning T = S. Finally returns the large list T. The run_experiment() simply returns construct_intervals() without any inputs. The docstring claims this is meant to maximize FirstFit colors relative to the maximum point coverage, following a Figure-4 inspired pattern.
+- **Performance**: Produces a very large interval list (around 38k intervals) and includes many explicit, huge-endpoint intervals in the final result. The performance numbers shown are: Combined score 2.75; num_intervals 38228; alg: 22; opt: 8.
+- **Feedback**: The evaluator notes the program is incorrect and does not pass all validation tests. The approach relies on an empirically tuned, brittle cap construction (depth 7) to amplify FF/omega, producing enormous, unwieldy interval data and lacking validated guarantees; this leads to failures in tests that expect robustness, determinism, or bounded output.
+**Program Identifier:** Generation 10 - Patch Name increase_depth_to_7 - Correct Program: False
+
+**Program Name: FirstFit stress tester with Figure-4 gadget**
+- **Implementation**: Builds a recursive Figure-4 style interval gadget and optionally extends it with a deterministic-randomized search to add spanning intervals while preserving a small clique; includes utilities for overlap, FirstFit coloring, and clique-size computation, followed by normalization to a positive integer grid and deduplication.
+- **Performance**: Score 2.50 with 148 intervals; final intervals are scaled to an integer grid and deduplicated.
+- **Feedback**: Produces correct results and passes validations; the fixed seed yields reproducible outputs, and the targeted extension effectively pushes FirstFit toward new colors while capping the clique at 4, though higher gadget depth or extension limits may increase computational cost and could benefit from optimization.
+**Program Identifier:** Generation 11 - Patch Name gadget_search_crossover - Correct Program: True
+
+**Program Name: Cap-Construction for FF/omega Interval Sequences**
+- **Implementation**: The function builds a sequence of open intervals by starting with T = [(0,1)] and iteratively expanding it for a given depth. At each level, it computes lo, hi, and delta from T, then generates scaled and translated copies of T using delta * start + (l - lo) and delta * start + (r - lo) for each (l,r) in T, augmented with cross-links from rotating BRIDGE_SETS; finally it returns the resulting list T. Depth defaults to 4, and two pattern banks (START_SETS and BRIDGE_SETS) are rotated to diversify expansions.
+- **Performance**: The evaluator reports a combined score of 2.60 with 596 intervals generated.
+- **Feedback**: The implementation is correct and passes all validation tests; the approach leverages the recursive cap-construction strategy to amplify the FF/omega ratio, with depth giving a tunable configuration and wide coordinate ranges resulting from repeated scaling.
+**Program Identifier:** Generation 12 - Patch Name cycle_bridge_depth - Correct Program: True
+
+**Program Name: Deterministic Cap-Engine Interval Construction**
+- **Implementation**: The code builds a cap-engine for real-line intervals using four-copy replication with delta-shift, combined with four bridging intervals per step. It keeps the span small by order-preserving endpoint compression after each step and uses deterministic pattern cycles via four start-patterns and four bridge-patterns, starting from T = [(0,1)] and iterating depth times (depth = 5). Intervals are represented as open intervals with integer endpoints.
+- **Performance**: The run yields a combined score of 1.67 with 2388 intervals (endpoints span up to around the mid-4000s before compression). The output reports alg: 15 and opt: 9, indicating the solution uses more colors than the offline optimum by a factor of about 1.67.
+- **Feedback**: The approach is fully deterministic and modular but is flagged as incorrect and failing validation tests. Likely issues include mismatch with the target optimization criteria or problem constraints, and potentially suboptimal color/clique behavior despite compression. To fix, verify constraint satisfaction, consider broader/flexible pattern exploration or adaptive depth, and ensure the interval representation and FirstFit assumptions align with the validator’s expectations.
+**Program Identifier:** Generation 13 - Patch Name cap_cycle_builder - Correct Program: False
+
+**Program Name: Four-Layer Recursive Interval Gadget**
+- **Implementation**: The gadget starts with a seed interval and applies a four-layer expansion. Each layer uses a pair of four-start patterns and four bridge-sets to generate new intervals by shifting the entire template (based on current span) and appending scaled bridge intervals; after four layers, the result is normalized to a positive integer grid by shifting, scaling by 12, and rounding to preserve open intervals.
+- **Performance**: Combined score: 1.50; final interval count is 596 (structure grows as 1 -> 8 -> 36 -> 148 -> 596), and the output passes all validation tests.
+- **Feedback**: The layered pattern cycling yields controlled asymmetry with a small clique number and deterministic results; normalization ensures valid open intervals on an integer grid, though the resulting coordinate magnitudes are large, which may affect downstream handling.
+**Program Identifier:** Generation 14 - Patch Name cycle_patterns_and_bridges - Correct Program: True
+
+**Program Name: Recursive Cap Interval Construction for FF/omega**
+- **Implementation**: Builds a hierarchical, open-interval sequence by iteratively expanding a base set T across a controlled depth. It uses rotating pattern banks START_SETS and BRIDGE_SETS, a per-level delta scaled by a gamma from SCALING_LIST, and concatenates scaled copies of T with cross-link bridge intervals to amplify FirstFit/omega characteristics; defaults to depth=4 and returns the final interval list T.
+- **Performance**: Combined score 2.60 with 596 intervals generated; coordinates escalate to large values due to repeated scaling.
+- **Feedback**: The approach is correct and deterministic, leveraging pattern banks and scaling to diversify configurations and boost FF/omega. However, the resulting intervals can grow very large, which may raise concerns about numerical handling and memory usage in larger runs.
+**Program Identifier:** Generation 15 - Patch Name cyclic_delta_scaling - Correct Program: True
+
+**Program Name: Four-Pattern Interval Gadget for FirstFit**
+- **Implementation**: Constructs an initial unit interval and iteratively expands by offsetting copies of the current interval set according to four start-factor patterns and four bridge-sets, repeated for four depths. After expansion, it normalizes to a compact integer grid by shifting to positive coordinates, then scaling to about span 2000 and mapping to open-interval endpoints as floats.
+- **Performance**: Combined score 1.50 with 596 intervals generated and returned.
+- **Feedback**: The four-pattern, four-bridge expansion increases asymmetry and cross-layer coupling, nudging FirstFit toward using more colors without inflating the clique; normalization keeps coordinates compact for the evaluator, and validation reports correctness and successful tests.
+**Program Identifier:** Generation 16 - Patch Name cycle_starts_and_normalize - Correct Program: True
+
+**Program Name: Hybrid four-layer interval expansion gadget**
+- **Implementation**: The code defines construct_intervals with nested helpers: expand_layer duplicates the current template by shifting with span-based offsets for each starting factor, and appends bridge intervals specified as (span*a, span*b). build(depth) seeds with a unit interval and alternates two start-factor patterns across layers, then normalizes all intervals to a positive integer grid via scale=15. After building, a second gadget is created by translating the raw set by a fixed gap and the two gadgets are combined before final normalization. run_experiment simply returns the resulting interval list.
+- **Performance**: Score 2.00 with 4,776 intervals; the output is a long list of large-coordinate intervals, and the evaluator flags the program as incorrect and not passing all validation tests.
+- **Feedback**: The approach relies on a rigid, pre-specified gadget with fixed bridge factors and alternating patterns, and heavy normalization that may undermine open-interval semantics or numerical stability. The lack of validation for interval properties and the sheer volume/scale of coordinates likely contribute to failures in validation tests.
+**Program Identifier:** Generation 17 - Patch Name inflate_ff_with_multi_stage_gadget - Correct Program: False
+
+**Program Name: Adaptive interval growth with seeded starts**
+
+- **Implementation**: The function construct_intervals initializes two seed intervals and then iteratively expands the interval set across a depth loop using four START_SETS and four BRIDGE_SETS. At each iteration, it computes a delta from the current min/max bounds and gamma, applies scaled translations of every current interval for each start, and appends bridge pairs, then updates the working set. It returns the final list of intervals.
+
+- **Performance**: Performance reports a combined score of 2.67 with 3412 intervals, but the implementation is labeled incorrect and fails validation tests.
+
+- **Feedback**: The approach produces unbounded growth of intervals (extremely large coordinates) due to repeated scaling via delta and bridging, with no pruning or bounds. This leads to potential memory/time issues and brittle validation; adding bounds, deduplication/pruning, and a clearer objective/validation strategy would improve robustness and pass criteria.
+**Program Identifier:** Generation 18 - Patch Name adaptive_cap - Correct Program: False
+
+**Program Name: Evolve-Block Recursive FF/omega Interval Generator**
+- **Implementation**: Builds a base interval T and expands it depth times by scaling and translating copies of T using per-level delta (base_delta scaled by cycling gamma factors), with rotating START_SETS and BRIDGE_SETS to diversify copies. A lightweight deterministic shrinker compresses coordinates when size exceeds 800, then the final intervals are shifted positive and rounded to integers to return a list of open-interval tuples.
+- **Performance**: Combined score 2.17; about 2388 intervals are produced (huge coordinate ranges visible in the output).
+- **Feedback**: The code aims to maximize FF/omega but never computes or validates that ratio within the function, making the result unverified. The aggressive recursive expansion plus post hoc coordinate compression (and integer rounding) can distort overlap structure and open-interval semantics, leading to potential test failures; adding an explicit metric computation and tighter bounds (and avoiding rounding artifacts) would improve correctness and reliability.
+**Program Identifier:** Generation 19 - Patch Name adaptive_scaling_and_shrinker - Correct Program: False
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+Below is a compact synthesis of concrete patterns, outcomes, and implementation details drawn from the evaluated programs, with particular emphasis on the current best approach and how it compares to others.
+
+## Successful Algorithmic Patterns
+
+- Four-iteration cap-like expansion with delta scaling
+  - The current best pattern uses depth = 4, starting from T = [(0,1)], and in each iteration computes delta = hi - lo, then adds four translated copies of T by delta * starts (specifically starts 2, 6, 10, 14) plus four bridging intervals scaled by delta. This yields a deterministic recurrence with interval count following a_n = 4*a_{n-1} + 4, giving a final total of 596 intervals after four iterations. This structured growth provides a robust FF/omega amplification while keeping output size modest.
+  - Evidence: Current best program (Four-Iteration Gadget Interval Generator / cycle_bridge_depth variant) reports 596 intervals and a combined score of 2.60, and it passes all validations.
+
+- Deterministic, reproducible construction with controlled depth
+  - The depth-4 configuration provides a predictable growth pattern (a_0 = 1 → a_1 = 8 → a_2 = 36 → a_3 = 148 → a_4 = 596). The deterministic pattern avoids randomness, which aligns well with validation tests that prefer repeatable behavior.
+
+- Fixed, cross-layer bridging blocks to enforce topology
+  - After each translated copy block, a fixed set of bridging intervals is appended: (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). These bridges inject cross-connections that help push FirstFit to use more colors while keeping omega constrained, without blowing up the interval count.
+
+- Moderate output size with strong validation performance
+  - Achieving 596 intervals with a 2.60 score places the current best in a sweet spot: enough complexity to elevate FirstFit color usage, but not so large or poorly-constrained as to trigger validation failures seen in deeper or more aggressively expanded variants.
+
+- Consistency across similar cap-construct patterns
+  - The cycle_bridge_depth variant (Generation 12) mirrors the same cap-like, four-copy expansion with delta scaling and bridging blocks, and it also reports 596 intervals with a high score (2.60) while validating correctly. This reinforces that the core delta-based cap construction with fixed four-starts and bridges is a robust, repeatable pattern.
+
+References to specific programs and outcomes:
+- Current Best Program: Four-Iteration Gadget Interval Generator (depth 4) — 596 intervals; score 2.60; passes validation.
+- Cycle-Bridge-Depth family (Generation 12) — same structural pattern; 596 intervals; score 2.60; passes validation.
+- Four-Pattern Interval Gadget (Generation 14) — also 596 intervals but a lower score (1.50) and passes validation; indicates that not all 596-interval gadgets are equally effective.
+
+## Ineffective Approaches
+
+- Deep recursion with very large depth
+  - Examples:
+    - Generation 9: increase_depth_to_7 (depth 7) produced around 38,228 intervals but was labeled incorrect; validator failed despite large FF/omega signals.
+    - Generation 5: deep cap with budget and shift (9,556 intervals) also marked incorrect.
+  - Why it failed: Excessive growth led to validation/invariant violations and likely resource constraints. The tests penalize brittleness, overly large coordinate ranges, and misalignment with the target FF/omega criteria.
+
+- Mismatched documentation or invariant expectations
+  - Example: Generation 6 (Five-Iteration Gadget Expander) produced 2,388 intervals but was incorrect, with notes about doc mismatch between claimed iterations and actual behavior. This mismatch undermines validator expectations and undermines robustness.
+
+- Heavily normalized/renormalized patterns that distort semantics
+  - Examples like Hybrid four-layer gadget (Generation 17) and adaptive scaling/shrinker variants tended to generate large coordinate ranges and many intervals (thousands) and were flagged as incorrect. The heavy normalization or post-processing can distort open-interval semantics or numeric stability, triggering validation failures.
+
+- Deterministic randomized-first-fit patterns, while sometimes effective locally, don’t scale robustly
+  - The ff_search_builder approach (Deterministic Randomized FirstFit) yielded a tiny 10-interval result with a good local ratio but poor scalability and was not presented as the current best. It demonstrates that purely heuristic/randomized exploration often trades predictability and robustness for small, early wins.
+
+Key takeaway from ineffective approaches: pushing depth, scale, or aggressively multiplying intervals tends to produce poor validation outcomes when the construction drifts away from the invariants the evaluator enforces (robustness, bounded output, determinism).
+
+## Implementation Insights
+
+- Delta-based scaling anchored to current span
+  - The core mechanic across successful patterns is to compute delta = hi - lo from the current template T and then create scaled, translated copies by delta times fixed starts. This ensures the growth is self-similar and tied to the current interval span, avoiding unbounded arbitrary coordinate growth that isn’t synchronized with the structure.
+
+- Fixed four-start translations plus bridging blocks
+  - Using four starts (e.g., 2,6,10,14) (and in some discussions, alternating sets like (3,7,11,15) in other implementations) distributes copies across the line, avoiding degenerate configurations. Appended bridges scaled by delta introduce necessary cross-links that support the intended FF/omega behavior while controlling omega growth.
+
+- Deterministic, shallow depth for stability
+  - Depth around 4 yields 596 intervals, which appears to be a reliable regime: enough complexity to influence FirstFit colors without crossing validation boundaries. Deeper constructions generally explode interval counts and risk validation failures.
+
+- Coordinate growth and normalization
+  - Some approaches normalize coordinates to a positive integer grid or scale end points to maintain compactness; the current best approach avoids heavy post-processing to preserve open-interval semantics and reduce rounding artifacts. Other approaches that perform aggressive normalization or coordinate compression tended to trigger validation issues, likely due to perturbations in interval openness or ordering properties.
+
+- Analytic growth insight
+  - The observed recurrence a_{n+1} = 4*a_n + 4 with a_0 = 1 (glimpsed in the four-iteration pattern) explains the final count 596. This analytic handle clarifies why depth-4 is a practical sweet spot.
+
+## Performance Analysis
+
+- Current best vs alternatives
+  - Current best (Four-Iteration Gadget / cycle_bridge_depth): 596 intervals; score 2.60; passes validation.
+  - Four-iteration family in related cycles also yields 596 intervals with strong validation when the construction is kept deterministic and properly parameterized.
+  - A shallower pattern (e.g., 148 intervals) like Generation 11 gadget_search_crossover yields a respectable 2.50 but is outperformed on the 596-interval scale by the current best.
+  - Simpler, smaller gadgets (e.g., 36 intervals, 2.33) show diminishing returns relative to the best 596-interval construction, indicating more complex constructions can yield higher FF/omega ratios without exploding interval counts, but only when they stay within valid constraints.
+
+- Why the current best outperforms some alternatives
+  - It achieves a higher combined score (2.60) with a moderate interval count (596), balancing FF amplification with determinism and validated invariants.
+  - It avoids the pitfalls of excessive depth (which produced thousands of intervals and validator failures) and of parameterizations that caused invariant violations or numerical instability.
+
+- Notable trends
+  - Incremental depth increases (from 4 to 6 or more) often increased interval counts dramatically and frequently coincided with validator failures.
+  - Patterns that maintain a clean, analytic growth rule (self-similar cap growth with delta scaling) tend to produce both higher scores and better validation outcomes, as long as the depth stays in a regime like 4.
+
+In short terms:
+- The current best pattern excels by using a disciplined delta-scaled cap expansion with four copies per level and four bridging intervals, at depth 4. It yields 596 intervals and a strong score of 2.60, while passing validations. This stands out against deeper, larger, or normalization-heavy approaches that either blow up the interval count, misalign with invariants, or fail validation.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1) Cycle the four-start translation pattern across iterations
+- Implement a deterministic cycle of the four-start sets: A=(2,6,10,14), B=(3,7,11,15), C=(4,8,12,16), D=(5,9,13,17), and apply the next set in order each depth iteration. This preserves the delta-based self-similarity while breaking fixed symmetry that can limit FirstFit color growth.
+- Rationale: The current best uses a four-start pattern with good spread; cycling through multiple distinct starts reduces regularity without increasing depth, which tends to maintain the strong FF/omega balance observed at depth 4.
+
+2) Cycle bridging blocks with iteration index (deterministic, not random)
+- Replace the single fixed bridge quartet with a set of four bridge patterns and select one pattern per iteration via i mod 4. Use the following bridge sets (all scaled by delta):
+  - Set A: [(delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13)]
+  - Set B: [(delta*2, delta*6), (delta*11, delta*15), (delta*5, delta*10), (delta*9, delta*14)]
+  - Set C: [(delta*3, delta*7), (delta*10, delta*14), (delta*6, delta*11), (delta*7, delta*12)]
+  - Set D: [(delta*4, delta*8), (delta*13, delta*17), (delta*7, delta*12), (delta*8, delta*13)]
+- Rationale: The four-bridge pattern in the current best contributes to stronger FF amplification while keeping omega bounded. Cycling across multiple bridge configurations maintains this benefit and reduces potential layout degeneracy.
+
+3) Introduce a controlled, deterministic depth cycle (for exploration without blowing up validation)
+- Add a shallow depth variation cycle alongside the four-start/bridge cycling, e.g., depth_seq = [4, 3, 5, 4] repeating. Use depth = depth_seq[i mod 4] for each iteration i. Keep 4 as the default most of the time but occasionally test depth 3 or 5 in a deterministic pattern.
+- Rationale: Depth 4 is the proven sweet spot; small, deterministic deviations to 3 or 5 allow exploration of trade-offs in FF/omega without resorting to uncontrolled growth that previously caused validator issues.
+
+4) Apply a deterministic delta-schedule to diversify span growth
+- Instead of always using delta = hi - lo, apply a cycling scaling to delta: for iteration i, compute delta_i from hi-lo, then apply delta_i' = floor(delta_i * gamma_i) with a fixed gamma-cycle, e.g., gamma_seq = [1.0, 1.25, 0.95, 1.15]. Use delta_i' for the translation starts and bridges in that iteration.
+- Rationale: The delta-based, self-similar growth is key to robust FF/omega improvements; a small, deterministic variation in delta across iterations can push FirstFit color usage higher while keeping interval counts in check, leveraging the same structural invariants that make the current best work.
+
+5) Seed diversification: start with two non-overlapping seeds
+- Initialize T with two disjoint seeds, e.g., T = [(0,1), (2,3)], and then apply the delta-scaled four-start translations plus bridges to both seeds in each iteration. Maintain deterministic ordering (e.g., process both seeds identically in each step).
+- Rationale: A multi-seed start reduces early symmetry and allows the cap-construction to explore more color patterns without sacrificing the proven self-similar growth rule. This builds on the success of the four-copy cap while increasing layout diversity and potential FF amplification.

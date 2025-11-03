@@ -1,0 +1,205 @@
+# EVOLVE-BLOCK-START
+
+from typing import List, Tuple
+import bisect
+import copy
+
+Interval = Tuple[float, float]
+
+def firstfit_colors(intervals: List[Interval]) -> int:
+    """
+    Simulate the online FirstFit coloring for open intervals presented
+    in the given order. Return the number of colors used.
+    Colors are represented by integers 1..k.
+    """
+    # maintain for each color the rightmost endpoint of the last interval assigned
+    color_right = []  # color_right[c-1] = max right endpoint among intervals of color c
+    for (l, r) in intervals:
+        placed = False
+        for idx, cr in enumerate(color_right):
+            # open intervals intersect iff not (r <= cr or l >= ???)
+            # Because intervals are open, two intervals (l1,r1), (l2,r2) intersect iff l1 < r2 and l2 < r1.
+            # But we only store rightmost endpoint of last interval on that color; since intervals arrive in given order,
+            # we must ensure this stored right endpoint is the last interval on that color and check overlap exactly.
+            if not (l < cr and cr > l):  # placeholder; but we need proper check: we must check overlap with all active intervals of that color.
+                pass
+        # The above approach is flawed because using only rightmost endpoint is not sufficient when intervals arrive out of order.
+        # Simpler: keep list of intervals assigned to each color and check pairwise overlap with last assigned interval in that color.
+        # For FirstFit correctness we only need to check overlap with intervals already assigned to that color.
+        # Since intervals are open, two intervals (a,b) and (c,d) overlap iff a < d and c < b.
+        # We'll implement a direct check.
+        break
+
+def _firstfit_sim(intervals: List[Interval]) -> int:
+    colors: List[List[Interval]] = []  # for each color, list of intervals assigned (we only need last interval to check overlap)
+    for (l, r) in intervals:
+        assigned = False
+        for col in colors:
+            # check overlap with every interval in this color (they are disjoint by construction, only need to check last)
+            # Because FirstFit assigned previous intervals in this color that are pairwise disjoint, it's sufficient to check
+            # overlap with the last interval in that color.
+            last = col[-1]
+            if not (l < last[1] and last[0] < r):
+                # no overlap with last (and hence with all), so can place here
+                col.append((l, r))
+                assigned = True
+                break
+        if not assigned:
+            colors.append([(l, r)])
+    return len(colors)
+
+def clique_number(intervals: List[Interval]) -> int:
+    """
+    Compute omega: the size of maximum clique (maximum number of intervals covering a single point)
+    using a sweep-line on endpoints.
+    """
+    events = []
+    for (l, r) in intervals:
+        events.append((l, 1))   # open intervals -> treat entering at l (since open, intervals include points x with l<x<r)
+        events.append((r, -1))
+    # sort by coordinate, enters before exits at same coordinate to be conservative with open intervals
+    events.sort(key=lambda x: (x[0], -x[1]))
+    cur = 0
+    best = 0
+    for _, delta in events:
+        cur += delta
+        if cur > best:
+            best = cur
+    return best
+
+def normalize_intervals(intervals: List[Interval]) -> List[Interval]:
+    """
+    Map each unique endpoint to increasing even integers to get compact integer coordinates.
+    Preserve ordering and relative geometry.
+    """
+    eps = 1e-9
+    endpoints = sorted({round(x, 9) for seg in intervals for x in seg})
+    coord = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += 2
+    normalized = [(coord[round(l, 9)], coord[round(r, 9)]) for (l, r) in intervals]
+    return normalized
+
+def build_recursive_towers(iterations: int = 3, seed: List[Interval] = None) -> List[Interval]:
+    """
+    Build an interval set via recursive 4-copy expansion with alternating offsets
+    and two blocker types. Returns list of intervals in arrival order.
+    """
+    if seed is None:
+        # two disjoint unit intervals as richer seed
+        seed = [(0.0, 1.0), (3.0, 4.0)]
+    T = seed[:]
+
+    # two offset patterns to alternate across recursion levels (breaks regularity)
+    starts_patterns = [
+        (2, 6, 10, 14),
+        (1, 5, 9, 13)
+    ]
+
+    # blocker templates: long "towers" plus shorter "caps" to couple copies
+    blocker_templates = [
+        # template A: two very long towers and two medium caps
+        [(0.5, 16.5), (2.0, 14.0), (4.0, 9.0), (8.0, 13.0)],
+        # template B: shifted variants to desynchronize overlaps
+        [(1.0, 17.0), (0.0, 12.0), (3.5, 8.5), (7.5, 11.5)]
+    ]
+
+    for i in range(iterations):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        S: List[Interval] = []
+        starts = starts_patterns[i % len(starts_patterns)]
+        blockers = blocker_templates[i % len(blocker_templates)]
+
+        # place four scaled / translated copies at staggered offsets
+        for start in starts:
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+
+        # add blockers (scale template by delta)
+        for (a, b) in blockers:
+            S.append((delta * a, delta * b))
+
+        T = S
+
+    return T
+
+def shrinker_prune(intervals: List[Interval], budget_removals: int = None) -> List[Interval]:
+    """
+    Greedy deterministic pruning:
+    - compute current FF and omega
+    - try to remove intervals one-by-one (longest first) if removal does not decrease FF/omega ratio
+      (we prefer smaller omega and larger or equal FF if possible).
+    - stop after budget_removals attempts or when no improvement possible.
+    """
+    if budget_removals is None:
+        budget_removals = len(intervals)  # try all candidates in worst case
+
+    # work on a list copy
+    cur_intervals = intervals[:]
+    # initial metrics
+    norm = normalize_intervals(cur_intervals)
+    cur_ff = _firstfit_sim(norm)
+    cur_omega = clique_number(norm)
+    cur_ratio = cur_ff / max(1, cur_omega)
+
+    # sort candidate indices by interval length descending (prefer removing very long intervals which inflate omega)
+    lengths = [r - l for (l, r) in cur_intervals]
+    candidate_indices = sorted(range(len(cur_intervals)), key=lambda i: (-lengths[i], i))
+
+    removals = 0
+    for idx in candidate_indices:
+        if removals >= budget_removals:
+            break
+        if idx >= len(cur_intervals):
+            # indices may be stale as we remove items; skip if out of range
+            continue
+        # try removing interval at idx
+        cand = cur_intervals[:idx] + cur_intervals[idx+1:]
+        cand_norm = normalize_intervals(cand)
+        cand_ff = _firstfit_sim(cand_norm)
+        cand_omega = clique_number(cand_norm)
+        cand_ratio = cand_ff / max(1, cand_omega)
+        # Accept removal when ratio does not decrease (we allow equal) and we do not reduce FF drastically
+        # Also allow removal if omega decreases and FF stays same or decreases less proportionally (improves ratio)
+        if cand_ratio >= cur_ratio - 1e-12:
+            # commit removal
+            cur_intervals = cand
+            cur_ratio = cand_ratio
+            cur_ff = cand_ff
+            cur_omega = cand_omega
+            removals += 1
+        # otherwise keep the interval
+    return cur_intervals
+
+# EVOLVE-BLOCK-END
+
+def construct_intervals(iterations: int = 3):
+    """
+    Public interface function matching original signature.
+
+    Build recursive towers, normalize endpoints, run a pruning pass,
+    and return the final interval list in arrival order.
+    """
+    # Build the recursive adversarial structure
+    raw = build_recursive_towers(iterations=iterations)
+
+    # Normalize to integer grid to avoid floating nuisance
+    normalized = normalize_intervals(raw)
+
+    # Prune redundants with a guided shrinker (limit number of removals to keep runtime reasonable)
+    # We set budget_removals to a modest fraction of intervals to avoid over-pruning
+    budget = max(1, len(normalized) // 12)
+    pruned = shrinker_prune(normalized, budget_removals=budget)
+
+    return pruned
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    # preserve original behavior: accept iterations through kwargs or default
+    iterations = kwargs.get('iterations', 3)
+    return construct_intervals(iterations=iterations)

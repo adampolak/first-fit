@@ -1,0 +1,39 @@
+<NAME>
+alternate_starts_and_richer_base
+</NAME>
+
+<DESCRIPTION>
+Enrich the base gadget by starting from two disjoint unit intervals instead of one, increasing local overlap complexity. Also, alternate the four-copy offset patterns between iterations—using (2,6,10,14) on even depths and (1,5,9,13) on odd depths—to break symmetry and induce more FirstFit coloring conflicts, thereby improving the FF/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Base gadget: a canonical small pattern (one unit interval)
+  T = [(0.0, 1.0)]
+=======
+  # Base gadget: two disjoint small intervals to enrich local overlap structure
+  T = [(0.0, 1.0), (3.0, 4.0)]
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled/translated copies at staggered offsets
+    for start in (2, 6, 10, 14):
+=======
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Alternate offset patterns to break regularity
+    starts = (2, 6, 10, 14) if i % 2 == 0 else (1, 5, 9, 13)
+    # Place four scaled/translated copies at staggered offsets
+    for start in starts:
+>>>>>>> REPLACE
+</DIFF>

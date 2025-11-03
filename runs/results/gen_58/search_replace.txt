@@ -1,0 +1,21 @@
+<NAME>
+extra_first_every_level
+</NAME>
+
+<DESCRIPTION>
+Enable the `extra_first` flag to add an additional (fifth) copy at every recursive level, not just the first. This increases the adversarial pressure on FirstFit by creating more overlapping patterns while keeping the clique size bounded, potentially improving the FF/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+        offs = list(offsets)
+        if extra_first and lvl == 0:
+            # add a further copy step (+4)
+            offs = offs + [offs[-1] + 4]
+=======
+        offs = list(offsets)
+        if extra_first:
+            # add a further copy step (+4) at every level
+            offs = offs + [offs[-1] + 4]
+>>>>>>> REPLACE
+</DIFF>

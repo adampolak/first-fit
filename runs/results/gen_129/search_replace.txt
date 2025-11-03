@@ -1,0 +1,53 @@
+<NAME>
+alternate_offsets_and_extra_blockers
+</NAME>
+
+<DESCRIPTION>
+Alternate tiling offsets between two patterns each iteration to misalign block structure and add two extra blocking intervals per level to increase FirstFit pressure.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    k = 4
+
+    # base case: one small interval
+    T = [(0.0, 1.0)]
+=======
+    k = 4
+    # alternate tiling offset patterns per level
+    offsets_list = [(2, 6, 10, 14), (1, 5, 9, 13)]
+
+    # base case: one small interval
+    T = [(0.0, 1.0)]
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    for _ in range(k):
+=======
+    for i in range(k):
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+        # 4 tiled copies at positions 2,6,10,14
+        for start in (2, 6, 10, 14):
+=======
+        # 4 tiled copies at level-specific offsets
+        for start in offsets_list[i % len(offsets_list)]:
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+=======
+        # 6 extra “blocking” intervals that overlap all copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+        S.append((delta * 2,  delta * 14))
+        S.append((delta * 6,  delta * 10))
+>>>>>>> REPLACE
+</DIFF>

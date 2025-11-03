@@ -1,0 +1,126 @@
+<NAME>
+fast_firstfit_colors
+</NAME>
+
+<DESCRIPTION>
+Introduce an optimized FirstFit color assignment by representing each color as a small, sorted-by-left-endpoint structure and testing conflicts with only the immediate neighbors (predecessor and successor). This uses binary search to locate the insertion position, reducing the per-interval cost from O(number_of_colors * size_of_color) to roughly O(number_of_colors * log(size_of_color)). This should markedly speed up evaluation, allowing more extensive adversary exploration or deeper recursions, potentially increasing the combined score.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order of open intervals.
+    Returns number of colors used.
+    """
+    colors = []  # lists of intervals per color (intervals in arrival order)
+    for iv in intervals:
+        placed = False
+        for cls in colors:
+            # since each color class must be pairwise disjoint, we can check last interval only,
+            # but to be safe (and robust under non-sorted classes) check all.
+            conflict = False
+            for u in cls:
+                if overlaps(u, iv):
+                    conflict = True
+                    break
+            if not conflict:
+                cls.append(iv)
+                placed = True
+                break
+        if not placed:
+            colors.append([iv])
+    return len(colors)
+=======
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order of open intervals.
+    Returns number of colors used.
+    Optimized: maintain each color as a sorted-by-left list and test conflicts
+    by checking at most the predecessor and successor of the insertion position.
+    """
+    from bisect import bisect_left
+    colors = []  # list of color records, each with 'ivals' sorted by left endpoint
+    for iv in intervals:
+        l, r = iv
+        placed = False
+        for color in colors:
+            lefts = color['lefts']
+            pos = bisect_left(lefts, l)
+            conflict = False
+            # check predecessor
+            if pos > 0:
+                pl, pr = color['ivals'][pos - 1]
+                if pr > l:
+                    conflict = True
+            # check successor
+            if not conflict and pos < len(color['ivals']):
+                nl, nr = color['ivals'][pos]
+                if nl < r:
+                    conflict = True
+            if not conflict:
+                color['ivals'].insert(pos, (l, r))
+                color['lefts'].insert(pos, l)
+                placed = True
+                break
+        if not placed:
+            colors.append({'ivals': [(l, r)], 'lefts': [l]})
+    return len(colors)
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+clique_cache
+</NAME>
+
+<DESCRIPTION>
+Add a lightweight memoization layer to the clique_number function to reuse results for identical interval sets. Since the same interval pattern can appear across multiple candidate constructions during the search, caching omega computations can significantly cut repeated sweeps. Implement a function-scoped cache stored as an attribute of clique_number, preserving open-interval semantics.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def clique_number(intervals):
+    """
+    Compute omega = maximum number of open intervals covering some point,
+    by a sweep-line on endpoints. Right endpoints processed before left endpoints
+    at ties to model open intervals correctly.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    # sort so (-1) comes before (+1) at same coordinate
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+=======
+def clique_number(intervals):
+    """Compute omega with memoization cache to avoid recomputing identical inputs."""
+    if not hasattr(clique_number, "_cache"):
+        clique_number._cache = {}
+    key = tuple(intervals)
+    if key in clique_number._cache:
+        return clique_number._cache[key]
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    # sort so (-1) comes before (+1) at same coordinate
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    clique_number._cache[key] = best
+    return best
+>>>>>>> REPLACE
+</DIFF>

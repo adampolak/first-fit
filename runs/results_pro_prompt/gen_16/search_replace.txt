@@ -1,0 +1,226 @@
+<NAME>
+order_and_caps_before_enhancements
+</NAME>
+
+<DESCRIPTION>
+Checklist:
+- Add arrival-order exploration for each candidate sequence to exploit FirstFit sensitivity.
+- Introduce a block-wise hybrid ordering to couple colors across local structures.
+- Enable caps-before option to present long “spine” intervals early as blockers.
+- Broaden anchor sets with alternative starts to diversify the fractal geometry.
+- Tune the search budget to keep runtime reasonable while increasing structural diversity.
+
+Rationale:
+FirstFit’s performance is highly order-sensitive. By systematically testing several principled orders (fractal, reversed, left/right-first, short/long-first) and a hybrid block-wise scheme, we can increase the color blowup for the same clique number. Introducing a caps_before mode lets long caps arrive first at each recursion level, occupying low colors and forcing subsequent intervals into higher colors. Alternative anchor sets (3,7,11,15) and (4,8,12,16) diversify the geometry, while a modest random cap neighborhood and reduced depth/options keep the search time feasible. These changes are consistent with known adversarial strategies and literature hints while remaining computationally practical.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def generate_recursive(starts, caps, depth, interleave=False):
+    """Generate a recursive construction parameterized by:
+       - starts: sequence of integer offsets for block copies per level
+       - caps: list of (a,b) base intervals appended each level (scaled by delta)
+       - depth: recursion depth
+       - interleave: if True, use a round-robin copy order (increases cross-copy interference)
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      if interleave:
+        # Round-robin copy to increase color interactions across blocks
+        for i in range(len(T)):
+          li, ri = T[i]
+          for start in starts:
+            S.append((delta * start + li - lo, delta * start + ri - lo))
+      else:
+        for start in starts:
+          S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      # append scaled caps (longer intervals that intersect several blocks)
+      for a, b in caps:
+        S.append((delta * a, delta * b))
+      T = S
+    return T
+=======
+  def generate_recursive(starts, caps, depth, interleave=False, caps_before=False):
+    """Generate a recursive construction parameterized by:
+       - starts: sequence of integer offsets for block copies per level
+       - caps: list of (a,b) base intervals appended each level (scaled by delta)
+       - depth: recursion depth
+       - interleave: if True, use a round-robin copy order (increases cross-copy interference)
+       - caps_before: if True, present caps first at each level to pre-block low colors
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      if caps_before:
+        # Place caps first this round to occupy low colors early
+        for a, b in caps:
+          S.append((delta * a, delta * b))
+      if interleave:
+        # Round-robin copy to increase color interactions across blocks
+        for i in range(len(T)):
+          li, ri = T[i]
+          for start in starts:
+            S.append((delta * start + li - lo, delta * start + ri - lo))
+      else:
+        for start in starts:
+          S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      if not caps_before:
+        # Append caps after block copies (original behavior)
+        for a, b in caps:
+          S.append((delta * a, delta * b))
+      T = S
+    return T
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    return T
+
+  # baseline original construction (kept as fallback)
+  def original():
+=======
+    return T
+
+  def hybrid_blockwise(seq):
+    """Block-wise hybrid ordering to exploit local fractal structure."""
+    n = len(seq)
+    if n < 8:
+      return list(seq)
+    k = 4
+    b = n // k
+    parts = [list(seq[i * b:(i + 1) * b]) for i in range(k - 1)]
+    parts.append(list(seq[(k - 1) * b:]))
+    out = []
+    # block 0: keep original local structure
+    out += parts[0]
+    # block 1: left-first
+    if len(parts) > 1:
+      out += sorted(parts[1], key=lambda x: (x[0], x[1]))
+    # block 2: reversed
+    if len(parts) > 2:
+      out += list(reversed(parts[2]))
+    # block 3: short-first
+    if len(parts) > 3:
+      out += sorted(parts[3], key=lambda x: (x[1] - x[0], x[0]))
+    return out
+
+  # baseline original construction (kept as fallback)
+  def original():
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  starts_options = [
+    (2, 6, 10, 14),
+    (2, 6, 10, 14, 18),
+    (2, 6, 10, 14, 18, 22),
+  ]
+  depth_options = [3, 4, 5]
+  trials_per_combo = 80
+=======
+  starts_options = [
+    (2, 6, 10, 14),
+    (3, 7, 11, 15),
+    (4, 8, 12, 16),
+  ]
+  depth_options = [3, 4]
+  trials_per_combo = 6
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Start with the baseline as a safe candidate
+  baseline = original()
+  baseline_colors = firstfit_color_count(baseline)
+  baseline_omega = clique_number(baseline)
+  if baseline_omega > 0:
+    best_seq = baseline
+    best_score = baseline_colors / baseline_omega
+    best_meta = ("baseline", baseline_colors, baseline_omega, len(baseline))
+=======
+  # Start with the baseline as a safe candidate (evaluate multiple orders)
+  baseline = original()
+  baseline_omega = clique_number(baseline)
+  if baseline_omega > 0:
+    orders = []
+    base = list(baseline)
+    orders.append(("fractal", base))
+    orders.append(("reversed", list(reversed(base))))
+    orders.append(("left_first", sorted(base, key=lambda x: (x[0], x[1]))))
+    orders.append(("right_first", sorted(base, key=lambda x: (-x[0], -x[1]))))
+    orders.append(("short_first", sorted(base, key=lambda x: (x[1] - x[0], x[0]))))
+    orders.append(("long_first", sorted(base, key=lambda x: (-(x[1] - x[0]), x[0]))))
+    orders.append(("hybrid_blockwise", hybrid_blockwise(base)))
+    for order_name, seq0 in orders:
+      colors0 = firstfit_color_count(seq0)
+      score0 = colors0 / baseline_omega
+      if score0 > best_score:
+        best_seq = seq0
+        best_score = score0
+        best_meta = ("baseline order=%s" % order_name, colors0, baseline_omega, len(seq0))
+>>>>>>> REPLACE
+
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+      for interleave in (False, True):
+        for caps in candidates:
+          seq = generate_recursive(starts, caps, depth, interleave=interleave)
+          if len(seq) == 0 or len(seq) > max_intervals:
+            continue
+          colors = firstfit_color_count(seq)
+          omega = clique_number(seq)
+          if omega <= 0:
+            continue
+          score = colors / omega
+          if score > best_score or (abs(score - best_score) < 1e-9 and len(seq) < len(best_seq)):
+            best_score = score
+            best_seq = seq
+            best_meta = ("starts=%s depth=%d interleave=%s caps=%s" % (starts, depth, interleave, caps), colors, omega, len(seq))
+=======
+      for interleave in (False, True):
+        for caps_before in (False, True):
+          for caps in candidates:
+            seq = generate_recursive(starts, caps, depth, interleave=interleave, caps_before=caps_before)
+            if len(seq) == 0 or len(seq) > max_intervals:
+              continue
+            omega = clique_number(seq)
+            if omega <= 0:
+              continue
+
+            # Evaluate several principled arrival orders
+            base = list(seq)
+            orderings = [
+              ("fractal", base),
+              ("reversed", list(reversed(base))),
+              ("left_first", sorted(base, key=lambda x: (x[0], x[1]))),
+              ("right_first", sorted(base, key=lambda x: (-x[0], -x[1]))),
+              ("short_first", sorted(base, key=lambda x: (x[1] - x[0], x[0]))),
+              ("long_first", sorted(base, key=lambda x: (-(x[1] - x[0]), x[0]))),
+              ("hybrid_blockwise", hybrid_blockwise(base)),
+            ]
+
+            for order_name, candidate_seq in orderings:
+              colors = firstfit_color_count(candidate_seq)
+              score = colors / omega
+              if score > best_score or (abs(score - best_score) < 1e-9 and len(candidate_seq) < len(best_seq)):
+                best_score = score
+                best_seq = candidate_seq
+                best_meta = ("starts=%s depth=%d interleave=%s caps_before=%s caps=%s order=%s" % (starts, depth, interleave, caps_before, caps, order_name), colors, omega, len(candidate_seq))
+>>>>>>> REPLACE
+
+</DIFF>

@@ -1,0 +1,295 @@
+# INDIVIDUAL PROGRAM SUMMARIES
+
+The following are summaries of individual programs evaluated since the last meta update:
+
+**Program Name: Evolve-Block Interval Construction**
+- **Implementation**: The code builds intervals via a two-iteration transform. Start with T = [(0,1)]; each iteration computes lo, hi, delta = hi - lo, then forms S by translating copies of every interval in T by delta*start - lo for starts in (2,6,10,14), followed by appending four fixed blocks scaled by delta: (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). The new T becomes S. The function returns the final list T, representing open intervals; there’s a commented Figure-3 alternative return with a known small instance.
+- **Performance**: Combined score to maximize: 2.33; produced 36 intervals; algorithm version 7 vs optimum 3.
+- **Feedback**: The implementation faithfully follows the referenced construction (Figure 4) to generate a large, deterministic interval sequence; two iterations yield a sizeable interval family that achieves the reported score. The code is clear, self-contained, and passes validation tests, with an explicit alternative (Figure 3) available for smaller-optimum scenarios.
+**Program Identifier:** Generation 0 - Patch Name initial_program - Correct Program: True
+
+**Program Name: Evolve-Block Intervals for FirstFit**
+
+- **Implementation**: The code builds a sequence of open intervals by starting with a single interval (0.0, 1.0) and iteratively performing k=4 expansion steps. In each step, it computes delta from current min/max endpoints, tiles four copies at fixed positions (offsets based on delta) and then adds four blocking intervals that overlap all four copies, updating the interval set each iteration; run_experiment simply returns the final interval list.
+
+- **Performance**: Combined score: 2.60 with 596 intervals; evaluation reports alg: 13 and opt: 5.
+
+- **Feedback**: The implementation is deterministic and aligns with the intended FirstFit color-ratio objective, and validation confirms correctness and test-pass status.
+**Program Identifier:** Generation 1 - Patch Name recursive_ff_improved - Correct Program: True
+
+**Program Name: Recursive Block Gadget for FirstFit Coloring**
+- **Implementation**: Builds a recursive interval gadget with a fixed depth k=5. It starts with T = [(0.0, 1.0)], and in each iteration computes lo, hi, delta = hi - lo, then creates four tiled copies of the current T at offsets based on delta and lo, followed by four blocking intervals. After k iterations, all endpoints are linearly normalized to [0, 100]. The main function run_experiment simply returns construct_intervals().
+- **Performance**: The process yields 2388 intervals with a combined score of 2.67; endpoints stay within [0, 100] due to normalization, and the large interval set reflects the exponential growth 4|T|+4 per iteration.
+- **Feedback**: The code explicitly notes that the program is incorrect and does not pass all validation tests. It uses a fixed k=5 and ignores any passed kwargs, which may contribute to failing validations; while the gadget aims to force FirstFit coloring with many colors, the lack of parameterization and unresolved validation criteria likely undermine correctness.
+**Program Identifier:** Generation 2 - Patch Name increase_recursion_and_normalize - Correct Program: False
+
+**Program Name: Evolve-Block FirstFit Interval Generator**
+- **Implementation**: Implements a recursive 4-tile + 4-blocker interval construction. It starts with a base interval, normalizes to start at 0 at each depth, tiles four copies at scaled offsets, adds four scaled blockers, and updates the current span; it caps depth via MAX_INTERVALS=2500, yielding 2388 intervals for depth k=5, with run_experiment returning the final interval list.
+- **Performance**: Combined score 2.67; outputs 2388 open intervals with large integer coordinates (FF=16, OPT=6).
+- **Feedback**: Although the pattern mirrors the literature, the result does not meet all validation tests—FF/OPT ratio around 2.67 falls short of any asserted target near 3, and the produced coordinates can become very large, which may violate hidden constraints or interface expectations; the implementation relies on a fixed cap and specific pattern assumptions that may not generalize to all test cases.
+**Program Identifier:** Generation 3 - Patch Name cap_tower_ff3_push - Correct Program: False
+
+**Program Name: Evolve-Block: Recursive interval tiling for FirstFit**
+- **Implementation**: Builds a hierarchical set of open intervals by starting with (0.0,1.0) and, for a fixed depth k=5, creating four tiled copies of the current set at positions determined by the current span delta, plus four explicit blocking intervals that overlap all copies. Each iteration recomputes lo, hi, and delta from the current interval set and assigns the new set to T, finally returning the full interval list.
+- **Performance**: Reports a combined score of 2.67 with 2388 intervals; the evaluation shows alg: 16 and opt: 6, and explicitly notes the program is incorrect and does not pass all validation tests.
+- **Feedback**: The construction is claimed to force FirstFit to use ~21 colors while keeping clique size at 6, but validation fails, indicating correctness gaps in the interval-gen approach. Lacking correctness checks or proofs, the solution remains brittle; improvements should add formal validation of color usage vs. clique size, tighten or revise the tiling/blocker scheme, and include targeted tests to ensure the intended properties hold.
+**Program Identifier:** Generation 4 - Patch Name increase_recursion_depth - Correct Program: False
+
+**Program Name: Evolve-Blocker intervals for FirstFit**
+- **Implementation**: Builds an initial seed interval and iteratively expands it over five rounds. In each round, it computes the current span (lo, hi, delta), replicates the entire set of intervals at four scaled offsets (off = delta*cs - lo for cs in (2,6,10,14)), and appends four blocker intervals derived from blocker_ranges; the process yields a final list of 2388 intervals returned by construct_intervals via run_experiment.
+- **Performance**: Produces 2388 intervals with coordinates growing to hundreds of thousands; the growth is effectively exponential across iterations (roughly 4x expansion per round, plus blockers).
+- **Feedback**: The approach is claimed incorrect and fails validation tests. Likely causes include reliance on specific open-interval semantics or FirstFit behavior not preserved by the produced interval set, numerical scaling, or ordering that diverges from the validator’s expectations.
+**Program Identifier:** Generation 5 - Patch Name ff_deep_recursion - Correct Program: False
+
+**Program Name: Recursive Interval Adversary via Figure 4 Expansion**
+- **Implementation**: Builds a sequence of open intervals by starting with T = [(0,1)], then in each recursive expansion step computes lo, hi, and delta = hi - lo. It replaces T with four scaled copies of T placed at offsets (2,6,10,14) relative to lo, plus four connecting long intervals (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). This process is repeated for a configurable number of iterations (default 3), after which T is returned. The main entry is run_experiment which calls construct_intervals() with default parameters.
+- **Performance**: Combined score to maximize: 2.50; num_intervals: 148; intervals: [...]; alg: 10; opt: 4. The evaluation reports a specific instance with 148 intervals and a 2.50 score.
+- **Feedback**: The implementation stays faithful to the intended Fig. 4 adversary construction, producing a deterministic and scalable interval set that validates and passes tests. Increasing the iteration count strengthens the adversary (at the cost of more intervals), while the code remains compact and self-contained, suitable for automated evaluation.
+**Program Identifier:** Generation 6 - Patch Name increase_recursive_iterations - Correct Program: True
+
+**Program Name: Evolve-Block: Recursive tiling for FirstFit**
+- **Implementation**: Starts with a single open interval (0.0, 1.0) and iteratively expands it for k = 5 iterations. In each iteration, it computes lo, hi, and delta from the current set T, then constructs five shifted copies of T at offsets derived from starts (2, 6, 10, 14, 18). It adds five blocking intervals using delta multipliers (delta*1 to delta*5, delta*12 to delta*16, delta*4 to delta*9, delta*8 to delta*13, delta*18 to delta*22). The new set S replaces T for the next iteration. Note: comments claim 4 copies/4 blockers, but the code actually uses 5 copies and 5 blockers.
+- **Performance**: The run produces 7030 intervals and reports a combined score of 2.67 (alg: 16, opt: 6). Output coordinates explode with each iteration due to repeated scaling, indicating exponential growth in interval endpoints.
+- **Feedback**: The implementation deviates from its stated intent (description vs actual counts of copies/blockers), and the harness notes the program is incorrect and fails validation tests. The heavy scaling and large interval values raise concerns about numerical stability and correctness of the intended FirstFit coloring pressure.
+**Program Identifier:** Generation 7 - Patch Name deepen_and_extend_ff_gadget - Correct Program: False
+
+**Program Name: Evolving FirstFit Adversarial Intervals**
+- **Implementation**: It incrementally builds a list of open intervals T, starting from [(0,1)]. Each iteration computes lo, hi from T, sets delta = hi - lo, and replaces T with four translated/scaled copies of T placed at offsets 2,6,10,14, plus four connecting long intervals (delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13). After the specified number of iterations, it returns the final interval list. run_experiment simply calls construct_intervals() with the default iterations (4).
+- **Performance**: Combined score 2.60; 596 intervals generated. The evaluation reports the algorithm as correct and passes all validation tests.
+- **Feedback**: The implementation follows the Figure 4 adversarial construction by using recursive expansions and translation/scaling to maximize FF usage relative to the maximum point-coverage. Allowing more iterations strengthens the adversary but increases interval count; the code is correct and validated, though the repeated list concatenation could be optimized (e.g., using extend) for marginal performance gains.
+**Program Identifier:** Generation 8 - Patch Name deepen_recursion_for_better_ratio - Correct Program: True
+
+**Program Name: Evolve-Block: Recursive FirstFit Intervals**
+- **Implementation**: Starts from a single unit interval and, for each iteration, replaces the set with four translated/scaled copies plus four connector intervals using delta = hi - lo to scale and offset. After all iterations, endpoints are normalized to a compact integer grid by mapping each unique endpoint to increasing even integers while preserving order.
+- **Performance**: Default run (4 iterations) yields 596 intervals with a combined score of 2.60 (alg: 13; opt: 5).
+- **Feedback**: The approach is deterministic and validated by tests; interval count grows roughly as N_{k+1} = 4*N_k + 4 (leading to 596 at 4 iterations), which scales rapidly if more iterations are used. The normalization step cleanly avoids degeneracy, though an unused eps variable and potential scaling blow-up at higher iterations are minor cleanup/optimization opportunities.
+**Program Identifier:** Generation 9 - Patch Name ff_interval_evolver - Correct Program: True
+
+**Program Name: Evolve-Block: Optimized Open-Interval FirstFit**
+- **Implementation**: The code implements an open-interval overlap test, a conservative FirstFit coloring across color classes, and a sweep-based clique number computation. It builds complex interval patterns by recursively duplicating a base seed 4 times with translations and blockers, supports both left and center translations, normalizes coordinates to integers via scaling and gcd reduction, and exhaustively searches parameter combinations with guards and a fallback baseline.
+- **Performance**: Score 2.60 with 596 intervals produced; evaluator reports alg: 13 and opt: 5.
+- **Feedback**: The approach robustly handles open intervals and keeps coordinates compact through normalization, but relies on heuristic pattern exploration with guarded growth and a fallback, all of which pass validation tests.
+**Program Identifier:** Generation 10 - Patch Name quadtiler_search - Correct Program: True
+
+**Program Name: Evolve-Block tiling optimizer**
+- **Implementation**: Builds candidate interval sets by recursively tiling a small seed interval with various offset sequences (starts), blocker templates, and recursion depths, then evaluates each candidate with a FirstFit color assignment and a sweep-line clique computation. It caps the total number of intervals at 4000 to avoid explosion, and selects the best candidate by maximizing FF/OPT with tie-breakers that prefer fewer intervals and larger FF.
+- **Performance**: Reported result uses 2388 intervals with a combined score of 2.67 (FF/OPT), produced by run_experiment via construct_intervals.
+- **Feedback**: The approach is a heuristic, brute-force-style search over multiple parameter dims (seed, tiling offsets, blockers, depth); tests indicate correctness issues remain, likely due to the heuristic construction and potential edge-case handling in the offline-optimum estimation or in the tie-breaking logic. The large interval ranges and the 4000-interval cap suggest sensitivity to scaling and resource constraints that can affect validation.
+**Program Identifier:** Generation 11 - Patch Name variant_search_and_simulate_firstfit - Correct Program: False
+
+**Program Name: Evolving Interval Adversary for FirstFit**
+- **Implementation**: Starts with the single interval (0,1) and, for a number of iterations, expands T by creating scaled/transformed copies of T at delta-scale positions with per-iteration offsets (five on the first iteration, four thereafter). It then adds four connecting long intervals to link the copies, updates T, and finally returns the resulting list of open intervals (l, r). The endpoints are integers, and the process is deterministic; run_experiment simply calls construct_intervals() with the default 4 iterations.
+- **Performance**: The run yields 660 intervals and reports a combined score of 2.60, reflecting a strong adversarial construction built from recursive expansions and connecting intervals.
+- **Feedback**: The implementation aligns with the described Figure-4-inspired strategy and passes validation tests; the recursive expansion with extra branching on the first iteration and connecting intervals appears to produce a dense, multi-scale interval set suitable for adversarial evaluation.
+**Program Identifier:** Generation 12 - Patch Name diverse_initial_copy - Correct Program: True
+
+**Program Name: Evolve-Block Interval Generator**
+- **Implementation**: The code enumerates fixed sets of tiling offsets (start_sets) and blocker templates (A, B, C), then for k in (3,4,5) builds a candidate interval sequence by applying four copies of each start offset and the blocker intervals scaled by the current delta. It then estimates FF via a First-Fit coloring simulator and estimates OPT as the maximum overlap (clique size) of the interval set, selecting the candidate with the highest FF/OPT ratio and finally normalizing all endpoints to a compact integer grid before returning them.
+- **Performance**: The run reports a best FF/OPT ratio of 16/6 ≈ 2.667, produced over 2388 intervals in the optimal candidate among 36 explored configurations.
+- **Feedback**: The program is incorrect and does not pass all validation tests. It relies on a fixed, narrow search space of templates and offsets, and the normalization/output alignment may not meet test expectations; broader correctness checks and alignment with the validator’s output format are needed.
+**Program Identifier:** Generation 13 - Patch Name template_search_optimizer - Correct Program: False
+
+**Program Name: Evolving interval block patterns for FirstFit coloring**
+- **Implementation**: A deterministic evolutionary search builds interval witnesses via a 4-copy + 4-blocker expansion from base seeds, with deterministic RNG, normalization (scale by 2, shift to min 0, divide by gcd), and a score based on FirstFit colors relative to clique number; a mutation-driven hillclimb tunes parameters (k, offsets, blockers, translation/anchor, extra copies) and a post-process shrinker prunes intervals while preserving score.
+- **Performance**: Score 1.17 with 410 intervals (witness intervals provided as output), reflecting a balance between color count and clique size under the evolved blueprint.
+- **Feedback**: The approach yields reproducible, compact witnesses by shrinking after optimization; the 1200-iteration local search plus size caps keep runtime modest, but the heuristic search may still struggle with scalability on larger blueprint spaces.
+**Program Identifier:** Generation 14 - Patch Name stochastic_pattern_search - Correct Program: True
+
+**Program Name: Adversarial Center-Anchored Interval Expander**
+- **Implementation**: The code starts with a base interval T and repeatedly expands it by duplicating T with center-anchored offsets computed as off = delta*s - center, where delta is the current range and center is the midpoint; the first iteration uses five starts, later iterations use four, and a fixed blocker set is appended each round; the final T is then passed through normalize_intervals, which scales endpoints by 2, translates to non-negative coordinates, and divides by a gcd if possible.
+- **Performance**: Combined score 1.83; the process outputs 2644 intervals with endpoints spanning extremely large ranges (e.g., hundreds of thousands, millions).
+- **Feedback**: The approach yields huge, seemingly unbounded interval sets and fails validation tests; floating-point arithmetic and gcd-based normalization do not effectively bound growth, and there is little deduplication or bounding strategy (note: evaluator shows alg: 11; opt: 6), indicating substantial room for normalization, bounding, and correctness improvements.
+**Program Identifier:** Generation 15 - Patch Name hybrid_firstfit_adversary - Correct Program: False
+
+**Program Name: Recursive interval tilings with four-copy expansion**
+- **Implementation**: Builds an initial small interval pattern and iteratively expands it by placing four scaled/translational copies of the current pattern plus four long connector intervals. It cycles through predefined start offsets and blocker templates, toggles anchoring (left vs center) each depth, then normalizes all endpoints to a compact integer grid, ensuring open intervals with positive length.
+- **Performance**: Reports a combined score of 1.62 with 2388 intervals; the produced interval set is extremely large and highly structured, but the run is marked as incorrect and failing validation tests.
+- **Feedback**: The approach deterministically synthesizes a complex interval family but does not satisfy validation requirements. Potential issues include reliance on fixed tiling/templates that may not guarantee correctness under the evaluator’s constraints, and aggressive expansion leading to very large interval sets that may exceed expected properties or bounds.
+**Program Identifier:** Generation 16 - Patch Name rotating_starts_blockers_center_based - Correct Program: False
+
+**Program Name: Deterministic Simulated Annealing for Interval Coloring**
+- **Implementation**: The code uses a fixed RNG seed for reproducibility, starts from a baseline built by a 4-copy/4-blocker pattern, and evolves the interval set via mutations (add/remove/move/resize) with a simulated-annealing acceptance rule; evaluation normalizes intervals, computes clique number with a sweep-line, assigns colors via a fast first-fit using last-endpoints, and finally post-processes by greedy shrinking to a witness-preserving subset.
+- **Performance**: Combined score to maximize: 1.20; number of intervals: 13 (final set shown); algorithm configuration yielded 6 while the optimum is 5.
+- **Feedback**: The deterministic seed ensures reproducible results and the baseline plus mutation strategy provides a structured search; post-processing via shrinking helps prune redundant intervals while preserving witnesses. Potential improvements include tuning mutation rates, exploring alternative baselines, or adjusting the annealing schedule to enhance convergence toward tighter optima.
+**Program Identifier:** Generation 17 - Patch Name random_evolution - Correct Program: True
+
+**Program Name: Evolve-Block: Constructive Interval Witnesses**
+- **Implementation**: Implements open-interval overlap, FirstFit coloring, and a sweep-line clique-number; normalizes intervals by scaling, shifting, and gcd reduction; builds patterned interval sets via translated copies and blockers, with two translation modes and optional extra copies, then greedily shrinks while preserving witness; exhaustive blueprint exploration is limited by a max-interval cap and a deterministic search that's reset upon successful removals.
+- **Performance**: Achieves a combined score of 2.20 with 381 intervals, using a heuristic blueprint search plus a post-hoc shrinking pass (max_trials ~3000) to prune without weakening omega or color count.
+- **Feedback**: The approach is deterministic, thorough, and validation-passing, producing compact witnesses via normalization and selective shrinking; however, it remains heuristic and combinatorially heavy, relying on deliberate caps and priors to control explosion.
+**Program Identifier:** Generation 18 - Patch Name ff_interval_evolver_v2 - Correct Program: True
+
+**Program Name: Four-Copy Recursive Interval Graph Builder**
+- **Implementation**: Builds a Figure-4 style interval graph by recursively replacing a base interval with four translated copies (offsets determined from delta, the current span) and four long connector intervals; optionally normalizes endpoints to a compact increasing-even grid via _normalize_grid, returning integer endpoints.
+- **Performance**: The default run produces 596 intervals with a combined score of 2.60.
+- **Feedback**: Normalization preserves order while compacting coordinates and keeps interval relationships intact; the design yields a large, deterministic graph that enforces high FirstFit color usage within a bounded clique, and validation confirms correctness. Potential tuning through iterations or normalization could adjust color outcomes or performance.
+**Program Identifier:** Generation 19 - Patch Name figure4_normed_crossover - Correct Program: True
+
+**Program Name: Evolve-Block Interval Pattern Optimizer**
+- **Implementation**: Builds multi-level interval patterns by recursively translating four (or five on level 0 with extra copy) scaled copies of the previous level, plus four blockers. It tests three insertion schedules ('after', 'before', 'split') and an optional extra first copy, evaluating each candidate with a deterministic in-block FirstFit (color count) and a clique-number sweep, then selects the best by ratio of colors to omega with tie-breaks; falls back to a baseline construction if no candidate yields a valid pattern.
+- **Performance**: Score 2.60; 596 intervals generated; exhaustive-ish search over k in {iterations-1, iterations}, three schedules, and two extra_first options, with deterministic evaluation and a final fallback.
+- **Feedback**: The configuration-space search yields high color-to-omega ratios, indicating effective adversarial-like interval placement; the approach is deterministic and robust due to explicit tie-break rules, but results in large interval sets and relies on carefully chosen blockers and translations to maintain left-anchored scaling.
+**Program Identifier:** Generation 20 - Patch Name blocker_order_search - Correct Program: True
+
+**Program Name: Recursive Gadget Expansion for FirstFit Ratio**
+- **Implementation**: Normalizes endpoints to a compact integer grid (even spacing) and builds a base gadget via recursive expansion that places four copies with computed offsets plus four blockers (as delta-multipliers). FirstFit coloring is simulated online by tracking per-color active intervals; offline optimum is computed via a sweep-line over open intervals; conservative pruning (shrink_prune) removes intervals while preserving the best observed alg/opt ratio; the search iterates over depth, start sets, and blocker templates to select the best instance, then optionally normalizes the final grid.
+- **Performance**: Achieved a combined ratio of 2.60 (alg=13, opt=5) on 596 intervals, indicating a strong FirstFit vs offline optimum performance within the explored templates.
+- **Feedback**: The approach demonstrates effective ratio amplification through recursive gadget expansion and targeted pruning; validation confirms correctness and test success, though the search space is exponential and parameter choices (depth, starts, blockers) drive results, with potential sensitivity to blocker ordering.
+**Program Identifier:** Generation 21 - Patch Name adaptive_blocker_search - Correct Program: True
+
+**Program Name: Recursive Interval Gadget for FirstFit Adversary**
+- **Implementation**: Builds a recursive interval set starting from a base gadget T of two disjoint unit intervals, then iteratively expands by placing four translated copies (with alternating start offsets) and four blocker intervals (selected from two templates, one offset by 0.5). After all iterations, endpoints are snapped to a compact integer grid via an order-preserving mapping, producing a normalized list of intervals.
+- **Performance**: Default runs with iterations=4 yield 852 intervals and a combined score of 1.86; the run_experiment entry point returns the constructed interval set.
+- **Feedback**: The implementation thoughtfully alternates start offsets and blocker templates to disrupt regular alignment and increase adversarial impact on FirstFit, while normalization preserves order and keeps the representation compact. While effective, the approach generates a large number of intervals, which could impact runtime and memory for higher iteration counts; the design remains deterministic and validation-passing.
+**Program Identifier:** Generation 22 - Patch Name alternating_starts_and_blocker_templates - Correct Program: True
+
+**Program Name: Recursive Open-Interval Builder for FirstFit Adversary**
+- **Implementation**: Builds a recursive open-interval pattern by starting with T = [(0.0, 1.0)], and for each iteration replaces T with four translated/scaled copies plus four long connector intervals, then re-centers by normalizing all endpoints to a compact integer grid via a float-to-integer mapping (endpoints mapped to increasing even integers). The normalization uses an unused eps and returns the transformed list of integer-endpoint intervals.
+- **Performance**: Score 2.67; 2388 intervals generated; evaluation notes the program is incorrect and fails validation tests.
+- **Feedback**: The approach relies on a float-based construction with a later integer grid mapping, but there are issues (e.g., unused eps, potential subtle ordering/degeneracy risks, and validation failure) that undermine correctness; improvements could focus on a robust, testable interval normalization and explicit correctness guarantees for the FirstFit/OPT behavior.
+**Program Identifier:** Generation 23 - Patch Name increase_depth_k5 - Correct Program: False
+
+**Program Name: Evolve-Block: Alternating motif interval construction**
+- **Implementation**: The function builds interval sets by iteratively duplicating and offsetting the current set (T) into four translated copies using chosen start patterns, then appending four connectors from selected templates; after a fixed number of iterations, it normalizes all endpoints to a compact integer grid.
+- **Performance**: Combined score to maximize: 2.50; num_intervals: 148; alg: 10; opt: 4.
+- **Feedback**: The alternating motif and connector templates diversify geometry across iterations while keeping omega in check, and the endpoint compression preserves ordering on a small integer grid; the approach effectively increases color potential but relies on predefined pattern pools and iteration count.
+**Program Identifier:** Generation 24 - Patch Name cycle_pattern_offsets - Correct Program: True
+
+**Program Name: Evolved FirstFit Interval Builder (4-copy block)**
+- **Implementation**: The code begins with a single unit interval and, for a given number of iterations, creates four scaled/translated copies of the current interval set at offsets 2, 6, 10, 14, then appends four long connector intervals that link the copies. After the iterative build, it compresses all distinct endpoints to a new coordinate system by mapping them to even integers in ascending order, finally returning the list of normalized intervals. The entry point run_experiment simply calls construct_intervals() with defaults (iterations=6) and returns the normalized intervals.
+- **Performance**: Combined score to maximize: 2.71; produced 9,556 intervals; FirstFit colors used: 19 vs clique size 7.
+- **Feedback**: The program is incorrect and does not pass all validation tests. Its heavy, recursive 4-copy + 4-connector construction yields a very large interval set and a high color bound, and the normalization step, while deterministic, results in an enormous, unwieldy coordinate range that likely triggers validation failures; further checks or pruning are required to satisfy tests.
+**Program Identifier:** Generation 25 - Patch Name ff_interval_recursive_depth6 - Correct Program: False
+
+**Program Name: Evolve-Block: Fractal Interval Construction for FF/omega**
+- **Implementation**: Constructs interval sequences by recursively composing four scaled copies per level plus four blocker blocks, with options for extra first copy, translation anchor (left/center), and layout schedule (after/before/split). Endpoints are mapped to a compact even-integer grid, and a greedy FirstFit coloring is used via per-color last_end tracking; omega is computed with a sweep that processes right endpoints before left on ties. A bounded parameter sweep searches for the best pattern by maximizing the ratio of the number of colors (ff_count) to omega, with tie-breakers on total intervals, then falls back to a canonical instance if the search fails.
+- **Performance**: The run reports a combined score of 2.60 achieving 596 intervals; the generator uses an explosion guard (skip configurations where (4^depth)*8 > 4000) and returns a normalized grid of intervals, enabling stable evaluation.
+- **Feedback**: The hierarchical, fractal-like pattern plus blocker coupling effectively yields high color-efficiency (cols/omega) in a bounded search, with normalization aiding comparison and reproducibility. A fallback canonical construction ensures a valid output even when the parameter space is pruned; potential improvements include richer pruning strategies or parallelizing the search to broaden exploration.
+**Program Identifier:** Generation 26 - Patch Name ff_spine_scheduler_v2 - Correct Program: True
+
+**Program Name: Deterministic 4-copy gadget interval search**
+- **Implementation**: Enumerates a deterministic space of gadgets built by iterative copies and connectors (base gadget, depth k in {3,4}, multiple start/connector templates, and modes uniform/alternate). It simulates FirstFit coloring on open intervals, computes the clique number, and uses a normalization step to map endpoints to increasing even integers; a pruning pass further removes intervals while preserving or improving the ratio of colors to clique size.  
+- **Performance**: Combined score to maximize: 1.20; final output uses 13 intervals with alg (colors) = 6 and opt (clique) = 5.  
+- **Feedback**: The deterministic search with diverse gadget variants and a conservative pruning step yields a compact, well-structured interval set compatible with the evaluator; tie-breakers favor shorter sequences and higher FirstFit color usage, and a fallback ensures a valid default if the search finds nothing.
+**Program Identifier:** Generation 27 - Patch Name ff_adversary_search - Correct Program: True
+
+**Program Name: Evolving Interval Blocks to Stress FirstFit**
+- **Implementation**: Starts with a single open interval seed and iteratively expands it by duplicating the current interval set four times at offsets derived from the current delta and a pattern-driven start list, then appending four connector intervals from a chosen template. Pattern and blocker templates are cycled by iteration to diversify structure; the final interval list is returned (via run_experiment) after a fixed number of iterations.
+- **Performance**: Combined score to maximize: 2.17; num_intervals: 596.
+- **Feedback**: The implementation intentionally diversifies structure across iterations to provoke FirstFit into using many colors while keeping omega small, resulting in very large coordinate values and a sizable interval set; the approach is correct and passes tests, though coordinate growth is substantial and could be bounded or parameterized for tighter control.
+**Program Identifier:** Generation 28 - Patch Name diversified_k_patters - Correct Program: True
+
+**Program Name: Adaptive Evolving Interval Block Construction**
+- **Implementation**: The code normalizes endpoints to a compact even-integer grid, then uses a greedy First-Fit color count (_ff_count) and a sweep-based omega computation (_omega_open) to evaluate interval sets. Candidate intervals are produced by a depth-based recursive pattern (_build_candidate) that combines multiple scaled copies and blockers with various schedules, translations, and optional extra copies; a bounded exhaustive search over parameters (depth, starts, blockers, schedule, translation, extras) selects the best ratio of colors to omega, with a canonical fallback and optional normalization.
+- **Performance**: Reported combined score of 2.60 with 596 intervals; evaluation notes alg: 13 and opt: 5.
+- **Feedback**: The implementation is correct and validated, leveraging a rich parameterized pattern-building search while bounding growth to keep runtime reasonable; normalization and open-interval omega computations enable robust objective evaluation, though the exhaustive search could be heavy without the depth guard and fallback.
+**Program Identifier:** Generation 29 - Patch Name extra_last_param - Correct Program: True
+
+# GLOBAL INSIGHTS SCRATCHPAD
+
+The following are global insights about optimization approaches and their effectiveness:
+
+Successful Algorithmic Patterns
+
+- Deterministic 4-copy/4-blocker tiling with a fixed depth yields the strongest, validator-passing performance.
+  - Current best: Evolve-Block: ff_spine_scheduler_v2 (Generation 26) achieves a combined score of 2.60 with 596 intervals and a witness of FF/omega ≈ 13/5.
+  - Other strong, validated instances use the same core blueprint:
+    - Quadtiler_search (Generation 10) reports 2.60 with 596 intervals.
+    - Four-Copy Recursive Interval Graph Builder (Generation 19) also hits 2.60 with 596 intervals.
+    - Four-Copy Recursive Interval Witness with post-hoc shrinking (Generation 18) reaches 2.60 with 596 intervals.
+  - Takeaway: The 4-copy expansion per level, combined with four blockers that intersect all copies, reliably produces high FF/omega ratios while staying within validator constraints.
+
+- Offsets and blocker design that consistently drive high color usage without exploding omega.
+  - Offsets used for copies: 2, 6, 10, 14 (per iteration) create evenly spaced tilings that scale with the pattern.
+  - Blockers placed to overlap all four copies:
+    - (delta*1, delta*5)
+    - (delta*12, delta*16)
+    - (delta*4, delta*9)
+    - (delta*8, delta*13)
+  - This setup is central to achieving roughly 13 colors against an omega of 5 in the best cases, yielding the favorable ratio near 2.6.
+
+- Deterministic evaluation with explicit tie-breaks and bounded search space.
+  - The best results rely on deterministic arithmetic progression, explicit end-point normalization, and a sweep-based omega computation, with tie-breakers favoring smaller total intervals when ratios are equal.
+  - Bounded depth (e.g., k=4) and an explosion guard (4^depth * 8 > 4000) keep runtimes and interval counts manageable, contributing to reliable validation outcomes.
+
+- Minimal normalization appears favorable for validity while maintaining strong FF.
+  - Variants exist that normalize endpoints to an integer grid; however, the validated best results emphasize open-interval semantics with limited normalization, reducing the risk of subtle ordering or degeneracy issues that can break validation.
+
+Ineffective Approaches
+
+- Overly large-scale tilings that escalate interval counts beyond validator tolerance.
+  - Example: Generation 25 (ff_interval_recursive_depth6) reports a very large interval set (9,556 intervals) and a high color/omega signal (alg: 19, opt: 7) but is marked False (incorrect) by validation, illustrating that scale alone does not guarantee correctness.
+
+- Center-anchored growth patterns that produce many intervals but fail validation.
+  - Example: Generation 15 (center-anchored) generates 2,644 intervals and still fails validation, indicating that center anchoring disrupts the constraints the validator enforces.
+
+- Stochastic or heuristic search approaches that underperform deterministic tilings.
+  - Example: Generation 17 (Deterministic Simulated Annealing) yields a weak 1.20; only 13 intervals in the witness, far below the stable 2.6 region achieved by deterministic tilings.
+
+- Highly complex or non-4-copy expansions with multiple template variations that break correctness.
+  - Example: Generation 7 (deepen_and_extend_ff_gadget) reaches 7,030 intervals but is incorrect; more complex patterns do not guarantee validity and can violate constraints.
+
+- Heavy normalization or normalization-induced degeneracy that impacts correctness.
+  - Some variants with stronger normalization exhibit subtle ordering/degeneracy risks and fail validation (e.g., Generation 23 with 2,388 intervals, marked incorrect), despite reasonable FF/OPT signals.
+
+Implementation Insights
+
+- Core construction mechanism drives effectiveness.
+  - The fundamental recurrence n_{k+1} = 4*n_k + 4 with n_0 = 1 (k iterations) explains why 4 iterations yield 596 intervals. This predictable growth pairs well with deterministic evaluation to yield stable, valid witnesses.
+
+- Copy tiling and blocker interaction are key to maximizing colors while bounding omega.
+  - Four translated copies (offsets 2,6,10,14) ensure dispersion of intervals; four blockers overlap all copies to force extra color usage without inflating the clique excessively.
+  - This precise choreography appears essential for hitting FF/omega ≈ 2.6 consistently across several correct implementations.
+
+- Endpoints normalization and open-interval semantics balance correctness and performance.
+  - Normalization to a compact integer grid (when used) aids reproducibility, but heavy normalization can introduce risky alignments. The most robust results favor minimal normalization and rely on open-interval semantics to preserve validity under FirstFit.
+
+- Deterministic search with explicit pruning and bounded depth yields robust outcomes.
+  - The deterministic blueprint (no stochastic wandering) paired with a bounded search depth (k around 4) and an explosion guard produces stable, reproducible witnesses that pass validation.
+
+- Evaluation metrics and tie-breakers shape design choices.
+  - The objective is to maximize the ratio colors/omega; when ties occur, the evaluator favors smaller total interval counts. This drives the preference for the compact 596-interval witnesses seen in the best programs.
+
+Performance Analysis
+
+- Score trends and cross-program comparisons.
+  - The top-performing, validator-approved configurations cluster around a 2.50–2.60 score with about 148–596 intervals and omega around 4–5 or so, yielding 2.6-ish ratios.
+  - Multiple correct implementations (Generation 10, 18, 19, 26) converge on 596 intervals and a 2.60 score, reinforcing the reliability of the 4-copy/4-blocker blueprint.
+
+- Higher scores do not guarantee validity.
+  - The high-scoring but invalid Generation 25 (score 2.71 with 9,556 intervals and 19 colors) demonstrates that increasing colors or interval counts without preserving structural constraints can break validation.
+
+- Variety in interval counts among valid patterns.
+  - Valid patterns appear with 148 intervals (score around 2.50) and 596 intervals (score around 2.60). This suggests a robust optimum near 596 with a higher color/omega ratio, while smaller instances still achieve decent ratios but slightly lower scores.
+
+- Consistency across correct implementations reinforces the pattern’s robustness.
+  - The same 4-copy + 4-blocker blueprint recurs across several correct programs (Generation 10, 18, 19, 26), each achieving similar performance, validating the core pattern’s effectiveness.
+
+- Notable contrasts with ineffective approaches.
+  - Both overweight tilings (center-anchored, very large interval sets) and stochastic/annealing approaches underperform due to validator constraints, reinforcing that the most effective results arise from disciplined, deterministic tilings within bounded growth.
+
+Overall, the current best program (Evolve-Block: ff_spine_scheduler_v2, Generation 26) embodies the most reliable combination of: deterministic 4-copy tiling with 4 blockers, fixed depth (k=4), structured offsets (2,6,10,14), precise blocker placement, and restrained normalization. This pattern consistently yields a balanced FF/omega around 2.6 with a compact interval count (596), and it aligns with other correct implementations (Generations 10, 18, 19) that validate the same blueprint. Attempts to exceed this pattern in scale or introduce center anchoring or stochastic search tend to either fail validation or degrade reliability, as shown by higher-interval or stochastic-approach programs.
+
+# META RECOMMENDATIONS
+
+The following are actionable recommendations for the next program generations:
+
+1) Sweep the recursion depth k around the proven sweet spot (test k ∈ {3, 4, 5}) while preserving the 4-copy/4-blocker blueprint
+- Implement a controlled run where the only changing parameter is k (3, 4, or 5) with the same tiling offsets and blockers. This directly probes whether the fixed-depth 4-copy expansion is universally optimal or if a marginal depth tweak can improve FF/omega or validator pass rates.
+- Rationale: The current best designs consistently use k=4 and deliver robust witnesses (e.g., 596 intervals with FF/omega ≈ 13/5). A small k-variation test can reveal a hidden plateau or a new optimum without altering the core layout.
+
+2) Diversify tiling geometry by parameterizing starting offsets (test multiple offset sets)
+- Introduce configurable offset sets for the four copies, for example: { (2,6,10,14), (1,5,9,13), (3,7,11,15), (0,4,8,12) }. Run parallel mutations for each set and compare FF/omega, color usage, and validity.
+- Rationale: Offsets drive how copies scatter across the line and influence color distribution. Since the best results use (2,6,10,14), exploring alternative geometries may preserve validity while nudging the ratio or reducing interval counts in other valid valleys.
+
+3) Validate blocker geometry variants in parallel (A/B/C templates with the same four-blocker count)
+- Implement two alternative blocker templates (B and C) in addition to the original (A), keeping exactly four blockers per iteration. Enable automatic selection among A, B, and C for each trial (or run them as separate mutations) and compare outcomes.
+- Rationale: The evidence emphasizes four blockers that intersect all copies as key to high color usage with bounded omega. Different blocker shapes can alter color distribution without breaking validity, offering a path to slightly higher FF/omega or different interval profiles.
+
+4) Add a deterministic post-iteration pruning pass that attempts to drop blockers if still valid
+- After each iteration (or after a small batch of iterations), attempt to remove blockers one by one and re-run validation; permanently drop a blocker if validity remains; otherwise revert. This aims to shrink interval counts while preserving the 4-copy structure and the target ratio.
+- Rationale: Several successful patterns rely on a compact, limited blocker set. A cautious pruning pass can reduce 596-interval footprints (or similar) without sacrificing FF/omega, delivering a leaner and potentially more robust witness.
+
+5) Try a seed variation by starting from a base T0 with two disjoint intervals
+- Replace the single-base interval with a two-interval seed, e.g., T0 = [(0.0, 1.0), (3.0, 4.0)], then apply the standard k=4 4-copy/4-blocker expansion. Compare the resulting witness properties (interval count, colors, omega, and validity) to the baseline.
+- Rationale: The core blueprint is repeatable from different starting configurations. A two-interval seed can reveal alternate interaction patterns between copies and blockers, potentially yielding valid witnesses with different distribution characteristics or even improved FF/omega under validator constraints.

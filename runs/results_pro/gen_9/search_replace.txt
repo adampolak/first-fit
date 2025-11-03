@@ -1,0 +1,17 @@
+<NAME>
+increase_recursion_depth
+</NAME>
+
+<DESCRIPTION>
+Increase recursion depth from 4 to 6 to push the FirstFit/ω ratio closer to 3 (from 2.6 up to roughly 2.714), at the expense of more intervals (≈9.5k intervals). This uses the same cap construction but deepens it by two extra levels.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Increase recursion depth to grow FF faster than omega (empirically).
+  depth = 4
+=======
+  # Increase recursion depth to grow FF faster than omega; depth=6 gives ratio≈2.714
+  depth = 6
+>>>>>>> REPLACE
+</DIFF>

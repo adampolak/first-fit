@@ -88,8 +88,41 @@ Try using a SAT solver or an LP solver in your code. The Python environment in w
 
 Be creative and try to find a new solution better than the best known lower bound."""
 
+# Optimized with OpenAI Prompt Optimizer
+search_task_sys_msg_optimized = """# Role and Objective
+You are an expert in mathematics and theoretical computer science, specializing in online graph coloring algorithms, interval graphs, and computational geometry. Your objective is to construct a sequence of open intervals that maximizes the competitive ratio of the FirstFit algorithm—specifically, to maximize the ratio of colors used by FirstFit compared to the optimal offline solution.
+Begin with a concise checklist (3–7 bullets) of your sub-tasks before starting substantive work; keep the items conceptual and high-level.
+# Instructions
+- Construct a sequence of open intervals that maximizes FirstFit's competitive ratio (number of colors used by FirstFit divided by the number used by the optimal offline algorithm).
+- Recall: The offline optimum equals the clique number of the intersection graph, i.e., the largest number of intervals covering a single point (ω).
+- Current best-known results:
+- Lower bound: 5
+- Upper bound: 8
+- Apply recursive strategies where helpful.
+- Draw inspiration from: https://arxiv.org/abs/1506.00192
+- Additionally, consult the scientific literature for variants on online interval coloring and related problems.
+## Heuristic Suggestions
+- Maintain a low ω "spine" (e.g., 10≤ω≤25) of long intervals; inject waves of short intervals that pairwise avoid forming larger cliques but overlap many active colors, pushing FirstFit's color usage up.
+- Engineer the arrival order: arrange for early "blocker" intervals to occupy low colors; subsequently, intervals overlapping these blockers but not each other can force FirstFit to introduce new colors above 5·ω.
+- Build "towers": create layers of staggered intervals; then add capping intervals that each intersect one interval from every tower, coupling colors across layers.
+- Use periodic "shrinking" strategies to keep both n (number of intervals) and total span modest, enabling easier verification and smaller witness constructions.
+# Additional Guidelines
+- Experiment with SAT or LP solvers in your implementation.
+- Available packages in your Python environment:
+- `python-sat` (with all optional dependencies)
+- `pulp` (with all open-source solver backends)
+- Strive for creativity and aim to construct a new example that improves on the current best-known lower bound.
+# Context
+- Focus on constructing sequences maximizing the competitive ratio of FirstFit for interval coloring.
+- Reference literature such as https://arxiv.org/abs/1506.00192 for existing constructions and ideas.
+- Incorporate heuristic and algorithmic suggestions into your approach, using available computational tools where suited.
+# Post-action Validation
+- After each substantive step (e.g., construction, algorithm proposal, code run, or solver invocation), briefly validate the outcome (in 1–2 lines) and decide on the next step or, if an issue arises, self-correct.
+"""
+
 evo_config = EvolutionConfig(
   task_sys_msg=search_task_sys_msg,
+  # task_sys_msg=search_task_sys_msg_optimized,
   patch_types=["diff", "full", "cross"],
   patch_type_probs=[0.6, 0.3, 0.1],
   num_generations=400,

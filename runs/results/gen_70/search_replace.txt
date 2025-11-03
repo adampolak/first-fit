@@ -1,0 +1,76 @@
+<NAME>add_overlapping_base_seed</NAME>
+<DESCRIPTION>
+Add a new overlapping base seed [(0.0,1.0),(0.5,1.5)] to the `base_seeds` list.
+This seed has inherent overlap, increasing initial FirstFit pressure and expanding the search space for patterns that amplify the color/clique ratio.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)],
+  ]
+=======
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)],
+    [(0.0, 1.0), (0.5, 1.5)],  # new overlapping base seed to increase initial FF pressure
+  ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>add_mix_schedule</NAME>
+<DESCRIPTION>
+Introduce a new 'mix' schedule option to interleave copy and blocker intervals one by one at each level.
+This alternating arrival pattern can force FirstFit to open fresh colors more aggressively.
+Also include 'mix' in the explored `schedules` list.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  schedules = ['after', 'before', 'split']
+=======
+  schedules = ['after', 'before', 'split', 'mix']
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+      # Compose level by schedule
+      if schedule == 'before':
+        S = S_blockers + S_copies
+      elif schedule == 'split' and interleave == 'block':
+        h = max(1, len(copy_lists) // 2)
+        first_half = []
+        for i in range(h):
+          first_half.extend(copy_lists[i])
+        second_half = []
+        for i in range(h, len(copy_lists)):
+          second_half.extend(copy_lists[i])
+        S = first_half + S_blockers + second_half
+      else:
+        # default 'after' or 'split' with interleave='zip'
+        S = S_copies + S_blockers
+=======
+      # Compose level by schedule
+      if schedule == 'before':
+        S = S_blockers + S_copies
+      elif schedule == 'split' and interleave == 'block':
+        h = max(1, len(copy_lists) // 2)
+        first_half = []
+        for i in range(h):
+          first_half.extend(copy_lists[i])
+        second_half = []
+        for i in range(h, len(copy_lists)):
+          second_half.extend(copy_lists[i])
+        S = first_half + S_blockers + second_half
+      elif schedule == 'mix':  # alternate copy then blocker intervals
+        S = []
+        max_len = max(len(S_copies), len(S_blockers))
+        for j in range(max_len):
+          if j < len(S_copies):
+            S.append(S_copies[j])
+          if j < len(S_blockers):
+            S.append(S_blockers[j])
+      else:
+        # default 'after' or 'split' with interleave='zip'
+        S = S_copies + S_blockers
+>>>>>>> REPLACE
+</DIFF>

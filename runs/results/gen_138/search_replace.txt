@@ -1,0 +1,140 @@
+<NAME>
+rotate_offsets_and_blockers_per_level
+</NAME>
+
+<DESCRIPTION>
+Introduce deterministic per-level rotation of copy offsets and blocker templates to increase coupling across levels and pressure FirstFit. Changes:
+- _build_candidate now accepts starts and blockers that may be a single tuple/list or a list-of-tuples/list-of-templates and rotates the selected starts/blockers per recursion level (using i % len(...)).
+- construct_intervals adds a few rotated start-pattern sequences and multi-template blocker rotations into the search space, so the builder tries layouts where offsets and blocker geometry vary by level.
+This is a focused structural change intended to produce constructions that couple colors across levels more strongly (without increasing omega), hopefully increasing the FirstFit/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left'):
+    """
+    Build a depth-level recursive pattern using four scaled copies per level and four long connectors.
+    - starts: tuple of offsets (multipliers) for the copies
+    - blockers: list of 4 pairs (a,b) as multipliers of delta
+    - schedule: 'after' | 'before' | 'split' controls the order within a level
+    - extra_first: adds a 5th copy (start=18) at the first level to enhance coupling
+    - translation: 'left' | 'center' anchor for positioning copies/blockers
+    """
+    T = [(0.0, 1.0)]
+    for i in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        offs = tuple(starts)
+        if extra_first and i == 0 and 18 not in offs:
+            offs = offs + (18,)
+
+        def make_copies(from_T, offsets):
+            S = []
+            for start in offsets:
+                if translation == 'left':
+                    offset = delta * start - lo
+                else:
+                    offset = delta * start - center
+                for (l, r) in from_T:
+                    S.append((l + offset, r + offset))
+            return S
+
+        # scale blockers
+        if translation == 'left':
+            blk = [(delta * a, delta * b) for (a, b) in blockers]
+        else:
+            blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+
+        if schedule == 'after':
+            S = make_copies(T, offs) + blk
+        elif schedule == 'before':
+            S = list(blk) + make_copies(T, offs)
+        else:  # split
+            h = len(offs) // 2
+            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
+
+        T = S
+    return T
+=======
+def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, translation='left'):
+    """
+    Build a depth-level recursive pattern using rotated copies/blockers across levels.
+    - starts: either a single tuple of offsets or a sequence (list/tuple) of tuples to rotate per level
+    - blockers: either a single blocker-template (list/tuple of 4 (a,b) pairs) or a sequence of such templates to rotate per level
+    - schedule: 'after' | 'before' | 'split' controls the order within a level
+    - extra_first: adds a 5th copy (start=18) at the first level to enhance coupling
+    - translation: 'left' | 'center' anchor for positioning copies/blockers
+    """
+    T = [(0.0, 1.0)]
+
+    # Normalize inputs to sequences for easy per-level rotation
+    if not starts:
+        starts_seq = [()]
+    else:
+        # if starts is a sequence-of-sequences use it directly, else wrap single tuple
+        first = starts[0] if isinstance(starts, (list, tuple)) else None
+        if isinstance(first, (list, tuple)):
+            starts_seq = list(starts)
+        else:
+            starts_seq = [tuple(starts)]
+
+    if not blockers:
+        blockers_seq = [[]]
+    else:
+        # blockers may be a single template (list of pairs) or a sequence of templates
+        first_blk = blockers[0] if isinstance(blockers, (list, tuple)) else None
+        # detect if first_blk looks like a blocker pair (a tuple of length 2) -> single template
+        if first_blk and isinstance(first_blk[0], (int, float)):
+            # single template like [(1,5),(12,16),...]
+            blockers_seq = [list(blockers)]
+        else:
+            # sequence of templates
+            blockers_seq = [list(b) for b in blockers]
+
+    for i in range(depth):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        # pick the starts and blockers for this level (rotate deterministically)
+        offs = list(starts_seq[i % len(starts_seq)])
+        if extra_first and i == 0 and 18 not in offs:
+            offs = offs + [18]
+        # ensure offs is a tuple/list for slicing later
+        offs = tuple(offs)
+
+        blk_template = blockers_seq[i % len(blockers_seq)]
+
+        def make_copies(from_T, offsets):
+            S = []
+            for start in offsets:
+                if translation == 'left':
+                    offset = delta * start - lo
+                else:
+                    offset = delta * start - center
+                for (l, r) in from_T:
+                    S.append((l + offset, r + offset))
+            return S
+
+        # scale blockers for this level according to chosen template
+        if translation == 'left':
+            blk = [(delta * a, delta * b) for (a, b) in blk_template]
+        else:
+            blk = [(delta * a - center, delta * b - center) for (a, b) in blk_template]
+
+        if schedule == 'after':
+            S = make_copies(T, offs) + blk
+        elif schedule == 'before':
+            S = list(blk) + make_copies(T, offs)
+        else:  # split
+            h = len(offs) // 2
+            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
+
+        T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>

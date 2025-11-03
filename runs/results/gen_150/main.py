@@ -1,0 +1,360 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+from functools import reduce
+
+def overlaps(a, b):
+    """Open-interval overlap test: return True iff intervals overlap."""
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order.
+    Return total number of colors used.
+    """
+    colors = []  # list of color classes; each is a list of intervals in arrival order
+    for iv in intervals:
+        placed = False
+        for c in colors:
+            conflict = False
+            # Check conflict within this color class (pairwise disjoint invariant holds,
+            # but we conservatively check all to stay robust)
+            for u in c:
+                if overlaps(u, iv):
+                    conflict = True
+                    break
+            if not conflict:
+                c.append(iv)
+                placed = True
+                break
+        if not placed:
+            colors.append([iv])
+    return len(colors)
+
+def clique_number(intervals):
+    """
+    Compute omega (maximum number of intervals covering a single point) using sweep.
+    For open intervals, endpoints do not contribute to overlap.
+    """
+    events = []  # (x, type) where type=-1 for right endpoint, +1 for left endpoint
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    # For open intervals, at the same coordinate handle -1 before +1
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = 0
+    best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+def make_copies(T, offsets, delta, lo, center, translation):
+    """
+    Create 4 translated copies of T according to offsets and translation rule.
+    translation in {'left', 'center'}.
+    """
+    S = []
+    for start in offsets:
+        if translation == 'left':
+            offset = delta * start - lo
+        else:  # center-based
+            offset = delta * start - center
+        for (l, r) in T:
+            S.append((l + offset, r + offset))
+    return S
+
+def add_blockers(S, blockers, delta, anchor, center):
+    """
+    Add 4 blockers scaled by delta. Anchor may be 'left' (absolute) or 'center' (center-shifted).
+    """
+    for (a, b) in blockers:
+        if anchor == 'left':
+            S.append((delta * a, delta * b))
+        else:
+            S.append((delta * a - center, delta * b - center))
+    return S
+
+def build_pattern(k, base_seed, offsets, blockers, translation, blocker_anchor):
+    """
+    Recursively expand the base_seed k times using the 4-copy + 4-blocker scheme.
+    offsets can be:
+      - a single tuple of numbers (one set used at every level), or
+      - a list of such tuples (cycled per level).
+    blockers can be:
+      - a single tuple of 4 pairs (one template each level), or
+      - a list of such tuples (cycled per level).
+    """
+    T = list(base_seed)
+    for level in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        center = (lo + hi) / 2.0
+
+        # choose current offsets set (cycle if a list of tuples was provided)
+        if isinstance(offsets, list) and offsets and isinstance(offsets[0], (tuple, list)) and offsets and not isinstance(offsets[0][0], (int, float)):
+            # defensive: offsets[0] should itself be a tuple/list of numbers
+            cur_offsets = offsets[level % len(offsets)]
+        else:
+            # either a flat tuple/list of numbers, or already one set
+            cur_offsets = offsets
+
+        # choose current blockers template (cycle if a list of templates was provided)
+        def _is_pair(x):
+            return isinstance(x, (tuple, list)) and len(x) == 2 and all(isinstance(t, (int, float)) for t in x)
+
+        if isinstance(blockers, list) and blockers and not (_is_pair(blockers[0])):
+            cur_blockers = blockers[level % len(blockers)]
+        else:
+            cur_blockers = blockers
+
+        S = []
+        S = make_copies(T, cur_offsets, delta, lo, center, translation)
+        S = add_blockers(S, cur_blockers, delta, blocker_anchor, center)
+
+        T = S
+    return T
+
+def normalize_intervals(intervals):
+    """
+    Normalize to small integer coordinates:
+    - scale by 2 to eliminate .5 if produced by center shifts
+    - translate so min coordinate is >= 0
+    - (optional) divide by global gcd to shrink
+    """
+    if not intervals:
+        return intervals
+    # scale by 2 and round (the construction only yields multiples of 0.5)
+    scaled = []
+    for (l, r) in intervals:
+        L = int(round(l * 2))
+        R = int(round(r * 2))
+        scaled.append((L, R))
+    min_coord = min(min(l, r) for l, r in scaled)
+    shifted = [(l - min_coord, r - min_coord) for (l, r) in scaled]
+    # Keep integers modest—divide by gcd of all endpoints if possible
+    vals = []
+    for (l, r) in shifted:
+        vals.append(abs(l))
+        vals.append(abs(r))
+    g = 0
+    for v in vals:
+        g = gcd(g, v)
+    if g > 1:
+        shrunk = [(l // g, r // g) for (l, r) in shifted]
+    else:
+        shrunk = shifted
+    return shrunk
+
+def evaluate(intervals):
+    """
+    Compute FF colors and omega, with a small penalty for ridiculously large outputs.
+    Return (score, omega, num_colors, n, intervals_normalized)
+    """
+    Tn = normalize_intervals(intervals)
+    n = len(Tn)
+    if n == 0:
+        return (-1.0, 0, 0, n, Tn)
+    om = clique_number(Tn)
+    if om == 0:
+        return (-1.0, 0, 0, n, Tn)
+    cols = firstfit_colors(Tn)
+    ratio = cols / om
+    # soft penalty to prefer smaller n when ratios tie
+    score = ratio - 1e-6 * (n / 10000.0)
+    return (score, om, cols, n, Tn)
+
+def shrink_prune(intervals, target_ratio):
+    """
+    Conservative pruning: remove intervals if the observed FirstFit/OPT ratio
+    is preserved (>= target_ratio). Prefer removing long intervals first.
+    Deterministic and robust.
+    """
+    cur = list(intervals)
+    if not cur:
+        return cur
+
+    # Determine baseline ratio if not provided
+    cur_norm = normalize_intervals(cur)
+    base_opt = clique_number(cur_norm)
+    if base_opt == 0:
+        return cur
+    base_cols = firstfit_colors(cur_norm)
+    base_ratio = base_cols / base_opt
+    if target_ratio is None:
+        target_ratio = base_ratio
+
+    def iv_len(iv):
+        return iv[1] - iv[0]
+
+    order = sorted(range(len(cur)), key=lambda i: (-iv_len(cur[i]), i))
+    changed = True
+    while changed:
+        changed = False
+        for idx in list(order):
+            if idx >= len(cur):
+                continue
+            cand = cur[:idx] + cur[idx + 1 :]
+            cand_norm = normalize_intervals(cand)
+            om = clique_number(cand_norm)
+            if om == 0:
+                continue
+            cols = firstfit_colors(cand_norm)
+            ratio = cols / om
+            if ratio >= target_ratio:
+                cur = cand
+                order = sorted(range(len(cur)), key=lambda i: (-iv_len(cur[i]), i))
+                changed = True
+                break
+    return cur
+
+def construct_intervals():
+    """
+    Build a sequence of open intervals that aims to maximize FirstFit/OPT.
+    We sweep several recommended blueprints and pick the best validated candidate.
+    """
+    # Offsets sets (A/B/C/D) and cyclic variants
+    A = (2, 6, 10, 14)
+    B = (1, 5, 9, 13)
+    C = (3, 7, 11, 15)
+    D = (0, 4, 8, 12)
+    offsets_sequences = [
+        A, B, C, D,
+        [A, B, C, D],
+        [B, C, D, A],
+        [C, D, A, B],
+        [D, A, B, C],
+        [A, B], [B, C], [C, D], [D, A],
+        [A, C],  # skip-one alternation
+    ]
+
+    # Blocker templates (baseline and slight half-step variants) and cyclic variants
+    T_A = ((1, 5), (12, 16), (4, 9), (8, 13))
+    T_B = ((0, 4), (6, 10), (8, 12), (14, 18))
+    T_C = ((2, 6), (4, 8), (10, 14), (12, 16))
+    # half-step perturbations to diversify geometry while preserving small omega
+    T_D = ((1.0, 4.5), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0))
+    T_E = ((1.0, 5.0), (12.0, 16.0), (5.5, 10.5), (8.0, 13.0))
+    blockers_sequences = [
+        T_A, T_B, T_C, T_D, T_E,
+        [T_A, T_B], [T_B, T_C], [T_C, T_A],
+        [T_A, T_C, T_B],
+        [T_A, T_B, T_C],
+    ]
+
+    translations = ['left', 'center']  # how copies are positioned
+    blocker_anchors = ['left', 'center']  # how blockers are positioned
+    depths = [3, 4, 5]  # sweep
+    base_seeds = [
+        [(0.0, 1.0)],                      # single seed (classic)
+        [(0.0, 1.0), (2.0, 3.0)],          # richer base: two disjoint seeds
+    ]
+    extra_copies_opts = [0, 1, 2]  # add up to two extra translated copies on the first level
+
+    def augment_first_level_offsets(offs, extra):
+        # offs can be a tuple of numbers or a list of such tuples (cycled)
+        if extra == 0:
+            return offs
+        if isinstance(offs, (tuple, list)) and offs and isinstance(offs[0], (int, float)):
+            seq = list(offs)
+            last = seq[-1]
+            if extra >= 1:
+                seq.append(last + 4)
+            if extra >= 2:
+                seq.append(last + 8)
+            return tuple(seq)
+        if isinstance(offs, list) and offs and isinstance(offs[0], (tuple, list)):
+            # cycle: only augment the first level’s offsets
+            seq = []
+            for idx, o in enumerate(offs):
+                if idx == 0:
+                    base = list(o)
+                    last = base[-1]
+                    if extra >= 1:
+                        base.append(last + 4)
+                    if extra >= 2:
+                        base.append(last + 8)
+                    seq.append(tuple(base))
+                else:
+                    seq.append(tuple(o))
+            return seq
+        return offs
+
+    best = None  # (score, om, cols, n, intervals_normalized, intervals_raw)
+
+    # Enumerate combinations with a guard on worst-case explosion
+    for base in base_seeds:
+        for k in depths:
+            # Hard cap: avoid too-large instances: ~ 4^k * (|base| + 2)
+            if (4 ** k) * (len(base) + 2) > 4096:
+                continue
+            for offs in offsets_sequences:
+                for extra in extra_copies_opts:
+                    aug_offs = augment_first_level_offsets(offs, extra)
+                    for blockers in blockers_sequences:
+                        for translation in translations:
+                            for anchor in blocker_anchors:
+                                Traw = build_pattern(
+                                    k=k,
+                                    base_seed=base,
+                                    offsets=aug_offs,
+                                    blockers=blockers,
+                                    translation=translation,
+                                    blocker_anchor=anchor,
+                                )
+                                score, om, cols, n, Tn = evaluate(Traw)
+                                cand = (score, om, cols, n, Tn, Traw)
+                                if best is None:
+                                    best = cand
+                                else:
+                                    # pick better score; tie-break by fewer intervals then larger cols
+                                    if cand[0] > best[0] + 1e-9:
+                                        best = cand
+                                    elif abs(cand[0] - best[0]) <= 1e-9:
+                                        if cand[3] < best[3]:
+                                            best = cand
+                                        elif cand[3] == best[3] and cand[2] > best[2]:
+                                            best = cand
+
+    # Fallback to baseline if search didn't produce anything
+    if best is None:
+        # original baseline as a safe default
+        k = 4
+        T = [(0.0, 1.0)]
+        for _ in range(k):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                offset = delta * start - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            S += [
+                (delta * 1,  delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4,  delta * 9),
+                (delta * 8,  delta * 13),
+            ]
+            T = S
+        return normalize_intervals(T)
+
+    # Apply conservative pruning to the raw best intervals while preserving the attained ratio
+    _, om_best, cols_best, _, best_norm, best_raw = best
+    target_ratio = cols_best / om_best if om_best > 0 else None
+    pruned_raw = shrink_prune(best_raw, target_ratio)
+    final = normalize_intervals(pruned_raw)
+    if not final:
+        return best_norm
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

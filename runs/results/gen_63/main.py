@@ -1,0 +1,269 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+  """
+  Normalize endpoints to a compact integer grid while preserving order.
+  Each unique endpoint is mapped to an increasing even integer.
+  Returns a new list of (l, r) with integer coordinates.
+  """
+  if not intervals:
+    return []
+  endpoints = sorted(set([x for seg in intervals for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2  # spacing by 2 to keep even gaps
+  return [( coord[l], coord[r] ) for (l, r) in intervals]
+
+
+def construct_intervals(iterations=4, normalize=True):
+  """
+  Build a sequence of open intervals that forces FirstFit
+  to use many colors while keeping the clique size controlled.
+
+  Approach:
+  - A compact, deterministic pattern space is explored:
+    - Pattern cycles of offsets (canonical/alt_a/alt_b)
+    - 3 blocker templates
+    - 2 scheduling modes: 'after' and 'split'
+    - optional extra first-level copy
+  - Depth choices around a sweet spot (depth = iterations-1 or iterations)
+  - Efficient simulation of FirstFit and omega on the generated intervals
+  - Final normalization to a compact integer grid if requested
+
+  Enhancement: after selecting the best base pattern, try to append small
+  "wave" intervals in the gaps so that FirstFit must open new colors while
+  preserving the original clique (omega). This augmentation is deterministic
+  and conservative (never increases omega).
+  """
+
+  # Helpers
+
+  def overlaps(a, b):
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+  def firstfit_colors(intervals):
+    """
+    Simulate FirstFit with exact overlap checks.
+    Returns the number of colors used.
+    """
+    colors = []  # list of color classes, each a list of intervals
+    for iv in intervals:
+      placed = False
+      for cls in colors:
+        ok = True
+        for u in cls:
+          if overlaps(u, iv):
+            ok = False
+            break
+        if ok:
+          cls.append(iv)
+          placed = True
+          break
+      if not placed:
+        colors.append([iv])
+    return len(colors)
+
+  def clique_number(intervals):
+    """
+    Compute omega: maximum number of intervals covering a point.
+    Sweep-line: process right endpoints before left endpoints on ties.
+    """
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  # Pattern space (compact)
+  canonical = (2, 6, 10, 14)
+  alt_a     = (1, 5, 9, 13)
+  alt_b     = (3, 7, 11, 15)
+
+  pattern_cycles = [
+    (canonical,),                 # canonical only
+    (canonical, alt_a),           # alternate canonical/alt_a
+    (canonical, alt_b),           # alternate canonical/alt_b
+  ]
+
+  # Blocker templates (left-anchored connectors)
+  blockers_templates = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+    [(0, 4), (11, 15), (3, 8), (7, 12)],   # shifted
+    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+  ]
+
+  schedules = ['after', 'split']             # two effective orders
+  extras    = [False, True]                  # optional extra first copy
+
+  depths = [max(2, iterations - 1), iterations]
+
+  best = None  # record: (ratio, -n, cols, om, T)
+
+  # Deterministic exploration over compact space
+  for depth in depths:
+    for pat in pattern_cycles:
+      for conn in blockers_templates:
+        for sch in schedules:
+          for ex in extras:
+            # Build candidate
+            T = [(0.0, 1.0)]
+            for lvl in range(depth):
+              lo = min(l for l, r in T)
+              hi = max(r for l, r in T)
+              delta = hi - lo
+
+              # Offsets for this level
+              # pat is a tuple; pick the appropriate cycle entry
+              offs_base = pat[min(lvl, len(pat) - 1)]
+              offs = list(offs_base)
+              if ex and lvl == 0:
+                offs.append(offs_base[-1] + 4)
+
+              def copies(src_T, offsets):
+                S = []
+                for start in offsets:
+                  offset = delta * start - lo
+                  for (l, r) in src_T:
+                    S.append((l + offset, r + offset))
+                return S
+
+              blks = [(delta * a, delta * b) for (a, b) in conn]
+
+              if sch == 'after':
+                T = copies(T, offs) + blks
+              else:  # 'split'
+                h = len(offs) // 2
+                T = copies(T, offs[:h]) + blks + copies(T, offs[h:])
+
+            om = clique_number(T)
+            if om <= 0:
+              continue
+            cols = firstfit_colors(T)
+            ratio = cols / om
+            n = len(T)
+            cand = (ratio, -n, cols, om, T)
+            if best is None or cand > best:
+              best = cand
+
+  # Fallback if something went wrong (should be rare)
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        offset = delta * start - lo
+        S.extend([(offset + l, offset + r) for l, r in T])
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13)
+      ]
+      T = S
+    return _normalize_grid(T) if normalize else T
+
+  # At this point we have a best base pattern best_T (in float coordinates).
+  best_T = best[4]
+  base_om = clique_number(best_T)
+  base_cols = firstfit_colors(best_T)
+
+  # Augmentation: try to append short "wave" intervals in gaps to increase FF colors
+  def try_augment_with_waves(T, max_waves=200):
+    """
+    Deterministic augmentation:
+      - compute gaps between sorted unique endpoints
+      - set wave_length = min_gap / 3 (conservative)
+      - propose candidate small intervals inside gaps (a+gap/4, a+gap/2)
+      - accept candidates that strictly increase FirstFit colors and keep clique <= base_om
+    """
+    curT = list(T)
+    # compute unique sorted endpoints
+    endpoints = sorted(set(x for iv in curT for x in iv))
+    if len(endpoints) < 2:
+      return curT
+    gaps = [(endpoints[i], endpoints[i+1], endpoints[i+1]-endpoints[i]) for i in range(len(endpoints)-1)]
+    # find positive min gap
+    positive_gaps = [g for (_, _, g) in gaps if g > 0]
+    if not positive_gaps:
+      return curT
+    min_gap = min(positive_gaps)
+    if min_gap <= 0:
+      min_gap = 1e-6
+    wave_len = min_gap / 3.0
+
+    waves_added = 0
+    # Deterministic list of candidates (ordered)
+    candidates = []
+    for (a, b, g) in gaps:
+      if g > wave_len * 1.5:
+        candidates.append( (a + g*0.25, a + g*0.25 + wave_len) )
+        candidates.append( (a + g*0.5,  a + g*0.5  + wave_len) )
+      else:
+        # tiny gap: place small centered wave if fits
+        mid = (a + b) / 2.0
+        candidates.append((mid - wave_len/2.0, mid + wave_len/2.0))
+
+    # also sample a small uniform grid of candidate lefts between global min/max
+    min_x, max_x = endpoints[0], endpoints[-1]
+    if max_x - min_x > 0:
+      # choose up to 40 uniformly spaced samples
+      samples = 40
+      for i in range(samples):
+        left = min_x + (i + 0.5) * (max_x - min_x) / samples
+        candidates.append((left, left + wave_len))
+
+    # deterministic unique ordering
+    seen = set()
+    uniq_cands = []
+    for (l, r) in candidates:
+      # ensure valid and not duplicate
+      key = (round(l, 12), round(r, 12))
+      if key in seen:
+        continue
+      if l < r:
+        seen.add(key)
+        uniq_cands.append((l, r))
+
+    # Try to append candidates one-by-one (maintain arrival order: appended at end)
+    for cand in uniq_cands:
+      if waves_added >= max_waves:
+        break
+      # check clique constraint
+      new_om = clique_number(curT + [cand])
+      if new_om > base_om:
+        continue
+      new_cols = firstfit_colors(curT + [cand])
+      if new_cols > base_cols:
+        # accept
+        curT.append(cand)
+        base_cols = new_cols
+        waves_added += 1
+        # recompute endpoints/gaps to keep candidates meaningful
+        endpoints = sorted(set(x for iv in curT for x in iv))
+        gaps = [(endpoints[i], endpoints[i+1], endpoints[i+1]-endpoints[i]) for i in range(len(endpoints)-1)]
+        # (we do not rebuild the full candidate list to keep determinism)
+    return curT
+
+  augmented = try_augment_with_waves(best_T, max_waves=200)
+
+  # Return normalized result (or raw floats if requested)
+  return _normalize_grid(augmented) if normalize else augmented
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

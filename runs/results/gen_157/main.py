@@ -1,0 +1,457 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+
+# -------------------- Core utilities --------------------
+
+def _normalize_to_grid(intervals):
+    """
+    Normalize endpoints to a compact integer grid while preserving order.
+    Map unique endpoints to even integers in increasing order.
+    """
+    if not intervals:
+        return []
+    endpoints = sorted(set([x for seg in intervals for x in seg]))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += 2
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+def _ff_with_witness(intervals):
+    """
+    Simulate FirstFit on open intervals with arrival order as given.
+    Returns:
+      - num_colors
+      - color assignment list
+      - witness set of indices necessary to sustain observed color frontier
+    For FirstFit on intervals, color availability depends only on last_end per color.
+    We record a witness each time a new color is created: the new interval index and
+    the last intervals (by index) of colors that were blocked (l < last_end[color]).
+    """
+    last_end = []     # last end per color
+    last_idx = []     # last interval index placed in each color
+    colors = []       # color assignment per interval
+    witness = set()   # indices of intervals that serve as witnesses for the frontier
+    for i, (l, r) in enumerate(intervals):
+        placed = False
+        for c in range(len(last_end)):
+            if l >= last_end[c]:
+                # can place in color c
+                last_end[c] = r
+                last_idx[c] = i
+                colors.append(c)
+                placed = True
+                break
+        if not placed:
+            # new color used; block all smaller colors that were active at l
+            # those are exactly the colors with last_end[c] > l
+            for c in range(len(last_end)):
+                if l < last_end[c]:
+                    witness.add(last_idx[c])
+            witness.add(i)
+            last_end.append(r)
+            last_idx.append(i)
+            colors.append(len(last_end) - 1)
+    return len(last_end), colors, witness
+
+def _ff_count(intervals):
+    """FirstFit color count only."""
+    last_end = []
+    for (l, r) in intervals:
+        for i, e in enumerate(last_end):
+            if l >= e:
+                last_end[i] = r
+                break
+        else:
+            last_end.append(r)
+    return len(last_end)
+
+def _omega_open(intervals):
+    """
+    Compute omega (max number of intervals covering a point) via sweep for open intervals.
+    Ties resolved with right endpoints before left endpoints.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+def _normalize_small_integers(intervals):
+    """
+    Deterministic integer normalization that preserves relative geometry reasonably:
+    - scale by 2 to remove .5 if produced by center anchors
+    - translate so min >= 0
+    - divide by gcd of all coordinates when possible
+    """
+    if not intervals:
+        return []
+    scaled = []
+    for (l, r) in intervals:
+        L = int(round(l * 2))
+        R = int(round(r * 2))
+        scaled.append((L, R))
+    min_coord = min(min(l, r) for l, r in scaled)
+    shifted = [(l - min_coord, r - min_coord) for (l, r) in scaled]
+    vals = []
+    for (l, r) in shifted:
+        vals.append(abs(l))
+        vals.append(abs(r))
+    g = 0
+    for v in vals:
+        g = gcd(g, v)
+    if g > 1:
+        shrunk = [(l // g, r // g) for (l, r) in shifted]
+    else:
+        shrunk = shifted
+    return shrunk
+
+# -------------------- Pattern engine --------------------
+
+def _make_copies(base, offsets, delta, anchor_lo, anchor_center, translation):
+    S = []
+    for start in offsets:
+        if translation == 'left':
+            off = delta * start - anchor_lo
+        else:
+            off = delta * start - anchor_center
+        for (l, r) in base:
+            S.append((l + off, r + off))
+    return S
+
+def _add_blockers(S, blockers, delta, anchor, center):
+    for (a, b) in blockers:
+        if anchor == 'left':
+            S.append((delta * a, delta * b))
+        else:
+            S.append((delta * a - center, delta * b - center))
+    return S
+
+def _build_level(base, offsets, blockers, schedule, translation, blocker_anchor):
+    lo = min(l for l, r in base)
+    hi = max(r for l, r in base)
+    delta = hi - lo
+    center = (lo + hi) / 2.0
+    # copies and blockers by schedule
+    copies = _make_copies(base, offsets, delta, lo, center, translation)
+    blks = []
+    for (a, b) in blockers:
+        if blocker_anchor == 'left':
+            blks.append((delta * a, delta * b))
+        else:
+            blks.append((delta * a - center, delta * b - center))
+    if schedule == 'after':
+        return copies + blks
+    elif schedule == 'before':
+        return blks + copies
+    elif schedule == 'split':
+        h = len(offsets) // 2
+        return _make_copies(base, offsets[:h], delta, lo, center, translation) + blks + _make_copies(base, offsets[h:], delta, lo, center, translation)
+    else:  # interleave: copy i then blocker i (if any)
+        S = []
+        for idx, start in enumerate(offsets):
+            off = delta * start - (lo if translation == 'left' else center)
+            for (l, r) in base:
+                S.append((l + off, r + off))
+            if idx < len(blks):
+                S.append(blks[idx])
+        return S
+
+def _evaluate(intervals):
+    Tn = _normalize_small_integers(intervals)
+    if not Tn:
+        return -1.0, 0, 0, 0, Tn
+    om = _omega_open(Tn)
+    if om == 0:
+        return -1.0, 0, 0, len(Tn), Tn
+    cols = _ff_count(Tn)
+    ratio = cols / om
+    # penalize size slightly on tie
+    score = ratio - 1e-6 * (len(Tn) / 10000.0)
+    return score, om, cols, len(Tn), Tn
+
+def _beam_build_skeleton(depth_max=4, beam_width=6):
+    """
+    Deterministic beam search over level-by-level construction.
+    At each level, rotate among A/B/C/D tilings and several blocker templates and schedules.
+    Keep a small beam of best partial constructions by observed FF/omega.
+    """
+    # copy-offset patterns (A/B/C/D)
+    tilings_cycle = [
+        (2, 6, 10, 14),  # A
+        (1, 5, 9, 13),   # B
+        (3, 7, 11, 15),  # C
+        (0, 4, 8, 12),   # D
+    ]
+    blocker_templates = [
+        ((1, 5), (12, 16), (4, 9), (8, 13)),              # canonical
+        ((1, 6), (11, 16), (3, 9), (7, 13)),              # lengthened
+        ((0, 4), (6, 10), (8, 12), (14, 18)),             # shifted
+    ]
+    schedules = ['after', 'before', 'split', 'interleave']
+    translations = ['left', 'center']
+    anchors = ['left', 'center']
+
+    # initial seed
+    beam = [([(0.0, 1.0)], _evaluate([(0.0, 1.0)]))]  # (intervals, eval)
+    for lvl in range(depth_max):
+        new_beam = []
+        for base, _ in beam:
+            # choose tiling based on level index to enforce diversity
+            starts = tilings_cycle[lvl % len(tilings_cycle)]
+            for blks in blocker_templates:
+                for sch in schedules:
+                    for tr in translations:
+                        for anc in anchors:
+                            cand = _build_level(base, starts, blks, sch, tr, anc)
+                            sc, om, cols, n, Tn = _evaluate(cand)
+                            # Keep candidates bounded: avoid explosion
+                            if n == 0:
+                                continue
+                            new_beam.append((cand, (sc, om, cols, n, Tn)))
+        # select best beam_width by score then fewer intervals then more colors
+        new_beam.sort(key=lambda x: (-(x[1][0]), x[1][3], -x[1][2]))
+        beam = new_beam[:beam_width]
+        if not beam:
+            break
+
+    # best final
+    beam.sort(key=lambda x: (-(x[1][0]), x[1][3], -x[1][2]))
+    if not beam:
+        # safe fallback: 4-copy 4-blocker depth=4
+        T = [(0.0, 1.0)]
+        for _ in range(4):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                off = delta * start - lo
+                for (l, r) in T:
+                    S.append((l + off, r + off))
+            S += [
+                (delta * 1,  delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4,  delta * 9),
+                (delta * 8,  delta * 13),
+            ]
+            T = S
+        return _normalize_small_integers(T)
+    # normalize the best skeleton to integer grid
+    return _normalize_small_integers(beam[0][0])
+
+# -------------------- Wave augmentation --------------------
+
+def _coverage_segments(intervals):
+    """
+    Compute coverage counts on atomic segments between unique endpoints.
+    Returns (coords, segment_coverages) where segment i is (coords[i], coords[i+1]).
+    """
+    if not intervals:
+        return [], []
+    coords = sorted(set([x for iv in intervals for x in iv]))
+    events = []
+    for (l, r) in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = 0
+    seg_cov = []
+    ev_idx = 0
+    for i in range(len(coords) - 1):
+        x = coords[i]
+        # process all events at x
+        while ev_idx < len(events) and events[ev_idx][0] == x:
+            cur += events[ev_idx][1]
+            ev_idx += 1
+        seg_cov.append(cur)
+    return coords, seg_cov
+
+def _try_append_interval(current, cand, omega_limit):
+    """
+    Try appending cand to 'current' and check omega constraint.
+    Returns (ok, new_seq, new_cols, new_omega, new_ratio)
+    """
+    new_seq = current + [cand]
+    new_omega = _omega_open(new_seq)
+    if new_omega > omega_limit:
+        return (False, current, None, None, None)
+    new_cols = _ff_count(new_seq)
+    if new_omega == 0:
+        return (False, current, None, None, None)
+    return (True, new_seq, new_cols, new_omega, new_cols / new_omega)
+
+def _augment_with_waves(base_seq, max_steps=80):
+    """
+    Deterministic greedy hill-climber:
+    - Compute coverage map.
+    - Generate candidate short and medium intervals inside low-coverage corridors.
+    - Accept a candidate only if FF/omega strictly improves.
+    Allow at most +1 omega if the color gain >= 3 (guarded).
+    """
+    cur = list(base_seq)
+    base_cols = _ff_count(cur)
+    base_om = _omega_open(cur) or 1
+    best_ratio = base_cols / base_om
+
+    coords, seg_cov = _coverage_segments(cur)
+    if len(coords) < 3:
+        return cur  # nothing to augment
+
+    # candidate lengths (short/long waves)
+    lengths = sorted(set([
+        max(1, (coords[-1] - coords[0]) // 60),
+        max(2, (coords[-1] - coords[0]) // 45),
+        2, 3, 4, 5, 6, 7
+    ]))
+    # sample candidate lefts from low-coverage segments; also a coarse global grid
+    low_cov_targets = [c for c in range(min(seg_cov, default=0), base_om + 1)]
+    # coarse global steps
+    span = max(1, coords[-1] - coords[0])
+    coarse_step = max(1, span // 40)
+
+    steps = 0
+    improved = True
+    while steps < max_steps and improved:
+        steps += 1
+        improved = False
+        # recompute coverage each iteration to reflect accepted changes
+        coords, seg_cov = _coverage_segments(cur)
+        # collect candidate left endpoints
+        lefts = set()
+        for i, cov in enumerate(seg_cov):
+            if cov in low_cov_targets:
+                L = coords[i]
+                R = coords[i+1]
+                lefts.add(L)
+                lefts.add(max(L, (L + R) // 2))
+                if R - L >= 3:
+                    lefts.add(R - 2)
+        # coarse global grid points
+        for x in range(coords[0], coords[-1], coarse_step):
+            lefts.add(x)
+        # restrict to deterministic order
+        lefts = sorted(lefts)
+        # allowable omega limit: usually base_om; allow +1 if sufficiently large gain
+        for wl in lengths:
+            for l in lefts:
+                r = l + wl
+                if r <= l + 0:
+                    continue
+                # hard guard: do not exceed far rightmost endpoint by too much
+                if r > coords[-1] + wl * 2:
+                    continue
+                # primary attempt: keep omega unchanged
+                ok, new_seq, new_cols, new_om, new_ratio = _try_append_interval(cur, (l, r), base_om)
+                if ok and new_ratio > best_ratio + 1e-12:
+                    cur = new_seq
+                    best_ratio = new_ratio
+                    improved = True
+                    break
+                # secondary attempt: allow +1 omega only if at least +3 colors
+                ok2, new_seq2, new_cols2, new_om2, new_ratio2 = _try_append_interval(cur, (l, r), base_om + 1)
+                if ok2 and new_om2 <= base_om + 1 and (new_cols2 - base_cols) >= 3 and new_ratio2 > best_ratio + 1e-12:
+                    cur = new_seq2
+                    base_om = new_om2
+                    best_ratio = new_ratio2
+                    improved = True
+                    break
+            if improved:
+                # update base_cols after acceptance
+                base_cols = _ff_count(cur)
+                break
+    return cur
+
+# -------------------- Witness-preserving pruning --------------------
+
+def _prune_preserve_witness(intervals, keep_ratio):
+    """
+    Two-stage deterministic pruning that preserves color-frontier witnesses.
+    Stage 1: remove longest non-witness intervals if ratio stays >= keep_ratio.
+    Stage 2: lighter pass over remaining non-witness with stable ordering.
+    """
+    if not intervals:
+        return intervals
+    # compute witness set on current instance
+    cols, _, witness = _ff_with_witness(intervals)
+    om = _omega_open(intervals) or 1
+    base_ratio = cols / om
+    target = keep_ratio if keep_ratio is not None else base_ratio
+
+    def length(iv):
+        return iv[1] - iv[0]
+
+    cur = list(intervals)
+    # Stage 1: remove long non-witness greedily
+    order = sorted([i for i in range(len(cur)) if i not in witness], key=lambda i: (-length(cur[i]), i))
+    changed = True
+    while changed and order:
+        changed = False
+        for idx in list(order):
+            if idx >= len(cur):
+                continue
+            cand = cur[:idx] + cur[idx+1:]
+            new_cols = _ff_count(cand)
+            new_om = _omega_open(cand) or 1
+            if new_cols / new_om >= target - 1e-12:
+                cur = cand
+                # recompute witness and order after mutation
+                _, _, witness = _ff_with_witness(cur)
+                order = sorted([i for i in range(len(cur)) if i not in witness], key=lambda i: (-length(cur[i]), i))
+                changed = True
+                break
+    # Stage 2: stable pass, try removing remaining non-witness by index order
+    order2 = [i for i in range(len(cur)) if i not in witness]
+    for idx in reversed(order2):
+        cand = cur[:idx] + cur[idx+1:]
+        new_cols = _ff_count(cand)
+        new_om = _omega_open(cand) or 1
+        if new_cols / new_om >= target - 1e-12:
+            cur = cand
+            _, _, witness = _ff_with_witness(cur)
+    return cur
+
+# -------------------- Main constructor --------------------
+
+def construct_intervals():
+    """
+    Build intervals to maximize FirstFit colors divided by omega.
+    Pipeline:
+      1) Beam-built skeleton across diversified templates.
+      2) Wave augmentation under omega guard to raise colors faster than omega.
+      3) Witness-preserving pruning to keep the instance compact without losing ratio.
+    Returns a list of integer open intervals in arrival order.
+    """
+    # 1) Beam skeleton
+    skeleton = _beam_build_skeleton(depth_max=4, beam_width=6)
+    if not skeleton:
+        return []
+    # 2) Wave augmentation
+    augmented = _augment_with_waves(skeleton, max_steps=60)
+    # 3) Prune conservatively without losing observed ratio
+    cols = _ff_count(augmented)
+    om = _omega_open(augmented) or 1
+    ratio = cols / om
+    pruned = _prune_preserve_witness(augmented, ratio)
+    # final normalization to a compact integer grid for stability
+    final = _normalize_to_grid(pruned)
+    # sanity fallback if pruning failed too hard
+    if not final:
+        return _normalize_to_grid(augmented)
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

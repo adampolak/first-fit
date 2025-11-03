@@ -1,0 +1,3 @@
+Evaluation error: cannot access local variable 'base_cols' where it is not associated with a value
+Correctness and error status saved to results73/gen_63/results/correct.json
+Metrics saved to results73/gen_63/results/metrics.json

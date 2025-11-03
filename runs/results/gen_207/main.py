@@ -1,0 +1,318 @@
+# EVOLVE-BLOCK-START
+
+import math
+from collections import OrderedDict
+
+def construct_intervals(iterations=4, budget=300):
+    """
+    Deterministic hill-climb over backbone blueprints to maximize FirstFit/omega ratio.
+    - iterations: nominal recursion depth (we try depths around it)
+    - budget: number of mutation attempts (keeps runtime bounded)
+    Returns: list of integer-quantized open intervals (l, r) in arrival order.
+    """
+
+    # ---------------- Utility evaluations (robust & cached) ----------------
+
+    def _omega_open(intervals):
+        """Sweep-line for open intervals (right endpoints before left at ties)."""
+        events = []
+        for (l, r) in intervals:
+            if l < r:
+                events.append((l, +1))
+                events.append((r, -1))
+        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+        cur = best = 0
+        for _, t in events:
+            cur += t
+            if cur > best:
+                best = cur
+        return best
+
+    def _firstfit_count(intervals):
+        """FirstFit simulation using per-color last endpoint tracking (fast)."""
+        last_end = []
+        for (l, r) in intervals:
+            placed = False
+            for i in range(len(last_end)):
+                if l >= last_end[i]:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    # Deterministic canonical normalization: map unique endpoints to even integers
+    def _normalize_grid(intervals):
+        if not intervals:
+            return []
+        endpoints = sorted(set([x for seg in intervals for x in seg]))
+        coord = {e: 2 * i for i, e in enumerate(endpoints)}
+        return [(coord[l], coord[r]) for (l, r) in intervals]
+
+    # Pattern-aware memoization keyed by a structural signature
+    eval_cache = {}
+
+    def _signature(intervals):
+        # compact signature: relative order of endpoints and counts (deterministic)
+        eps = 1e-9
+        pts = []
+        for l, r in intervals:
+            pts.append((round(l,6), round(r,6)))
+        # use first/last 20 to keep signature small if huge
+        if len(pts) > 200:
+            pts_s = tuple(pts[:100] + pts[-100:])
+        else:
+            pts_s = tuple(pts)
+        return pts_s
+
+    def evaluate(intervals):
+        """
+        Returns tuple (ratio, omega, firstfit_colors, n) and caches results.
+        ratio = firstfit / omega (omega >= 1)
+        """
+        sig = _signature(intervals)
+        if sig in eval_cache:
+            return eval_cache[sig]
+        om = _omega_open(intervals)
+        if om <= 0:
+            res = ( -1.0, 0, 0, len(intervals) )
+            eval_cache[sig] = res
+            return res
+        cols = _firstfit_count(intervals)
+        ratio = cols / float(om)
+        res = (ratio, om, cols, len(intervals))
+        eval_cache[sig] = res
+        return res
+
+    # ---------------- Blueprint/backbone builders ----------------
+
+    # Four-copy canonical offsets and four canonical blocker templates
+    canonical_offsets = (2.0, 6.0, 10.0, 14.0)
+    backbone_templates = {
+        'A': canonical_offsets,
+        'B': (1.0, 5.0, 9.0, 13.0),
+        'C': (3.0, 7.0, 11.0, 15.0),
+        'D': (0.0, 4.0, 8.0, 12.0),
+    }
+
+    blocker_templates = {
+        'std': [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0)],
+        'shift1': [(1.0, 5.0), (11.0, 15.0), (4.0, 9.0), (8.0, 13.0)],
+        'cap_extra': [(1.0, 5.0), (12.0, 16.0), (4.0, 9.0), (8.0, 13.0), (2.0, 14.0), (6.0, 10.0)],
+    }
+
+    def build_recursive(seed, depth, offsets, blockers, schedule='after', translation='left'):
+        """
+        Build recursive pattern:
+        - seed: list of (l,r) floats
+        - depth: recursion depth
+        - offsets: tuple of start multipliers
+        - blockers: list of (a,b) multiplier pairs
+        - schedule: 'after' or 'split'
+        - translation: 'left' or 'center'
+        """
+        T = list(seed)
+        for lvl in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            center = (lo + hi) / 2.0
+
+            # produce copies
+            copies = []
+            for start in offsets:
+                if translation == 'left':
+                    offset = delta * start - lo
+                else:
+                    offset = delta * start - center
+                for (l, r) in T:
+                    copies.append((l + offset, r + offset))
+
+            # produce scaled blockers
+            blks = []
+            for (a, b) in blockers:
+                if translation == 'left':
+                    blks.append((delta * a, delta * b))
+                else:
+                    blks.append((delta * a - center, delta * b - center))
+
+            if schedule == 'after':
+                T = copies + blks
+            else:  # split: half copies, then blockers, then remaining copies
+                h = max(1, len(offsets) // 2)
+                # find number of items per copy (size of T)
+                # but we are working at the flat copy level - we approximate split using offsets
+                first = []
+                second = []
+                # reconstruct per-offset blocks from copies
+                per_copy = len(T)
+                # safer: slice copies evenly by index using count offsets
+                k = len(offsets)
+                chunk = len(copies) // k if k > 0 else len(copies)
+                for i in range(k):
+                    start_idx = i * chunk
+                    end_idx = start_idx + chunk
+                    if i < h:
+                        first.extend(copies[start_idx:end_idx])
+                    else:
+                        second.extend(copies[start_idx:end_idx])
+                T = first + blks + second
+        return T
+
+    # ---------------- Deterministic mutation schedule (backbone-cycling) ----------------
+
+    # backbone four-cycle skeletons (A,B,C,D)
+    backbones = ['A', 'B', 'C', 'D']
+    # small fractional perturbations explored in-turn
+    perturbations = [0.15, 0.25, -0.15, -0.25, 0.0]
+
+    # deterministic mutation generator yields a sequence of candidate blueprints
+    def mutation_generator(max_iters):
+        """
+        Yields deterministic blueprint parameter tuples:
+        (depth, offsets, blockers_name, schedule, translation, extra_copy_first)
+        """
+        # seed set of blocker templates to cycle
+        bnames = list(blocker_templates.keys())
+        # deterministic mixing: cycle through depths [iterations-1, iterations]
+        depths = [max(2, iterations - 1), max(2, iterations)]
+        it = 0
+        # base seed offsets as the chosen backbone offset pattern
+        # For each mutation, pick backbone blueprint cycling through A,B,C,D
+        for cycle in range(max_iters):
+            bidx = cycle % len(backbones)
+            backbone_name = backbones[bidx]
+            base_offsets = list(backbone_templates[backbone_name])
+            # apply tiny perturbation to one copy index based on cycle to explore neighborhood
+            pert = perturbations[(cycle // len(backbones)) % len(perturbations)]
+            # determine which copy index to perturb (cycled)
+            idx = cycle % len(base_offsets)
+            pert_offsets = list(base_offsets)
+            pert_offsets[idx] = pert_offsets[idx] + pert
+            # clamp sensible values to avoid degenerate offsets
+            pert_offsets = tuple(max(-4.0, min(20.0, x)) for x in pert_offsets)
+
+            blockers_name = bnames[(cycle // len(backbones)) % len(bnames)]
+            blockers = blocker_templates[blockers_name]
+            schedule = 'after' if (cycle % 3) != 0 else 'split'
+            translation = 'left' if (cycle % 2) == 0 else 'center'
+            depth = depths[(cycle // 5) % len(depths)]
+            extra_first = (cycle % 7) == 0  # occasionally add extra copy at top
+            yield (depth, pert_offsets, blockers_name, schedule, translation, extra_first)
+            it += 1
+            if it >= max_iters:
+                break
+
+    # ---------------- Conservative pruning (deterministic witness-preserving) ----------------
+
+    def prune_intervals(T):
+        """
+        Deterministic single-pass pruning:
+        Remove intervals that when removed do not change both omega and FirstFit count.
+        We only do one left-to-right pass to keep runtime bounded and deterministic.
+        """
+        if not T:
+            return T
+        base_ratio, base_om, base_cols, _ = evaluate(T)
+        # single-pass left-to-right
+        i = 0
+        final = list(T)
+        # limit number of removals to avoid degenerate shrink loops
+        removals = 0
+        max_removals = max(1, len(final) // 50)  # modest pruning
+        while i < len(final) and removals < max_removals:
+            cand = final[:i] + final[i+1:]
+            _, om_c, cols_c, _ = evaluate(cand)
+            if om_c == base_om and cols_c == base_cols:
+                final = cand
+                removals += 1
+                # do not increment i, because list shifted left
+            else:
+                i += 1
+        return final
+
+    # ---------------- Main hill-climb loop (deterministic) ----------------
+
+    # initial seed patterns to try (a few deterministic blueprints)
+    seed_patterns = []
+    base_seed = [(0.0, 1.0)]
+    # canonical baseline
+    seed_patterns.append( (max(2, iterations), canonical_offsets, 'std', 'after', 'left', False) )
+    # a few alternates to start from
+    seed_patterns.append( (max(2, iterations), backbone_templates['B'], 'std', 'after', 'left', False) )
+    seed_patterns.append( (max(2, iterations), backbone_templates['C'], 'shift1', 'split', 'center', True) )
+
+    best_global = None  # tuple: (ratio, om, cols, n, intervals, blueprint)
+    # Evaluate initial seeds
+    for depth, offs, bname, sch, tr, extra in seed_patterns:
+        blockers = blocker_templates[bname]
+        # optionally inject an extra offset at first level
+        offsets = offs
+        if extra:
+            offsets = tuple(list(offs) + [max(offs) + 4.0])
+        T = build_recursive(base_seed, depth, offsets, blockers, schedule=sch, translation=tr)
+        # deterministic deterministic pruning
+        Tp = prune_intervals(_normalize_grid(T))
+        ratio, om, cols, n = evaluate(Tp)
+        cand = (ratio, om, cols, n, Tp, (depth, offsets, bname, sch, tr))
+        if best_global is None or cand[0] > best_global[0] + 1e-12 or (abs(cand[0] - best_global[0]) <= 1e-12 and (cand[3] < best_global[3])):
+            best_global = cand
+
+    # run deterministic mutation generator for a bounded budget
+    gen = mutation_generator(budget)
+    attempts = 0
+    for (depth, offsets, bname, sch, tr, extra_first) in gen:
+        attempts += 1
+        # occasionally try a 5-copy variant by appending an extra offset
+        offsets_used = offsets
+        if extra_first:
+            if len(offsets_used) < 6:
+                offsets_used = tuple(list(offsets_used) + [max(offsets_used) + 4.0])
+
+        blockers = blocker_templates[bname]
+        T = build_recursive(base_seed, depth, offsets_used, blockers, schedule=sch, translation=tr)
+        # normalize before evaluating to keep cache keys stable across similar transforms
+        Tn = _normalize_grid(T)
+        # conservative deterministic pruning
+        Tpr = prune_intervals(Tn)
+        ratio, om, cols, n = evaluate(Tpr)
+        cand = (ratio, om, cols, n, Tpr, (depth, offsets_used, bname, sch, tr))
+        # deterministic acceptance: accept if strictly better ratio, or equal ratio but fewer intervals
+        if best_global is None:
+            best_global = cand
+        else:
+            if cand[0] > best_global[0] + 1e-12:
+                best_global = cand
+            elif abs(cand[0] - best_global[0]) <= 1e-12:
+                if cand[3] < best_global[3] or (cand[3] == best_global[3] and cand[2] > best_global[2]):
+                    best_global = cand
+        # small deterministic refinement: if candidate is near-best, try a local deterministic micro-perturb
+        if best_global and ratio >= best_global[0] - 1e-12:
+            # micro-perturb: toggle translation and re-evaluate
+            alt_tr = 'center' if tr == 'left' else 'left'
+            T2 = build_recursive(base_seed, depth, offsets_used, blockers, schedule=sch, translation=alt_tr)
+            T2n = _normalize_grid(T2)
+            T2pr = prune_intervals(T2n)
+            r2, o2, c2, n2 = evaluate(T2pr)
+            cand2 = (r2, o2, c2, n2, T2pr, (depth, offsets_used, bname, sch, alt_tr))
+            if cand2[0] > best_global[0] + 1e-12 or (abs(cand2[0] - best_global[0]) <= 1e-12 and cand2[3] < best_global[3]):
+                best_global = cand2
+
+    # If nothing found, fall back to canonical 4-depth construction
+    if best_global is None:
+        T = build_recursive(base_seed, max(2, iterations), canonical_offsets, blocker_templates['std'], schedule='after', translation='left')
+        return _normalize_grid(T)
+
+    # Final deterministic pruning and normalization for output
+    final_intervals = list(best_global[4])
+    final_intervals = prune_intervals(final_intervals)
+    final_intervals = _normalize_grid(final_intervals)
+
+    return final_intervals
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

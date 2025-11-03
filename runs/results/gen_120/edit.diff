@@ -1,0 +1,552 @@
+--- a/original.py
++++ b/original.py
+@@ -1,195 +1,398 @@
+ # EVOLVE-BLOCK-START
+ 
++from bisect import bisect_left
++from math import gcd
++
++# --------- Basic interval utilities (open intervals) ---------
++
++def _overlap(a, b):
++    (l1, r1), (l2, r2) = a, b
++    return max(l1, l2) < min(r1, r2)  # open intervals
++
+ def _normalize_grid(intervals):
+     """
+-    Normalize endpoints to a compact integer grid while preserving order.
+-    Each unique endpoint is mapped to an increasing even integer.
+-    Returns a new list of (l, r) with integer coordinates.
+-    """
+-    endpoints = sorted(set([x for seg in intervals for x in seg]))
+-    coord = {}
+-    cur = 0
+-    for e in endpoints:
+-        coord[e] = cur
+-        cur += 2  # spacing by 2 to keep even gaps
++    Map unique endpoints to 0,2,4,... preserving order.
++    """
++    if not intervals:
++        return []
++    endpoints = sorted({x for seg in intervals for x in seg})
++    coord = {v: i*2 for i, v in enumerate(endpoints)}
+     return [(coord[l], coord[r]) for (l, r) in intervals]
+ 
+-
+-def _ff_count(intervals):
+-    """
+-    Fast FirstFit color count using per-color last end tracking.
+-    For open intervals, a color c is compatible if l >= last_end[c].
+-    """
+-    last_end = []
+-    for (l, r) in intervals:
+-      placed = False
+-      for i, le in enumerate(last_end):
+-        if l >= le:
+-          last_end[i] = r
+-          placed = True
+-          break
+-      if not placed:
+-        last_end.append(r)
+-    return len(last_end)
+-
++def _normalize_grid_gcd(intervals):
++    """
++    Normalize to 0,2,4,... then divide all coordinates by gcd to shrink.
++    """
++    T = _normalize_grid(intervals)
++    g = 0
++    for (l, r) in T:
++        g = gcd(g, abs(l))
++        g = gcd(g, abs(r))
++    if g > 1:
++        T = [(l//g, r//g) for (l, r) in T]
++    return T
+ 
+ def _omega_open(intervals):
+     """
+-    Compute omega (max number of intervals covering a single point) for open intervals
+-    via sweep. Process right endpoints before left endpoints on ties.
++    Maximum number of intervals covering a single point (open intervals).
++    Sweep events; process rights before lefts on ties.
+     """
+     events = []
+     for (l, r) in intervals:
+         if l < r:
+             events.append((l, +1))
+             events.append((r, -1))
+-    # right (-1) before left (+1) at the same coordinate
+     events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+     cur = best = 0
+     for _, t in events:
+         cur += t
+         if cur > best:
+             best = cur
+     return best
+ 
+-
+-def _build_candidate(depth, starts, blockers, schedule='after', extra_first=False, extra_last=False, translation='left'):
+-    """
+-    Build a depth-level recursive pattern using four scaled copies per level and four long connectors.
+-    - starts: tuple of offsets (multipliers) for the copies
+-    - blockers: list of 4 pairs (a,b) as multipliers of delta
+-    - schedule: 'after' | 'before' | 'split' controls the order within a level
+-    - extra_first: adds a 5th copy (start=18) at the first level to enhance coupling
+-    - translation: 'left' | 'center' anchor for positioning copies/blockers
++# --------- Accurate FirstFit (per-color non-overlap via neighbors) ---------
++
++def _fits_in_color(iv, color):
++    """
++    Check if interval iv=(l,r) can be inserted into color without overlap.
++    color is {'ivals': [(l,r),...], 'lefts':[l,...]} with ivals sorted by left.
++    """
++    l, r = iv
++    lefts = color['lefts']
++    pos = bisect_left(lefts, l)
++    # predecessor
++    if pos > 0:
++        pl, pr = color['ivals'][pos-1]
++        if pr > l:  # open intervals => pr > l means overlap
++            return False
++    # successor
++    if pos < len(color['ivals']):
++        nl, nr = color['ivals'][pos]
++        if nl < r:  # open intervals => nl < r means overlap
++            return False
++    return True
++
++def _place_in_firstfit(iv, colors):
++    """
++    Place iv into first color it fits (FirstFit). Returns color index used.
++    Mutates colors in place.
++    """
++    for i, color in enumerate(colors):
++        if _fits_in_color(iv, color):
++            pos = bisect_left(color['lefts'], iv[0])
++            color['ivals'].insert(pos, iv)
++            color['lefts'].insert(pos, iv[0])
++            return i
++    # new color
++    colors.append({'ivals':[iv], 'lefts':[iv[0]]})
++    return len(colors) - 1
++
++def _firstfit_colors(intervals):
++    """
++    Return number of colors used by FirstFit on the given ordered list.
++    """
++    colors = []
++    for iv in intervals:
++        _place_in_firstfit(iv, colors)
++    return len(colors)
++
++# --------- Recursive builders (multi-tiling + blocker templates) ---------
++
++_OFFSETS_SETS = {
++    'A': (2, 6, 10, 14),
++    'B': (1, 5, 9, 13),
++    'C': (3, 7, 11, 15),
++    'D': (0, 4, 8, 12),
++}
++
++# Three deterministic blocker templates (as multipliers of delta)
++_BLOCKERS_TEMPLATES = {
++    'A': ((1,5), (12,16), (4,9), (8,13)),                  # canonical
++    'B': ((0,4), (7,11), (3,7), (10,14)),                  # template B
++    'C': ((1,5), (9,13), (5,9), (12,16)),                  # template C
++}
++
++def _expand_once(T, offsets, blockers, schedule='after', translation='left'):
++    """
++    One expand step: place copies of T at given offsets and append blockers.
++    schedule: 'after' | 'before' | 'split'
++    translation: 'left' uses offset*delta - lo; 'center' uses offset*delta - center
++    """
++    lo = min(l for l, r in T)
++    hi = max(r for l, r in T)
++    delta = hi - lo
++    center = (lo + hi) / 2.0
++
++    def make_copies(from_T, offs):
++        S = []
++        for start in offs:
++            if translation == 'left':
++                shift = delta * start - lo
++            else:
++                shift = delta * start - center
++            S.extend(((l+shift, r+shift) for (l, r) in from_T))
++        return S
++
++    if translation == 'left':
++        blk = [(delta*a, delta*b) for (a,b) in blockers]
++    else:
++        blk = [(delta*a - center, delta*b - center) for (a,b) in blockers]
++
++    if schedule == 'after':
++        S = make_copies(T, offsets) + blk
++    elif schedule == 'before':
++        S = list(blk) + make_copies(T, offsets)
++    else:  # split
++        h = len(offsets) // 2
++        S = make_copies(T, offsets[:h]) + list(blk) + make_copies(T, offsets[h:])
++    return S
++
++def _build_blueprint(depth, offset_cycle, blocker_cycle, schedule='after',
++                     extra_first=False, translation='left', norm_schedule='final'):
++    """
++    Build a recursive multi-tiling instance:
++    - offset_cycle: string over {'A','B','C','D'} (e.g., 'ABCD' or 'AAAA'),
++      selecting offsets per level cyclically.
++    - blocker_cycle: string over {'A','B','C'} selecting blockers per level cyclically.
++    - schedule: 'after'|'before'|'split' for per-level ordering.
++    - extra_first: add a 5th copy offset=18 at level 0 to diversify geometry.
++    - translation: 'left'|'center' anchor.
++    - norm_schedule: 'final' | 'per_level' | 'two_step' (normalize after every two levels).
+     """
+     T = [(0.0, 1.0)]
+-    for i in range(depth):
+-        lo = min(l for l, r in T)
+-        hi = max(r for l, r in T)
+-        delta = hi - lo
+-        center = (lo + hi) / 2.0
+-
+-        offs = tuple(starts)
+-        if extra_first and i == 0 and 18 not in offs:
+-            offs = offs + (18,)
+-        if extra_last and i == depth - 1 and 18 not in offs:
+-            offs = offs + (18,)
+-
+-        def make_copies(from_T, offsets):
+-            S = []
+-            for start in offsets:
+-                if translation == 'left':
+-                    offset = delta * start - lo
+-                else:
+-                    offset = delta * start - center
+-                for (l, r) in from_T:
+-                    S.append((l + offset, r + offset))
+-            return S
+-
+-        # scale blockers
+-        if translation == 'left':
+-            blk = [(delta * a, delta * b) for (a, b) in blockers]
++    oc = offset_cycle
++    bc = blocker_cycle
++    for lvl in range(depth):
++        offs = list(_OFFSETS_SETS[oc[lvl % len(oc)]])
++        if extra_first and lvl == 0 and 18 not in offs:
++            offs.append(18)
++        blks = _BLOCKERS_TEMPLATES[bc[lvl % len(bc)]]
++        T = _expand_once(T, tuple(offs), blks, schedule=schedule, translation=translation)
++        if norm_schedule == 'per_level':
++            T = _normalize_grid(T)
++        elif norm_schedule == 'two_step' and (lvl % 2 == 1):
++            T = _normalize_grid(T)
++    return T
++
++# --------- Deterministic adversarial scheduler (novel) ---------
++
++def _midpoint(iv):
++    l, r = iv
++    return (l + r) / 2.0
++
++def _length(iv):
++    return iv[1] - iv[0]
++
++def _covers_point(iv, p):
++    l, r = iv
++    return l < p and p < r
++
++def _greedy_adversarial_order(intervals, seed_point=None, seed_k=None, pool_k=64):
++    """
++    Reorder intervals to maximize FirstFit colors:
++    - Seed with up to seed_k long intervals covering a common point (spine),
++      which forces an initial color stack.
++    - Then iteratively pick from a pool of up to pool_k remaining intervals
++      the candidate that yields the largest color index if placed next.
++    Deterministic: ties are broken by (assigned_color, length, left, right).
++    """
++    if not intervals:
++        return []
++
++    # Normalize a scratch copy for stable comparisons but keep real coords for final return
++    S = list(intervals)
++
++    # Choose a seed point near the global center if not given
++    if seed_point is None:
++        lo = min(l for l, r in S)
++        hi = max(r for l, r in S)
++        seed_point = (lo + hi) / 2.0
++
++    # Determine seed_k as a safe bound: do not exceed observed omega of the pool
++    base_omega = _omega_open(_normalize_grid(S))
++    if seed_k is None:
++        seed_k = max(3, min(7, base_omega))  # conservative; typically equals omega
++
++    # Spine: take the longest intervals covering seed_point
++    cover = [iv for iv in S if _covers_point(iv, seed_point)]
++    cover.sort(key=lambda iv: (-_length(iv), iv[0], iv[1]))
++    spine = cover[:seed_k]
++    used = set(spine)
++    ordered = []
++    colors = []
++
++    # Place spine intervals first (they will stack into distinct colors)
++    for iv in spine:
++        _place_in_firstfit(iv, colors)
++        ordered.append(iv)
++
++    # Remaining intervals
++    remaining = [iv for iv in S if iv not in used]
++
++    # Greedy loop
++    while remaining:
++        # Candidate pool: pick up to pool_k longest remaining intervals
++        remaining.sort(key=lambda iv: (-_length(iv), iv[0], iv[1]))
++        pool = remaining[:pool_k]
++
++        best = None  # (assigned_color, length, left, right, iv, idx)
++        best_idx = None
++        # Evaluate candidates on current colors
++        for idx, iv in enumerate(pool):
++            # simulate placement
++            assigned = None
++            for i, color in enumerate(colors):
++                if _fits_in_color(iv, color):
++                    assigned = i
++                    break
++            if assigned is None:
++                assigned = len(colors)  # would open a new color
++
++            key = (assigned, _length(iv), -iv[0], -iv[1])  # prefer larger color, longer, right-shifted
++            if (best is None) or (key > best[0]):
++                best = (key, iv)
++                best_idx = idx
++
++        # Fallback if pool evaluated empty (should not happen)
++        if best is None:
++            iv = remaining.pop(0)
+         else:
+-            blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+-
+-        if schedule == 'after':
+-            S = make_copies(T, offs) + blk
+-        elif schedule == 'before':
+-            S = list(blk) + make_copies(T, offs)
+-        elif schedule == 'split':
+-            h = len(offs) // 2
+-            S = make_copies(T, offs[:h]) + list(blk) + make_copies(T, offs[h:])
+-        elif schedule == 'interleaved':
+-            S = []
+-            for idx, start in enumerate(offs):
+-                # copy for this offset
+-                offset = delta * start - lo if translation == 'left' else delta * start - center
+-                for (l, r) in T:
+-                    S.append((l + offset, r + offset))
+-                # then add the corresponding blocker if available
+-                if idx < len(blk):
+-                    S.append(blk[idx])
+-        else:
+-            S = make_copies(T, offs) + blk
+-
+-        T = S
+-    return T
+-
++            iv = pool[best_idx]
++            remaining.remove(iv)
++
++        _place_in_firstfit(iv, colors)
++        ordered.append(iv)
++
++    return ordered
++
++# --------- Frontier-preserving pruning (deterministic) ---------
++
++def _evaluate(intervals):
++    Tn = _normalize_grid(intervals)
++    omega = _omega_open(Tn)
++    cols = _firstfit_colors(Tn)
++    ratio = cols / omega if omega > 0 else 0.0
++    return ratio, cols, omega, len(Tn), Tn
++
++def _prune_preserve_frontier(intervals, target_ratio=None):
++    """
++    Remove intervals if colors/omega does not drop below target_ratio.
++    Earliest-added-first removal, one pass then selective repeats.
++    """
++    cur = list(intervals)
++    if not cur:
++        return cur
++
++    base_ratio, base_cols, base_omega, _, _ = _evaluate(cur)
++    if target_ratio is None:
++        target_ratio = base_ratio
++
++    changed = True
++    while changed:
++        changed = False
++        for i in range(len(cur)):
++            cand = cur[:i] + cur[i+1:]
++            r, c, o, _, _ = _evaluate(cand)
++            if o == 0:
++                continue
++            if r >= target_ratio - 1e-12:
++                cur = cand
++                changed = True
++                break
++    return cur
++
++# --------- High-level construction and selection ---------
+ 
+ def construct_intervals(iterations=4, normalize=True):
+     """
+-    Adaptive search-driven construction. Sweep a modest parameter space (offsets, blockers,
+-    schedule, translation, extra-first, depth) and return the instance maximizing FirstFit/omega.
+-    Arguments:
+-      iterations: maximum recursion depth considered (we try iterations-1 and iterations, min 2)
+-      normalize: normalize endpoints to a compact integer grid (recommended)
+-    Returns: list of intervals (l, r) in arrival order.
+-    """
+-    depths = sorted(set([max(2, iterations - 1), max(2, iterations)]))
+-
+-    start_sets = [
+-        (2, 6, 10, 14),   # canonical
+-        (1, 5, 9, 13),    # shift left
+-        (3, 7, 11, 15),   # shift right
+-        (0, 4, 8, 12),    # leftmost
++    Deterministic exploration + adversarial scheduling + pruning.
++    Returns a list of (l,r) open intervals in arrival order.
++    """
++
++    # Candidate parameter grids (compact, diverse)
++    depths = sorted(set([max(2, iterations - 1), max(2, iterations), min(5, max(2, iterations + 1))]))
++    offset_cycles = [
++        'AAAA', 'BBBB', 'CCCC', 'DDDD',
++        'ABCD', 'BCDA', 'CDAB', 'DABC',
++        'ACAC', 'BDBD'
+     ]
+-    blocker_templates = [
+-        [(1, 5), (12, 16), (4, 9), (8, 13)],             # canonical
+-        [(1, 5), (11, 15), (4, 9), (8, 13)],             # slight shift
+-        [(2, 6), (12, 16), (4, 9), (8, 13)],             # shift first
+-        [(1, 6), (11, 16), (3, 9), (7, 13)],             # lengthened
++    blocker_cycles = [
++        'A', 'B', 'C', 'AB', 'AC', 'BC', 'ABC'
+     ]
+-    schedules = ['after', 'before', 'split', 'interleaved']
++    schedules = ['after', 'before', 'split']
+     translations = ['left', 'center']
+-    extra_options = [(False, False), (True, False), (False, True), (True, True)]
+-
+-    best_T = None
+-    best_ratio = -1.0
+-    best_n = None
+-    best_cols = 0
+-    best_om = 0
+-
++    norm_schedules = ['final', 'per_level', 'two_step']
++    extra_first_opts = [False, True]
++
++    best_data = None  # (ratio, cols, omega, n, raw_intervals)
++    best_T_raw = None
++
++    # Stage 1: build blueprints and evaluate raw
+     for d in depths:
+-        # guard explosion: rough size ~ (4^d)*8; keep manageable
+-        if (4 ** d) * 8 > 4000:
++        # limit explosion guard (approximate growth ~ 4^d)
++        if d > 5:
+             continue
+-        for starts in start_sets:
+-            for blockers in blocker_templates:
++        for oc in offset_cycles:
++            for bc in blocker_cycles:
+                 for sch in schedules:
+                     for tr in translations:
+-                        for extra_first, extra_last in extra_options:
+-                            T = _build_candidate(d, starts, blockers, schedule=sch, extra_first=extra_first, extra_last=extra_last, translation=tr)
+-                            om = _omega_open(T)
+-                            if om == 0:
+-                                continue
+-                            cols = _ff_count(T)
+-                            ratio = cols / om
+-                            n = len(T)
+-                            better = False
+-                            if ratio > best_ratio + 1e-12:
+-                                better = True
+-                            elif abs(ratio - best_ratio) <= 1e-12:
+-                                if best_n is None or n < best_n:
+-                                    better = True
+-                                elif n == best_n and cols > best_cols:
+-                                    better = True
+-                            if better:
+-                                best_ratio = ratio
+-                                best_T = T
+-                                best_n = n
+-                                best_cols = cols
+-                                best_om = om
++                        for ns in norm_schedules:
++                            for ef in extra_first_opts:
++                                T = _build_blueprint(d, oc, bc, schedule=sch,
++                                                     extra_first=ef, translation=tr, norm_schedule=ns)
++                                ratio, cols, omega, n, Tn = _evaluate(T)
++                                # Prefer higher ratio, then fewer intervals, then higher cols
++                                if omega == 0:
++                                    continue
++                                cand = (ratio, -n, cols, T)
++                                if (best_data is None) or (cand > (best_data[0], -best_data[3], best_data[1], best_T_raw)):
++                                    best_data = (ratio, cols, omega, n, Tn)
++                                    best_T_raw = T
+ 
+     # Fallback to canonical if search failed
+-    if best_T is None:
+-        best_T = _build_candidate(depth=max(2, iterations), starts=(2, 6, 10, 14),
+-                                  blockers=[(1, 5), (12, 16), (4, 9), (8, 13)],
+-                                  schedule='after', extra_first=False, translation='left')
+-
+-    return _normalize_grid(best_T) if normalize else best_T
++    if best_T_raw is None:
++        T = [(0.0, 1.0)]
++        for _ in range(max(2, iterations)):
++            lo = min(l for l, r in T)
++            hi = max(r for l, r in T)
++            delta = hi - lo
++            S = []
++            for start in (2, 6, 10, 14):
++                S.extend(((delta*start + l - lo, delta*start + r - lo) for (l, r) in T))
++            S += [(delta*1, delta*5), (delta*12, delta*16), (delta*4, delta*9), (delta*8, delta*13)]
++            T = S
++        best_T_raw = T
++
++    # Stage 2: adversarial scheduling (novel reordering)
++    # Determine seed point as center of span; seed_k bounded by observed omega
++    lo = min(l for l, r in best_T_raw)
++    hi = max(r for l, r in best_T_raw)
++    center_point = (lo + hi) / 2.0
++    raw_ratio, raw_cols, raw_omega, raw_n, _ = _evaluate(best_T_raw)
++
++    reordered = _greedy_adversarial_order(best_T_raw, seed_point=center_point, seed_k=None, pool_k=64)
++    re_ratio, re_cols, re_omega, re_n, _ = _evaluate(reordered)
++
++    # Choose better between raw and reordered
++    if (re_ratio > raw_ratio + 1e-12) or (abs(re_ratio - raw_ratio) <= 1e-12 and (re_n < raw_n or re_cols > raw_cols)):
++        chosen = reordered
++        base_ratio = re_ratio
++    else:
++        chosen = best_T_raw
++        base_ratio = raw_ratio
++
++    # Stage 3: frontier-preserving pruning to reduce footprint without hurting frontier
++    pruned = _prune_preserve_frontier(chosen, target_ratio=base_ratio)
++    fin_ratio, fin_cols, fin_omega, fin_n, Tn = _evaluate(pruned)
++
++    # Normalization for output
++    if normalize:
++        return _normalize_grid_gcd(pruned if fin_ratio >= base_ratio - 1e-12 else chosen)
++    else:
++        return pruned if fin_ratio >= base_ratio - 1e-12 else chosen
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

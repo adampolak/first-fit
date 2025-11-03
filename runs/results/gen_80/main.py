@@ -1,0 +1,139 @@
+# EVOLVE-BLOCK-START
+
+import random
+import math
+from math import gcd
+
+def firstfit_colors(intervals):
+    # track last end for each color
+    last_end = []
+    for (l,r) in intervals:
+        placed = False
+        for i,le in enumerate(last_end):
+            if l >= le:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def clique_number(intervals):
+    events = []
+    for l,r in intervals:
+        if l < r:
+            events.append((l, +1))
+            events.append((r, -1))
+    events.sort(key=lambda x:(x[0], 0 if x[1]<0 else 1))
+    cur=best=0
+    for _,d in events:
+        cur+=d
+        if cur>best: best=cur
+    return best
+
+def normalize_grid(intervals):
+    pts = sorted({x for seg in intervals for x in seg})
+    coord = {}
+    cur = 0
+    for x in pts:
+        coord[x] = cur
+        cur += 2
+    return [(coord[l], coord[r]) for (l,r) in intervals]
+
+def make_base(depth=4):
+    # the standard Figure-4 recursive gadget
+    T=[(0.0,1.0)]
+    for _ in range(depth):
+        lo=min(l for l,r in T)
+        hi=max(r for l,r in T)
+        d=hi-lo
+        S=[]
+        for a in (2,6,10,14):
+            off=d*a-lo
+            for l,r in T:
+                S.append((l+off,r+off))
+        # four blockers
+        for a,b in ((1,5),(12,16),(4,9),(8,13)):
+            S.append((d*a,d*b))
+        T=S
+    return T
+
+def fitness(intervals, λ=1e-4):
+    om=clique_number(intervals)
+    if om==0: return -1e9
+    ff=firstfit_colors(intervals)
+    return (ff/om) - λ*len(intervals)
+
+def mutate(intervals, span):
+    T = intervals.copy()
+    choice = random.random()
+    if choice < 0.4 and len(T)>8:
+        # remove a random interval
+        i = random.randrange(len(T))
+        T.pop(i)
+    elif choice < 0.8:
+        # shift a random interval slightly
+        i = random.randrange(len(T))
+        l,r = T[i]
+        ε = span * (random.random()*0.2 - 0.1)
+        T[i] = (l+ε, r+ε)
+    else:
+        # add a new small interval
+        l = random.uniform(0, span)
+        w = span * random.uniform(0.01, 0.05)
+        T.append((l, l+w))
+    return T
+
+def prune(intervals, target_ratio):
+    T = intervals.copy()
+    changed=True
+    while changed:
+        changed=False
+        # try removing in order of decreasing length
+        order = sorted(range(len(T)), key=lambda i:-(T[i][1]-T[i][0]))
+        for i in order:
+            cand = T[:i]+T[i+1:]
+            om=clique_number(cand)
+            if om==0: continue
+            ff=firstfit_colors(cand)
+            if ff/om >= target_ratio:
+                T=cand
+                changed=True
+                break
+    return T
+
+def construct_intervals(iterations=10000, temp0=1.0, temp_decay=0.9995):
+    # initialize
+    best = make_base(depth=4)
+    best_f = fitness(best)
+    cur = best.copy()
+    cur_f = best_f
+    # determine span for mutations
+    lo = min(l for l,r in cur)
+    hi = max(r for l,r in cur)
+    span = hi - lo
+    temp = temp0
+
+    for _ in range(iterations):
+        cand = mutate(cur, span)
+        f_c = fitness(cand)
+        if f_c > cur_f or random.random() < math.exp((f_c-cur_f)/temp):
+            cur, cur_f = cand, f_c
+            if f_c > best_f:
+                best, best_f = cand.copy(), f_c
+        temp *= temp_decay
+
+    # final prune
+    om = clique_number(best)
+    ff = firstfit_colors(best)
+    target_ratio = ff/om if om>0 else 0
+    pruned = prune(best, target_ratio)
+
+    # normalize and return
+    return normalize_grid(pruned)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

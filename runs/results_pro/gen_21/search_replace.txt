@@ -1,0 +1,74 @@
+<NAME>
+cycle_four_start_patterns_and_increase_depth
+</NAME>
+
+<DESCRIPTION>
+Replace the 2‐pattern alternating gadget with a 4‐pattern cycle to break symmetry, and bump gadget depth from 3 to 4 to increase FirstFit pressure.
+Specifically:
+- Extend `patterns` in `make_gadget` to four start‐factor tuples.
+- Simplify `starts` selection to `patterns[i % 4]`.
+- Change invocation `make_gadget(depth=3, alternate=True)` to `make_gadget(depth=4)`.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def make_gadget(depth=3, alternate=False):
+        # base seed
+        T = [(0.0, 1.0)]
+        bridge_factors = [(1, 5), (12, 16), (4, 9), (8, 13)]
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+        ]
+        for i in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            span = hi - lo
+            S = []
+            starts = patterns[i % 2] if alternate else patterns[0]
+            for s in starts:
+                offset = span * s - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            for a, b in bridge_factors:
+                S.append((span * a, span * b))
+            T = S
+        return T
+=======
+    def make_gadget(depth=4):
+        # base seed
+        T = [(0.0, 1.0)]
+        bridge_factors = [(1, 5), (12, 16), (4, 9), (8, 13)]
+        # cycle through four distinct start‐factor patterns for increased asymmetry
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+            (4, 8, 12, 16),
+            (5, 9, 13, 17),
+        ]
+        for i in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            span = hi - lo
+            S = []
+            starts = patterns[i % 4]
+            for s in starts:
+                offset = span * s - lo
+                for (l, r) in T:
+                    S.append((l + offset, r + offset))
+            for a, b in bridge_factors:
+                S.append((span * a, span * b))
+            T = S
+        return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Build a mid-sized gadget as backbone
+    gadget = make_gadget(depth=3, alternate=True)  # depth 3 gives good pressure without extreme size
+=======
+    # Build a mid-sized gadget as backbone
+    gadget = make_gadget(depth=4)  # increase depth to 4 and cycle four start‐patterns
+>>>>>>> REPLACE
+</DIFF>

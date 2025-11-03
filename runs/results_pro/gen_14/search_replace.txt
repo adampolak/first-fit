@@ -1,0 +1,66 @@
+<NAME>
+cycle_patterns_and_bridges
+</NAME>
+
+<DESCRIPTION>
+I broaden the asymmetry in the recursive gadget by cycling through four distinct start-patterns and four distinct bridge-sets tied to the layer index. This is inspired by cap-like constructions and bridge diversification seen to increase FirstFit’s color usage without increasing the clique number beyond the small constant already enforced by the Figure-4 style gadget.
+
+Rationale:
+- Cycling (2,6,10,14) → (3,7,11,15) → (4,8,12,16) → (5,9,13,17) across layers perturbs the alignment of replicated blocks, reducing regularity and encouraging FirstFit to open more colors.
+- Alternating among small families of bridges across layers creates additional cross-links between replicated copies without necessarily enlarging the largest clique, preserving the known omega≈5 behavior while pushing FF upward.
+- This change keeps the depth and overall structure intact and should remain efficient and deterministic.
+
+This is a targeted change: only the build() function is modified to use the pattern and bridge cycles.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def build(depth):
+        """
+        Build the gadget by repeatedly expanding the template `depth` times.
+        We alternate two start‐factor patterns to induce asymmetry.
+        """
+        # initial seed: single unit interval
+        T = [(0.0, 1.0)]
+        # fixed bridge-interval factors from Figure 4
+        bridge_factors = [(1,5), (12,16), (4,9), (8,13)]
+        # two alternating start-factor patterns
+        patterns = [
+            (2,6,10,14),
+            (3,7,11,15),
+        ]
+        for i in range(depth):
+            starts = patterns[i % 2]
+            T = expand_layer(T, starts, bridge_factors)
+        return T
+=======
+    def build(depth):
+        """
+        Build the gadget by repeatedly expanding the template `depth` times.
+        Use a 4-cycle of start-factor patterns and bridge-sets to increase
+        asymmetry and coupling while preserving a small clique number.
+        """
+        # initial seed: single unit interval
+        T = [(0.0, 1.0)]
+        # four start-factor patterns (cycled by layer)
+        patterns = [
+            (2, 6, 10, 14),
+            (3, 7, 11, 15),
+            (4, 8, 12, 16),
+            (5, 9, 13, 17),
+        ]
+        # four bridge-sets (cycled by layer), all scaled by current span
+        bridge_sets = [
+            [(1, 5),  (12, 16), (4, 9),  (8, 13)],  # baseline (Figure 4)
+            [(2, 6),  (11, 15), (5, 10), (9, 14)],  # shifted inward/outward
+            [(3, 7),  (10, 14), (6, 11), (7, 12)],  # midband couplers
+            [(4, 8),  (13, 17), (7, 12), (8, 13)],  # heavier right cap
+        ]
+        for i in range(depth):
+            starts = patterns[i % 4]
+            bridges = bridge_sets[i % 4]
+            T = expand_layer(T, starts, bridges)
+        return T
+>>>>>>> REPLACE
+
+</DIFF>

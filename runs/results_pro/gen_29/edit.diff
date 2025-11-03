@@ -1,0 +1,144 @@
+--- a/original.py
++++ b/original.py
+@@ -1,77 +1,109 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+     """
+-    Construct an interval sequence that forces FirstFit to use many colors
+-    while keeping the clique number at 4.  We apply a 4‐layer recursive
+-    gadget expansion with alternating shift patterns and canonical bridge intervals.
++    Construct an interval sequence that forces FirstFit to use a larger
++    number of colors while keeping the clique number modest.
++    This version uses a four-seed initialization, four alternating start-pattern
++    layer expansions, and per-layer bridge scaling to inject diversity while
++    preserving self-similarity and small omega.
+     Returns:
+-      List of (l, r) open‐interval tuples.
++      List of (l, r) open-interval tuples.
+     """
+ 
+-    def expand_layer(template, starts, bridges):
++    # Deterministic helpers and small utilities
++    def expand_layer(template, starts, bridges, layer_idx, scale_seq):
+         """
+-        Given a list of intervals `template`, produce one expansion layer:
+-        - replicate `template` shifted by each factor in `starts`
+-        - add each bridge interval scaled by the current span
++        Expand the current template once:
++        - replicate the template translated by each factor in `starts`
++        - add bridge intervals scaled by the current span and per-layer scale
+         """
+         lo = min(l for l, r in template)
+         hi = max(r for l, r in template)
+         span = hi - lo
+         result = []
+-        # replicate
++        # replicate by starts
+         for s in starts:
+             offset = span * s - lo
+             for (l, r) in template:
+                 result.append((l + offset, r + offset))
+-        # add bridges (each specified as (a,b) factors)
++        # bridges with per-layer scaling
++        scale = scale_seq[layer_idx % len(scale_seq)]
+         for a, b in bridges:
+-            result.append((span * a, span * b))
++            result.append((span * a * scale, span * b * scale))
+         return result
+ 
+-    def build_multilayer(depth):
++    def build(depth=4):
+         """
+         Build the gadget by repeatedly expanding the template `depth` times.
+-        We alternate two start‐shift patterns to induce asymmetry.
++        We alternate four start-patterns to induce asymmetry across layers.
+         """
+-        # initial seed: single unit interval
+-        T = [(0.0, 1.0)]
+-        # fixed bridge‐interval factors from Figure 4
++        # initial four seeds (kept disjoint to keep omega small in early stages)
++        T = [
++            (0.0, 1.0),   # seed 0
++            (5.0, 6.0),   # seed 1
++            (11.0, 12.0), # seed 2
++            (17.0, 18.0)  # seed 3
++        ]
++        # fixed bridge-interval factors from Figure 4 (canonical)
+         bridge_factors = [(1,5), (12,16), (4,9), (8,13)]
+-        # two alternating start‐factor patterns
++        # four start-pattern cycles
+         patterns = [
+-            (2,6,10,14),
+-            (3,7,11,15),
++            (2, 6, 10, 14),
++            (3, 7, 11, 15),
++            (4, 8, 12, 16),
++            (5, 9, 13, 17),
+         ]
++        scale_seq = [1.0, 1.25, 0.95, 1.15]  # deterministic per-layer scale variation
++
+         for i in range(depth):
+-            starts = patterns[i % 2]
+-            T = expand_layer(T, starts, bridge_factors)
++            starts = patterns[i % len(patterns)]
++            T = expand_layer(T, starts, bridge_factors, i, scale_seq)
+         return T
+ 
+-    def normalize(intervals, scale=10):
++    def normalize(intervals, scale=10.0):
+         """
+-        Shift all intervals to positive, multiply by `scale`, and
+-        round to integers so that open intervals remain valid.
++        Normalize to positive coordinates and map to a compact integer grid.
++        - shift so all l > 0
++        - scale to target grid width
++        - ensure open intervals remain valid
+         """
+-        # shift so all l > 0
+         min_l = min(l for l, r in intervals)
+         shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
++        shifted = [(l + shift, r + shift) for (l, r) in intervals]
++        lo = min(l for l, r in shifted)
++        hi = max(r for l, r in shifted)
++        span = hi - lo if hi > lo else 1.0
++        # target around 2000 units across
++        scale_eff = max(1.0, (2000.0 / span))
+         normalized = []
+-        for (l, r) in intervals:
+-            L = int((l + shift) * scale)
+-            R = int((r + shift) * scale + 0.9999)
++        for (l, r) in shifted:
++            L = int((l - lo) * scale_eff)
++            R = int((r - lo) * scale_eff + 0.999999)
+             if R <= L:
+                 R = L + 1
+             normalized.append((float(L), float(R)))
+         return normalized
+ 
+-    # Build with 4 recursive layers to push FF >> opt=4
+-    raw = build_multilayer(depth=4)
+-    # Map to integer grid and clean up
+-    return normalize(raw)
++    # Build backbone gadget with four layers
++    raw = build(depth=4)
++
++    # Normalize into a compact integer grid
++    normalized = normalize(raw, scale=10.0)
++
++    # Deduplicate exactly-equal intervals while preserving order
++    seen = set()
++    final = []
++    for iv in normalized:
++        if iv in seen:
++            continue
++        seen.add(iv)
++        final.append(iv)
++
++    return final
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

@@ -1,0 +1,100 @@
+<NAME>
+alternate_offsets
+</NAME>
+<DESCRIPTION>
+Add an `alt_offsets` flag to `_compute_four_copies_and_blockers` so that we can switch between two base offset patterns (canonical (2,6,10,14) and alternate (1,5,9,13)). Also unify the extra-offset logic by appending a fifth copy when requested. This deterministic alternation will break regularity and tends to drive FirstFit to consume more colors without enlarging the clique.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def _compute_four_copies_and_blockers(T, extra_offset=False):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing translated copies and appending four long blockers.
+  By default uses four offsets (2,6,10,14); if extra_offset=True adds 18.
+  """
+  # current span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  # determine offsets
+  if extra_offset:
+    offsets = (2, 6, 10, 14, 18)
+  else:
+    offsets = (2, 6, 10, 14)
+
+  # copies at specified offsets
+  S = []
+  for start in offsets:
+    offset = delta * start - lo
+    S.extend([(offset + l, offset + r) for (l, r) in T])
+
+  # four connecting long intervals
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13)
+  ]
+  return S
+=======
+def _compute_four_copies_and_blockers(T, extra_offset=False, alt_offsets=False):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing translated copies and appending long blockers.
+  - alt_offsets=True switches base offsets to (1,5,9,13)
+  - extra_offset=True adds a fifth copy at multiplier 18
+  """
+  # current span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  # determine base offsets
+  if alt_offsets:
+    base = (1, 5, 9, 13)
+  else:
+    base = (2, 6, 10, 14)
+  offsets = base + ((18,) if extra_offset else ())
+
+  # copies at specified offsets
+  S = []
+  for start in offsets:
+    offset = delta * start - lo
+    for l, r in T:
+      S.append((offset + l, offset + r))
+
+  # four connecting long intervals (blockers)
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13),
+  ]
+  return S
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+apply_alternate_offsets
+</NAME>
+<DESCRIPTION>
+Change the recursion in `construct_intervals` so that on each iteration we pass `alt_offsets=True` for odd levels (to switch patterns) and `extra_offset=True` only on the first level. This alternation further fragments the coloring pattern, driving FirstFit to open new colors.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  # Recursive expansion: at each level replace T by copies plus blockers,
+  # with an extra copy on the first iteration to heighten initial conflict.
+  for i in range(iterations):
+    if i == 0:
+      T = _compute_four_copies_and_blockers(T, extra_offset=True)
+    else:
+      T = _compute_four_copies_and_blockers(T)
+=======
+  # Recursive expansion: alternate offset patterns and optionally add an extra copy on the first iteration
+  for i in range(iterations):
+    extra = (i == 0)
+    alt = (i % 2 == 1)
+    T = _compute_four_copies_and_blockers(T, extra_offset=extra, alt_offsets=alt)
+>>>>>>> REPLACE
+</DIFF>

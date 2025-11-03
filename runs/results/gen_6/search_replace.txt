@@ -1,0 +1,115 @@
+<NAME>
+increase_recursive_iterations
+</NAME>
+
+<DESCRIPTION>
+I propose to increase the recursion depth of the interval construction. The existing routine implements the Figure 4 style expansion twice (range(2)), producing 36 intervals and yielding FirstFit = 7, OPT = 3 (ratio ≈ 2.33). By increasing the number of recursive expansions (to 3 by default) we produce a larger, more intricate arrangement where FirstFit tends to use many more colors while the clique number grows more slowly. This follows the same recursive "copy-and-stagger" idea used in the referenced paper but runs one more level, which often amplifies the gap between FirstFit and OPT.
+
+Concretely:
+- Change construct_intervals to accept an optional iterations parameter (default 3) and use range(iterations).
+- Keep the same relative offsets and gadget structure so the intended combinatorial behavior is preserved.
+- The output stays a list of open intervals (l,r) suitable for the evaluator; run_experiment still calls construct_intervals() without arguments and thus gets the deeper construction.
+
+This is a small, targeted change that increases the adversarial complexity while preserving program correctness and the original construction pattern. If desired later, the iterations parameter can be tuned (e.g., to 4) to further amplify the effect; beware the number of intervals grows quickly: new_size = 4*old + 4 each iteration.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(2):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+=======
+def construct_intervals(iterations=3):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192 and increases
+  the number of recursive expansions to produce a stronger adversary.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 3)
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  # Each iteration replaces T by four translated/scaled copies plus four
+  # longer intervals that connect the copies in the manner of Figure 4.
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled copies at offsets chosen to stagger intervals
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    # Add the four connecting long intervals as in the original figure
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+>>>>>>> REPLACE
+</DIFF>

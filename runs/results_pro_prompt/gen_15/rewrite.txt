@@ -1,0 +1,331 @@
+# EVOLVE-BLOCK-START
+
+import math
+import random
+from copy import deepcopy
+
+random.seed(0)
+
+def first_fit_color(intervals):
+    """
+    Simulate FirstFit for an arrival-ordered list of open intervals.
+    intervals: list of (l, r)
+    Returns number of colors used.
+    """
+    end_times = []  # end_times[i] = right endpoint of last interval assigned color i (0-based)
+    for l, r in intervals:
+        placed = False
+        for i, et in enumerate(end_times):
+            # open intervals: free if et <= l
+            if et <= l:
+                end_times[i] = r
+                placed = True
+                break
+        if not placed:
+            end_times.append(r)
+    return len(end_times)
+
+def clique_bound(intervals):
+    """
+    Compute maximum clique size (OPT) via sweep-line for open intervals.
+    """
+    events = []
+    for l, r in intervals:
+        events.append((l, 1))   # start
+        events.append((r, -1))  # end
+    # process end (-1) before start (+1) at ties
+    events.sort(key=lambda e: (e[0], e[1]))
+    cur = best = 0
+    for _, delta in events:
+        cur += delta
+        if cur > best:
+            best = cur
+    return best
+
+def build_fractal(base, depth, starts, caps):
+    """
+    Build fractal-like interval set from base through depth iterations.
+    starts: tuple of start-shift multipliers
+    caps: list of (a,b) intervals added each iteration (in units of delta)
+    """
+    T = list(base)
+    for _ in range(depth):
+        lo = min(l for l, _ in T)
+        hi = max(r for _, r in T)
+        delta = hi - lo
+        if delta <= 0:
+            delta = 1.0
+        S = []
+        # scaled copies
+        for s in starts:
+            off = delta * s
+            S += [(off + l - lo, off + r - lo) for l, r in T]
+        # cap intervals
+        for a, b in caps:
+            S.append((delta * a, delta * b))
+        T = S
+    return T
+
+def build_tower(num_towers=6, tower_height=4, base_length=1.0, gap=2.5):
+    """
+    Build a collection of 'towers': each tower has stacked intervals that
+    overlap neighbor towers in complicated (but bounded-clique) ways.
+    """
+    seq = []
+    for t in range(num_towers):
+        base = t * gap
+        for h in range(tower_height):
+            # stagger starts so that not all towers overlap at a single point
+            l = base + h * 0.4
+            r = l + base_length + (tower_height - h) * 0.6
+            seq.append((l, r))
+    # also add some mid-range longer cappers that intersect one from each tower
+    for t in range(num_towers):
+        l = t * gap + 0.5
+        r = (num_towers - 1) * gap + base_length + tower_height * 0.6 + 1.0 - t * 0.1
+        seq.append((l, r))
+    return seq
+
+def compress_intervals(seq):
+    """
+    Normalize coordinates to small integers while preserving ordering.
+    """
+    coords = sorted(set([v for iv in seq for v in iv]))
+    idx = {v: i for i, v in enumerate(coords)}
+    return [(idx[l], idx[r]) for l, r in seq]
+
+def assign_color_if_placed(end_times, interval):
+    """
+    Given current end_times (list), compute which color index (1-based) would be
+    assigned to 'interval' if it is placed next (without changing end_times).
+    """
+    l, r = interval
+    for i, et in enumerate(end_times):
+        if et <= l:
+            return i + 1
+    return len(end_times) + 1
+
+def place_interval_update(end_times, interval):
+    """
+    Place interval into end_times (mutating), returning assigned color index (1-based).
+    """
+    l, r = interval
+    for i, et in enumerate(end_times):
+        if et <= l:
+            end_times[i] = r
+            return i + 1
+    end_times.append(r)
+    return len(end_times)
+
+def greedy_adversary_order(intervals, initial_seed_k=0, seed_strategy='long', prefer_long=True):
+    """
+    Greedy adversary that orders intervals to maximize current FirstFit color.
+    - initial_seed_k: place this many seed intervals first (by seed_strategy)
+    - seed_strategy: 'long', 'short', 'left', 'right', 'random'
+    - prefer_long: tie-breaker prefer intervals with larger r (longer active time)
+    Returns ordered list of intervals.
+    """
+    n = len(intervals)
+    if n == 0:
+        return []
+
+    # Work with indices for stability
+    idxs = list(range(n))
+    unplaced = set(idxs)
+    placed_order = []
+    end_times = []
+
+    # Seed some intervals first to fill low colors
+    if initial_seed_k > 0:
+        if seed_strategy == 'long':
+            key = lambda i: -(intervals[i][1] - intervals[i][0])
+        elif seed_strategy == 'short':
+            key = lambda i: (intervals[i][1] - intervals[i][0])
+        elif seed_strategy == 'left':
+            key = lambda i: (intervals[i][0], intervals[i][1])
+        elif seed_strategy == 'right':
+            key = lambda i: (-intervals[i][0], -intervals[i][1])
+        elif seed_strategy == 'random':
+            random.shuffle(idxs)
+            key = None
+        else:
+            key = lambda i: -(intervals[i][1] - intervals[i][0])
+
+        if key is not None:
+            ordered_seed = sorted(idxs, key=key)[:initial_seed_k]
+        else:
+            ordered_seed = idxs[:initial_seed_k]
+
+        for i in ordered_seed:
+            place_interval_update(end_times, intervals[i])
+            placed_order.append(i)
+            unplaced.remove(i)
+
+    # Main greedy loop
+    while unplaced:
+        best_idx = None
+        best_color = -1
+        best_metric = None
+        # evaluate every unplaced candidate
+        for i in unplaced:
+            c = assign_color_if_placed(end_times, intervals[i])
+            # tie-breaker metric: prefer longer right endpoint (keeps colors busy) or earlier end to quickly consume colors
+            if prefer_long:
+                metric = (intervals[i][1] - intervals[i][0], intervals[i][1])  # prefer longer then later end
+            else:
+                metric = (-(intervals[i][1] - intervals[i][0]), intervals[i][1]) # prefer short
+            # choose candidate with maximal assigned color, tie-break by metric
+            if c > best_color or (c == best_color and metric > best_metric):
+                best_idx = i
+                best_color = c
+                best_metric = metric
+        # place chosen
+        place_interval_update(end_times, intervals[best_idx])
+        placed_order.append(best_idx)
+        unplaced.remove(best_idx)
+
+    # return intervals in the placed order
+    return [intervals[i] for i in placed_order]
+
+def local_improve_order(order, tries=200):
+    """
+    Random adjacent-swap local improvement: try random swaps and keep if FirstFit color increases.
+    OPT doesn't change with ordering, so we only compare FirstFit color.
+    """
+    best_order = list(order)
+    best_alg = first_fit_color(best_order)
+    n = len(order)
+    if n < 2:
+        return best_order
+    for _ in range(tries):
+        i = random.randrange(0, n - 1)
+        candidate = list(best_order)
+        candidate[i], candidate[i+1] = candidate[i+1], candidate[i]
+        cand_alg = first_fit_color(candidate)
+        if cand_alg > best_alg:
+            best_alg = cand_alg
+            best_order = candidate
+    return best_order
+
+def generate_candidates(max_intervals=1000):
+    """
+    Generate several candidate interval sets using different seeds and gadgets.
+    """
+    base = [(0.0, 1.0)]
+    anchors = [
+        {'starts': (2, 6, 10, 14), 'caps': [(1,5),(4,9),(8,13),(12,16)]},
+        {'starts': (3, 7, 11, 15), 'caps': [(2,6),(5,10),(9,14),(13,17)]},
+        {'starts': (4, 8, 12, 16), 'caps': [(3,7),(6,11),(10,15),(14,18)]},
+        {'starts': (2, 5, 9, 14), 'caps': [(1,4),(6,11),(10,15),(13,17)]},
+    ]
+
+    candidates = []
+    # fractals with varying depth
+    for sd in anchors:
+        for depth in (3, 4):
+            seq = build_fractal(base, depth, sd['starts'], sd['caps'])
+            if len(seq) > max_intervals:
+                # try shallower
+                seq = build_fractal(base, max(1, depth-1), sd['starts'], sd['caps'])
+            seq = compress_intervals(seq)
+            if 2 <= len(seq) <= max_intervals:
+                candidates.append(seq)
+
+    # towers of different sizes
+    for nt in (5, 6, 8):
+        for th in (3, 4):
+            seq = build_tower(num_towers=nt, tower_height=th)
+            seq = compress_intervals(seq)
+            if len(seq) <= max_intervals:
+                candidates.append(seq)
+
+    # small hybrid: fractal + tower appended
+    for sd in anchors[:2]:
+        seq_a = build_fractal(base, 3, sd['starts'], sd['caps'])
+        seq_b = build_tower(5, 3)
+        seq = seq_a + seq_b
+        seq = compress_intervals(seq)
+        if len(seq) <= max_intervals:
+            candidates.append(seq)
+
+    # ensure uniqueness by hash of tuples
+    uniq = []
+    seen = set()
+    for seq in candidates:
+        h = (len(seq), tuple(seq[:10]))
+        if h not in seen:
+            seen.add(h)
+            uniq.append(seq)
+    return uniq
+
+# EVOLVE-BLOCK-END
+
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    Build multiple candidates, apply adversarial greedy orderings and light local
+    improvements, and return the best interval sequence (ordered) found.
+    """
+    # generate candidate interval sets
+    candidates = generate_candidates(max_intervals=800)
+
+    best_seq = None
+    best_ratio = -1.0
+    best_alg = -1
+    best_opt = 1
+
+    # evaluate each candidate with multiple adversarial variants and simple heuristics
+    for seq in candidates:
+        # Basic heuristics to try
+        orderings = []
+
+        # a few deterministic orderings
+        orderings.append(list(seq))
+        orderings.append(list(reversed(seq)))
+        orderings.append(sorted(seq, key=lambda iv: (iv[1]-iv[0], iv[0])))          # short first
+        orderings.append(sorted(seq, key=lambda iv: (-(iv[1]-iv[0]), iv[0])))       # long first
+        orderings.append(sorted(seq, key=lambda iv: (iv[0], iv[1])))               # left first
+
+        # adversarial variants: different seed sizes and tie-breakers
+        for initial_k in (0, 3, 5, 8):
+            for seed_strat in ('long', 'short', 'random'):
+                for prefer_long in (True, False):
+                    ord_seq = greedy_adversary_order(seq, initial_seed_k=initial_k,
+                                                     seed_strategy=seed_strat,
+                                                     prefer_long=prefer_long)
+                    # local improvement attempt
+                    ord_seq = local_improve_order(ord_seq, tries=200)
+                    orderings.append(ord_seq)
+
+        # Evaluate all candidate orderings for this base seq
+        for ord_seq in orderings:
+            alg = first_fit_color(ord_seq)
+            opt = clique_bound(ord_seq)
+            if opt <= 0:
+                continue
+            ratio = alg / float(opt)
+            # keep best by ratio; tie-breaker by larger alg
+            if ratio > best_ratio or (abs(ratio - best_ratio) < 1e-9 and alg > best_alg):
+                best_ratio = ratio
+                best_seq = ord_seq
+                best_alg = alg
+                best_opt = opt
+
+    # final verification (sanity)
+    if best_seq is None:
+        # fallback to a small manual gadget (Figure-3-inspired)
+        fallback = [
+            (2,3),(6,7),(10,11),(14,15),
+            (1,5),(12,16),(4,9),(8,13),
+        ]
+        return fallback
+
+    # return the best ordered list of intervals found
+    return best_seq
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

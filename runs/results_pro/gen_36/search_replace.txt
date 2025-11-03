@@ -1,0 +1,51 @@
+<NAME>
+length_first_ordering
+</NAME>
+
+<DESCRIPTION>
+I reorder the final arrival sequence by increasing interval length (then by left endpoint for stability). This exploits a common adversarial heuristic for FirstFit on interval graphs: present many short intervals early so they occupy the low colors in a fragmented way; then force long “cap” intervals that overlap many of those to arrive later, which pushes FirstFit to assign additional colors without changing the clique number (omega is order-invariant). The construction inside each layer remains unchanged (so the small-omega structure is preserved), but the global arrival order becomes more adversarial for FirstFit. This is a targeted change that often increases the number of colors used by FirstFit while keeping omega fixed.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    def normalize(intervals, scale=10):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        return normalized
+=======
+    def normalize(intervals, scale=10):
+        """
+        Shift all intervals to positive, multiply by `scale`, and
+        round to integers so that open intervals remain valid.
+        Then, adversarially reorder by increasing length to push long
+        caps later, which tends to increase FirstFit's color usage
+        without changing the clique number.
+        """
+        # shift so all l > 0
+        min_l = min(l for l, r in intervals)
+        shift = (-min_l + 1.0) if min_l <= 0.0 else 0.0
+        normalized = []
+        for (l, r) in intervals:
+            L = int((l + shift) * scale)
+            R = int((r + shift) * scale + 0.9999)
+            if R <= L:
+                R = L + 1
+            normalized.append((float(L), float(R)))
+        # Adversarial arrival order: short-first, long-later
+        normalized.sort(key=lambda iv: (iv[1] - iv[0], iv[0], iv[1]))
+        return normalized
+>>>>>>> REPLACE
+
+</DIFF>

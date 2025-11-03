@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 98, in <module>
+    main(parsed_args.program_path, parsed_args.results_dir)
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 71, in main
+    metrics, correct, error_msg = run_shinka_eval(
+                                  ^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 119, in run_shinka_eval
+    run_result = experiment_fn(**kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 262, in run_experiment
+    return construct_intervals()
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 210, in construct_intervals
+    T = build_candidate(k, schedule=sch, extra_first=ex,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 175, in build_candidate
+    T_pruned = prune_preserve_metrics(T)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 92, in prune_preserve_metrics
+    if clique_number(cand) == om and firstfit_colors(cand) == cols:
+       ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 52, in clique_number
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73/gen_212/main.py", line 52, in <lambda>
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+
+KeyboardInterrupt

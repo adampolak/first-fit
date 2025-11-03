@@ -1,0 +1,69 @@
+<NAME>cycle_offset_patterns</NAME>
+<DESCRIPTION>
+Introduce a cyclic sequence of four different copy‐offset patterns to diversify interval overlaps across recursive levels. We modify `_compute_four_copies_and_blockers` to accept a `starts` tuple, and in `construct_intervals` we cycle through the patterns `[(2,6,10,14),(1,5,9,13),(3,7,11,15),(0,4,8,12)]` by level index. This deterministic variation tends to force FirstFit to fragment color classes more aggressively without increasing the clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+def _compute_four_copies_and_blockers(T):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing four translated copies and appending four long blockers.
+  Offsets used are canonical: 2, 6, 10, 14 (relative to current delta/lo).
+  """
+  # current span
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  # four copies at offsets 2,6,10,14
+  S = []
+  for start in (2, 6, 10, 14):
+    offset = delta * start - lo
+    S.extend([(offset + l, offset + r) for (l, r) in T])
+
+  # four connecting long intervals
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13)
+  ]
+  return S
+=======
+def _compute_four_copies_and_blockers(T, starts):
+  """
+  Given a current template T (list of intervals), produce the next level
+  by placing translated copies according to 'starts' offsets and appending four long blockers.
+  starts: tuple of offsets (multipliers) for copies
+  """
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  delta = hi - lo
+
+  S = []
+  for start in starts:
+    offset = delta * start - lo
+    S.extend([(offset + l, offset + r) for (l, r) in T])
+
+  S += [
+    (delta * 1,  delta * 5),
+    (delta * 12, delta * 16),
+    (delta * 4,  delta * 9),
+    (delta * 8,  delta * 13)
+  ]
+  return S
+>>>>>>> REPLACE
+</DIFF>
+<DIFF>
+<<<<<<< SEARCH
+  # Recursive expansion: at each level replace T by four copies plus blockers
+  for _ in range(iterations):
+    T = _compute_four_copies_and_blockers(T)
+=======
+  # Recursive expansion: at each level replace T by four copies plus blockers with cycling patterns
+  patterns = [(2, 6, 10, 14), (1, 5, 9, 13), (3, 7, 11, 15), (0, 4, 8, 12)]
+  for i in range(iterations):
+    offsets = patterns[i % len(patterns)]
+    T = _compute_four_copies_and_blockers(T, offsets)
+>>>>>>> REPLACE
+</DIFF>

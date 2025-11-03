@@ -1,0 +1,100 @@
+<NAME>alternate tiling offsets</NAME>
+<DESCRIPTION>Introduce an alternate per‑level tiling offset strategy to diversify the recursive pattern. This uses a new flag alternate_offsets on the recursive builder and a small expanded search loop to probe two offset schemes (canonical and alternating) in addition to the existing variations. The goal is to break symmetry in the witness construction, potentially boosting FirstFit colors while keeping omega small.</DESCRIPTION>
+
+<DIFF>
+<EVOLVE-BLOCK-START</EVOLVE-BLOCK-START>
+<<<<<<< SEARCH
+def build_recursive_pattern(base_seed, depth, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), extra_first=False):
+    """
+    Recursively expand: 4 copies per level + 4 long blockers.
+    - base_seed: list of (l,r) pairs (floats)
+    - depth: number of recursion levels
+    - offsets: positions for the 4 copies at each level
+    - blockers: 4 long connector intervals as multipliers by delta
+    - extra_first: if True, add an extra copy at level 0 to diversify geometry
+    """
+    T = [tuple(iv) for iv in base_seed]
+    for lvl in range(depth):
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        delta = hi - lo
+        S = []
+        offs = list(offsets)
+        if extra_first:
+            offs = offs + [offs[-1] + 4]
+        for start in offs:
+            off = delta * start - lo
+            for (l, r) in T:
+                S.append((l + off, r + off))
+        for (a, b) in blockers:
+            S.append((delta * a, delta * b))
+        T = S
+    return T
+=======
+def build_recursive_pattern(base_seed, depth, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), extra_first=False, alternate_offsets=False):
+    """
+    Recursively expand: 4 copies per level + 4 long blockers.
+    - base_seed: list of (l,r) pairs (floats)
+    - depth: number of recursion levels
+    - offsets: positions for the 4 copies at each level
+    - blockers: 4 long connector intervals as multipliers by delta
+    - extra_first: if True, add an extra copy at level 0 to diversify geometry
+    - alternate_offsets: if True, alternate between two offset patterns across levels
+    """
+    T = [tuple(iv) for iv in base_seed]
+    for lvl in range(depth):
+        lo = min(l for l,r in T)
+        hi = max(r for l,r in T)
+        delta = hi - lo
+
+        # Choose per-level offset pattern
+        current_offsets = list(offsets)
+        if alternate_offsets and (lvl % 2 == 1):
+            current_offsets = [1, 5, 9, 13]
+
+        S = []
+        if extra_first:
+            current_offsets = current_offsets + [current_offsets[-1] + 4]
+        for start in current_offsets:
+            off = delta * start - lo
+            for (l, r) in T:
+                S.append((l + off, r + off))
+        for (a, b) in blockers:
+            S.append((delta * a, delta * b))
+        T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>extend_blocker_templates</NAME>
+<DESCRIPTION>Add an additional blocker template to diversify witness geometry and probe different connections between copies. This helps explore a broader space of adversaries without changing the overall structure.</DESCRIPTION>
+
+<DIFF>
+<EVOLVE-BLOCK-START</EVOLVE-BLOCK-START>
+<<<<<<< SEARCH
+blockers_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),      # canonical
+        ((0,4),(6,10),(8,12),(14,18)),     # variant
+        ((2,6),(4,8),(10,14),(12,16)),      # variant2
+    ]
+=======
+blockers_templates = [
+        ((1,5),(12,16),(4,9),(8,13)),      # canonical
+        ((0,4),(6,10),(8,12),(14,18)),     # variant
+        ((2,6),(4,8),(10,14),(12,16)),      # variant2
+        ((1,4),(7,11),(5,9),(9,13)),        # new variant
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>two-phase_offset_exploration</NAME>
+<DESCRIPTION>Enable exploration of alternate tiling offset schemes by threading an alternate_offsets flag through the builder and enumerating both canonical and alternate patterns in the main search loop. This expands the search space to potentially uncover tighter FF/omega frontiers.</DESCRIPTION>
+
+<DIFF>
+<EVOLVE-BLOCK-START</EVOLVE-BLOCK-START>
+<<<<<<< SEARCH
+def construct_intervals():
+=======
+def construct_intervals():
+>>>>>>> REPLACE
+</DIFF>

@@ -1,0 +1,32 @@
+<NAME>
+expand_gamma_list
+</NAME>
+
+<DESCRIPTION>
+Increase variation in the scaling schedule to break periodic symmetry. By appending an additional gamma factor (1.05) to SCALING_LIST, the recursion will use a longer deterministic cycle of span multipliers, which can amplify FirstFit color growth without increasing the clique.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  SCALING_LIST = [1.0, 1.2, 0.8, 1.15]
+=======
+  SCALING_LIST = [1.0, 1.2, 0.8, 1.15, 1.05]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+seed_diversification
+</NAME>
+
+<DESCRIPTION>
+Introduce a second disjoint spine interval at the start to diversify the recursive growth. Having two non-overlapping seed intervals will create a "double spine," effectively doubling the interaction complexity in subsequent layers and potentially forcing FirstFit to use more colors while preserving a small clique number.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  T = [(0, 1)]
+=======
+  # initial seeds: two disjoint spine intervals to diversify recursive growth
+  T = [(0, 1), (2, 3)]
+>>>>>>> REPLACE
+</DIFF>

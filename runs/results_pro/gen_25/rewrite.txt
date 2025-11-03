@@ -1,0 +1,240 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    quadcycle_bridged_caps:
+    - Two seeds expanded over four layers.
+    - Each layer cycles one of four start-sets and one of four bridge-sets.
+    - Interleave copies round-robin to transmit color constraints between blocks.
+    - Deterministic delta schedule diversifies span growth.
+    - Optional conservative 'cap wave' tries to push a few more FirstFit colors without increasing omega.
+    Returns list of open intervals (l, r).
+    """
+
+    import math
+
+    # ----------------------- Utilities -----------------------
+    def interleave_lists(list_of_lists):
+        """Interleave lists round-robin, preserving internal order."""
+        res = []
+        k = max(len(L) for L in list_of_lists)
+        for i in range(k):
+            for L in list_of_lists:
+                if i < len(L):
+                    res.append(L[i])
+        return res
+
+    def normalize(intervals, scale=10.0, shift_positive=True):
+        """Shift to positive and snap to integer grid to avoid degeneracies."""
+        if not intervals:
+            return []
+        min_l = min(l for l, r in intervals)
+        shift = 0.0
+        if shift_positive and min_l <= 0.0:
+            shift = -min_l + 1.0
+        out = []
+        for (l, r) in intervals:
+            L = int(math.floor((l + shift) * scale))
+            R = int(math.ceil((r + shift) * scale))
+            if R <= L:
+                R = L + 1
+            out.append((float(L), float(R)))
+        return out
+
+    def replicate(template, delta, starts):
+        """Make shifted copies of template for each start in starts."""
+        lo = min(l for l, r in template)
+        copies = []
+        for s in starts:
+            off = delta * s - lo
+            copies.append([(l + off, r + off) for (l, r) in template])
+        # interleave the copies to alter arrival constraints
+        return interleave_lists(copies)
+
+    # Bridge sets cycle (scaled by delta each iteration)
+    bridge_cycle = [
+        # A
+        [(1, 5), (12, 16), (4, 9), (8, 13)],
+        # B
+        [(2, 6), (11, 15), (5, 10), (9, 14)],
+        # C
+        [(3, 7), (10, 14), (6, 11), (7, 12)],
+        # D
+        [(4, 8), (13, 17), (7, 12), (8, 13)],
+    ]
+    # Start sets cycle
+    start_cycle = [
+        (2, 6, 10, 14),  # A
+        (3, 7, 11, 15),  # B
+        (4, 8, 12, 16),  # C
+        (5, 9, 13, 17),  # D
+    ]
+    # Small deterministic delta multipliers
+    gamma_seq = [1.0, 1.15, 0.95, 1.25]
+
+    def expand_layer(template, iter_index, phase_shift=0):
+        """One expansion layer with cycling starts/bridges and interleaving."""
+        # span and delta
+        lo = min(l for l, r in template)
+        hi = max(r for l, r in template)
+        span = hi - lo
+        gamma = gamma_seq[iter_index % len(gamma_seq)]
+        delta = span * gamma if span > 0 else 1.0
+
+        # choose start set and bridge set with phase shift per seed
+        cycle_index = (iter_index + phase_shift) % 4
+        starts = start_cycle[cycle_index]
+        bridges = bridge_cycle[cycle_index]
+
+        # replicate template at shifted starts (interleaved)
+        replicated = replicate(template, delta, starts)
+
+        # create bridges scaled by delta
+        bridge_intervals = [(delta * a, delta * b) for (a, b) in bridges]
+
+        # Place half bridges first, then replicated, then remaining bridges, to seed blockers early.
+        first_half = bridge_intervals[:len(bridge_intervals)//2]
+        second_half = bridge_intervals[len(bridge_intervals)//2:]
+        return first_half + replicated + second_half
+
+    # ----------------------- Backbone build -----------------------
+    # Two phase-shifted seeds to break symmetry
+    seeds = [
+        [(0.0, 1.0)],   # seed 0
+        [(2.0, 3.0)],   # seed 1 (disjoint start; gets different cycle rotations)
+    ]
+    depth = 4  # core depth
+
+    # Build each seed across 'depth' layers
+    built = []
+    for seed_idx, T in enumerate(seeds):
+        for i in range(depth):
+            T = expand_layer(T, i, phase_shift=seed_idx)  # seed 1 rotated by +1
+        built.append(T)
+
+    # Interleave the two final seed expansions to form the final order
+    backbone = interleave_lists(built)
+
+    # ----------------------- Conservative cap wave -----------------------
+    # Try to add a handful of intervals that force FF to open new colors without increasing omega.
+    # Keep this conservative to avoid raising the clique above the backbone's level.
+    def overlap(a, b):
+        return (a[0] < b[1]) and (b[0] < a[1])
+
+    def firstfit_colors(intervals):
+        colors = []
+        for i, iv in enumerate(intervals):
+            used = set()
+            for j in range(i):
+                if overlap(iv, intervals[j]):
+                    used.add(colors[j])
+            c = 1
+            while c in used:
+                c += 1
+            colors.append(c)
+        return colors, (max(colors) if colors else 0)
+
+    def clique_size(intervals):
+        events = []
+        for (l, r) in intervals:
+            events.append((l, +1))
+            events.append((r, -1))
+        # For open intervals, process rights before lefts at the same coordinate
+        events.sort(key=lambda x: (x[0], x[1]))
+        cur = best = 0
+        for _, d in events:
+            cur += d
+            if cur > best:
+                best = cur
+        return best
+
+    def choose_reps_by_quantile(intervals, colors, num_colors, q):
+        """Pick one representative per color at quantile q by center position."""
+        by_color = [[] for _ in range(num_colors + 1)]
+        for idx, col in enumerate(colors):
+            if 1 <= col <= num_colors:
+                by_color[col].append(idx)
+        for c in range(1, num_colors + 1):
+            if not by_color[c]:
+                return None
+        reps = []
+        for c in range(1, num_colors + 1):
+            lst = by_color[c]
+            lst.sort(key=lambda i: ((intervals[i][0] + intervals[i][1]) * 0.5, intervals[i][1] - intervals[i][0]))
+            k = len(lst) - 1
+            idx = max(0, min(k, int(round(q * k))))
+            reps.append(lst[idx])
+        return reps
+
+    def add_cap_wave(intervals, max_try=12):
+        base_omega = clique_size(intervals)
+        colors, maxcolor = firstfit_colors(intervals)
+        if maxcolor == 0:
+            return intervals
+
+        # Compute span for gentle padding
+        lo = min(l for l, r in intervals)
+        hi = max(r for l, r in intervals)
+        total_span = max(hi - lo, 1.0)
+
+        quantiles = [0.2, 0.35, 0.5, 0.65, 0.8]
+        pads = [0.06, 0.09, 0.12, 0.15]
+
+        added = 0
+        for attempt in range(max_try):
+            q = quantiles[attempt % len(quantiles)]
+            reps = choose_reps_by_quantile(intervals, colors, maxcolor, q)
+            if not reps:
+                break
+
+            left = min(intervals[i][0] for i in reps)
+            right = max(intervals[i][1] for i in reps)
+            if right <= left:
+                continue
+
+            pad = pads[attempt % len(pads)] * total_span
+            cand = (left - pad, right + pad)
+
+            # Try moderate shrinking if clique would rise
+            ok = False
+            candidate = cand
+            for _ in range(8):
+                # Planned color if appended now
+                used = set()
+                for idx, iv in enumerate(intervals):
+                    if overlap(candidate, iv):
+                        used.add(colors[idx])
+                proposed_color = 1
+                while proposed_color in used:
+                    proposed_color += 1
+
+                new_omega = clique_size(intervals + [candidate])
+                if proposed_color == maxcolor + 1 and new_omega <= base_omega:
+                    ok = True
+                    break
+                # shrink around center
+                L, R = candidate
+                mid = 0.5 * (L + R)
+                new_len = (R - L) * 0.9
+                if new_len <= 0:
+                    break
+                candidate = (mid - new_len / 2.0, mid + new_len / 2.0)
+
+            if ok:
+                intervals.append(candidate)
+                colors.append(maxcolor + 1)
+                maxcolor += 1
+                added += 1
+
+        return intervals
+
+    enhanced = add_cap_wave(list(backbone), max_try=16)
+
+    # ----------------------- Normalize -----------------------
+    return normalize(enhanced, scale=10.0, shift_positive=True)
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+    """Main called by evaluator"""
+    return construct_intervals()

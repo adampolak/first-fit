@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 98, in <module>
+    main(parsed_args.program_path, parsed_args.results_dir)
+  File "/mnt/storage/users/polak/firstfit/first-fit/evaluate.py", line 71, in main
+    metrics, correct, error_msg = run_shinka_eval(
+                                  ^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/3rdparty/ShinkaEvolve/shinka/core/wrap_eval.py", line 119, in run_shinka_eval
+    run_result = experiment_fn(**kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73v4prolpsat/gen_35/main.py", line 397, in run_experiment
+    return construct_intervals()
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73v4prolpsat/gen_35/main.py", line 371, in construct_intervals
+    colors, omega = eval_seq_cached(tuple(seq))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73v4prolpsat/gen_35/main.py", line 181, in eval_seq_cached
+    seq_adv = adversarial_order_local(seq)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/storage/users/polak/firstfit/first-fit/results73v4prolpsat/gen_35/main.py", line -1, in adversarial_order_local
+KeyboardInterrupt

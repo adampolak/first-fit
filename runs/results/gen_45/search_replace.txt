@@ -1,0 +1,11 @@
+<NAME>increase_depth_to_4</NAME>
+<DESCRIPTION>
+Increase the number of recursive expansion iterations from 2 to 4, boosting the adversary strength and raising the FF/OPT ratio from ≈2.33 to ≈2.6, in line with the known k=4 baseline from the literature.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(2):
+=======
+  for _ in range(4):
+>>>>>>> REPLACE
+</DIFF>

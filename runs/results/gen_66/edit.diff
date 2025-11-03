@@ -1,0 +1,81 @@
+--- a/original.py
++++ b/original.py
+@@ -1,68 +1,66 @@
+ # EVOLVE-BLOCK-START
+ 
+ def _normalize_grid(intervals):
+   """
+   Normalize endpoints to a compact integer grid while preserving order.
+   Each unique endpoint is mapped to an increasing even integer.
+   Returns a new list of (l, r) with integer coordinates.
+   """
+   endpoints = sorted(set([x for seg in intervals for x in seg]))
+   coord = {}
+   cur = 0
+   for e in endpoints:
+     coord[e] = cur
+     cur += 2  # spacing by 2 to keep even gaps
+ 
+   return [(coord[l], coord[r]) for (l, r) in intervals]
+ 
+ 
+ def construct_intervals(iterations=4, normalize=True):
+   """
+   Build a sequence of open intervals that forces FirstFit
+   to use many colors while keeping the clique size controlled.
+   This is a cross-over of:
+     - Figure-4 style recursive expansion (four copies per level, plus four blockers)
+     - a normalization step to map endpoints to a compact integer grid
+ 
+   Arguments:
+     iterations: number of recursive expansion steps (default 4)
+     normalize: whether to apply endpoint normalization (default True)
+ 
+   Returns:
+     intervals: list of tuples (l, r) with integer endpoints (open intervals)
+   """
+   # Base gadget: a canonical small pattern (one unit interval)
+   T = [(0.0, 1.0)]
+ 
+   # For each iteration we replace T by four translated/scaled copies
+   # plus four long connector intervals (as in the Figure-4 construction).
+-  for _ in range(iterations):
++  # dynamic offset patterns to break regularity and introduce variation
++  start_patterns = [(2, 6, 10, 14), (1, 5, 9, 13)]
++  for i in range(iterations):
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+     delta = hi - lo
+     S = []
+-    # Place four scaled/translated copies at staggered offsets
+-    for start in (2, 6, 10, 14):
++    # Place scaled/translated copies using alternating offset patterns
++    starts = start_patterns[i % len(start_patterns)]
++    for start in starts:
+       offset = delta * start - lo
+       S.extend([(offset + l, offset + r) for l, r in T])
+-    # Add the four connecting long intervals (these create the coupling
+-    # between copies but are designed not to increase the clique beyond
+-    # the intended constant)
+-    S += [
+-      (delta * 1,  delta * 5),
+-      (delta * 12, delta * 16),
+-      (delta * 4,  delta * 9),
+-      (delta * 8,  delta * 13)
+-    ]
++    # Add main and additional mid connectors to further entangle colors
++    blockers = [(1, 5), (12, 16), (4, 9), (8, 13), (3, 8), (9, 14)]
++    for a, b in blockers:
++      S.append((delta * a, delta * b))
+     T = S
+ 
+   if normalize:
+     return _normalize_grid(T)
+   else:
+     return T
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

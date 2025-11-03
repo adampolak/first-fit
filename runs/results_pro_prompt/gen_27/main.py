@@ -1,0 +1,64 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # define a hybrid ordering to diversify interval presentation
+  def block_hybrid_order(seq):
+    n = len(seq)
+    bs = (n + 3) // 4
+    blocks = [seq[i*bs:(i+1)*bs] for i in range(4)]
+    b0 = blocks[0]
+    b1 = list(reversed(blocks[1]))
+    b2 = sorted(blocks[2], key=lambda iv: (iv[1]-iv[0], iv[0]))
+    b3 = sorted(blocks[3], key=lambda iv: (-(iv[1]-iv[0]), iv[0]))
+    return b0 + b1 + b2 + b3
+
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # place caps first to occupy low colors early
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    # interleaved block copies for cross-block interference
+    for i in range(len(T)):
+      li, ri = T[i]
+      for start in (2, 6, 10, 14):
+        S.append((delta * start + li - lo, delta * start + ri - lo))
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

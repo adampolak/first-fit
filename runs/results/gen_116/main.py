@@ -1,0 +1,106 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+    """
+    Build a sequence of open intervals that forces FirstFit
+    to use many colors while the maximum clique size stays small.
+
+    Geometry: same Figure-4 recursive gadget (k levels).
+    Arrival order: adversarial deterministic greedy ordering that at
+    each step picks the remaining interval that would be assigned the
+    largest color index under the current partial FirstFit state.
+
+    This preserves geometry (omega) but typically increases FirstFit usage.
+    """
+    # key parameter: recursion depth
+    k = 4
+
+    # base case: one small interval
+    T = [(0.0, 1.0)]
+
+    # each iteration makes 4 scaled copies + 4 blockers
+    for _ in range(k):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+
+        S = []
+        # 4 tiled copies at positions 2,6,10,14
+        for start in (2, 6, 10, 14):
+            offset = delta * start - lo
+            for (l, r) in T:
+                S.append((l + offset, r + offset))
+
+        # 4 extra “blocking” intervals that overlap all four copies
+        S.append((delta * 1,  delta * 5))
+        S.append((delta * 12, delta * 16))
+        S.append((delta * 4,  delta * 9))
+        S.append((delta * 8,  delta * 13))
+
+        T = S
+
+    # ---- normalize endpoints to compact integer grid ----
+    if not T:
+        return []
+    endpoints = sorted(set(x for seg in T for x in seg))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += 2  # spacing by 2 to preserve room for open-interval subtleties
+    norm = [(coord[l], coord[r]) for (l, r) in T]
+
+    # ---- adversarial deterministic greedy ordering ----
+    # Maintain current per-color last endpoint (rightmost end of the last interval assigned to that color).
+    # For any candidate interval, the assigned color index is the first color whose last_end <= iv.l,
+    # otherwise it would be new color index = len(last_end).
+    def assigned_index_with_lastend(iv, last_end):
+        l, r = iv
+        for idx, le in enumerate(last_end):
+            # open intervals: place if l >= last_end
+            if l >= le:
+                return idx
+        return len(last_end)
+
+    remaining = list(norm)
+    ordered = []
+    last_end = []  # list of right endpoints per color, in order
+
+    # deterministic tie-breaker: prefer intervals with longer length, then smaller left endpoint
+    while remaining:
+        best_idx = -1
+        best_cands = []
+        for iv in remaining:
+            idx = assigned_index_with_lastend(iv, last_end)
+            if idx > best_idx:
+                best_idx = idx
+                best_cands = [iv]
+            elif idx == best_idx:
+                best_cands.append(iv)
+
+        # tie-break: pick longest, then leftmost
+        if len(best_cands) == 1:
+            pick = best_cands[0]
+        else:
+            pick = max(best_cands, key=lambda seg: (seg[1] - seg[0], -seg[0]))
+
+        # assign pick (update last_end accordingly)
+        assigned = None
+        l, r = pick
+        for i, le in enumerate(last_end):
+            if l >= le:
+                assigned = i
+                last_end[i] = r
+                break
+        if assigned is None:
+            last_end.append(r)
+        ordered.append(pick)
+        remaining.remove(pick)
+
+    return ordered
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

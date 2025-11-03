@@ -1,0 +1,68 @@
+<NAME>deterministic_prune_wave
+<DESCRIPTION>Introduce a deterministic pruning pass that aggressively shrinks the witness set after augmentation, while preserving the observed FirstFit/OPT ratio. The prune is greedy (longest-first) but uses a fixed, deterministic order and a conservative guard to avoid ratio drop. This complements the existing conservative_prune by providing a complementary deterministic reduction step that tends to produce smaller instances with the same FF/omega, which can help the search stabilize and potentially enable further wave augmentations in subsequent runs.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+=======
+  def evaluate(intervals):
+    """Return (score, omega, colors, n)."""
+    if not intervals:
+      return (-1.0, 0, 0, 0)
+    om = clique_number(intervals)
+    if om <= 0:
+      return (-1.0, 0, 0, len(intervals))
+    cols = firstfit_colors(intervals)
+    # Slight penalty for larger instances to break ties
+    score = cols / om - 1e-6 * (len(intervals) / 10000.0)
+    return (score, om, cols, len(intervals))
+
++  def deterministic_prune(intervals):
++    """
++    Deterministic pruning pass:
++    - remove intervals greedily by decreasing length (longest first)
++    - only remove if the FirstFit/omega ratio does not decrease
++    - deterministic tie-breaking by left coordinate then by length
++    - returns pruned list preserving an existing FF/ω ratio
++    """
++    cur = list(intervals)
++    if not cur:
++      return cur
++    # baseline ratio to preserve
++    norm = cur
++    om = clique_number(norm)
++    cols = firstfit_colors(norm)
++    base_ratio = cols / om if om > 0 else 0.0
++    # prune longest first
++    changed = True
++    while changed:
++      changed = False
++      # sort by length desc, then by left endpoint asc
++      order = sorted(range(len(cur)), key=lambda i: (-(cur[i][1]-cur[i][0]), cur[i][0]))
++      for idx in order:
++        cand = cur[:idx] + cur[idx+1:]
++        if not cand:
++          continue
++        cand_norm = cand  # already in integer grid
++        om2 = clique_number(cand_norm)
++        cols2 = firstfit_colors(cand_norm)
++        if om2 > 0 and (cols2 / om2) >= base_ratio - 1e-12:
++          cur = cand
++          base_ratio = cols2 / om2
++          changed = True
++          break
++    return cur
+*** End Patch
+>>>>>>> REPLACE
+</DIFF>

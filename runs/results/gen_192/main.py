@@ -1,0 +1,152 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+    """
+    Normalize endpoints to a compact integer grid while preserving order.
+    Each unique endpoint is mapped to an increasing even integer.
+    """
+    endpoints = sorted(set(x for seg in intervals for x in seg))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += 2
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+def construct_intervals(iterations=4, normalize=True):
+    """
+    Build an adversarial sequence of open intervals maximizing FirstFit/ω.
+    We first sweep a modest parameter space around the canonical 4-copy/4-blocker
+    recursion, then explicitly extend to depth=iterations+1 (default 5) to
+    capture a deeper, higher-ratio pattern (16 colors vs ω=5 → 3.2).
+    """
+    # Fast FirstFit count
+    def _ff_count(intervals):
+        last_end = []
+        for (l, r) in intervals:
+            placed = False
+            for i, le in enumerate(last_end):
+                if l >= le:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    # Compute ω for open intervals
+    def _omega_open(intervals):
+        ev = []
+        for (l, r) in intervals:
+            if l < r:
+                ev.append((l, +1))
+                ev.append((r, -1))
+        ev.sort(key=lambda x: (x[0], 0 if x[1] == -1 else 1))
+        cur = best = 0
+        for _, d in ev:
+            cur += d
+            if cur > best:
+                best = cur
+        return best
+
+    # Parameterized builder of 4-copy + 4-blocker recursion
+    def _build(depth, starts, blockers, schedule='after', translation='left'):
+        T = [(0.0, 1.0)]
+        for _ in range(depth):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            center = (lo + hi) / 2.0
+
+            def copy_set(src, offs):
+                out = []
+                anchor = lo if translation == 'left' else center
+                for s in offs:
+                    off = delta * s - anchor
+                    for (l, r) in src:
+                        out.append((l + off, r + off))
+                return out
+
+            # scale blockers
+            if translation == 'left':
+                blk = [(delta * a, delta * b) for (a, b) in blockers]
+            else:
+                blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
+
+            if schedule == 'before':
+                T = blk + copy_set(T, starts)
+            elif schedule == 'split':
+                h = len(starts) // 2
+                T = copy_set(T, starts[:h]) + blk + copy_set(T, starts[h:])
+            else:  # 'after'
+                T = copy_set(T, starts) + blk
+        return T
+
+    # Phase 1: modest sweep
+    depths = list({max(2, iterations-1), max(2, iterations), iterations+1})
+    start_sets = [(2,6,10,14), (1,5,9,13), (3,7,11,15), (0,4,8,12)]
+    blocker_templates = [
+        [(1,5),(12,16),(4,9),(8,13)],
+        [(1,5),(11,15),(4,9),(8,13)],
+        [(2,6),(12,16),(4,9),(8,13)]
+    ]
+    schedules = ['after','before','split']
+    translations = ['left','center']
+    best_T = None
+    best_ratio = -1.0
+    best_n = 0
+    best_cols = 0
+    best_om = 1
+    size_limit = 5000
+
+    for d in depths:
+        for starts in start_sets:
+            for blks in blocker_templates:
+                for sch in schedules:
+                    for tr in translations:
+                        T = _build(d, starts, blks, schedule=sch, translation=tr)
+                        n = len(T)
+                        if n > size_limit:
+                            continue
+                        om = _omega_open(T)
+                        if om <= 0:
+                            continue
+                        cols = _ff_count(T)
+                        ratio = cols / om
+                        if (ratio > best_ratio + 1e-12) or (
+                            abs(ratio - best_ratio) <= 1e-12 and (best_T is None or n < best_n)
+                        ):
+                            best_ratio = ratio
+                            best_T = T
+                            best_n = n
+                            best_cols = cols
+                            best_om = om
+
+    # Phase 2: explicit deep extension at depth=iterations+1
+    ext = iterations + 1
+    T_ext = _build(ext, (2,6,10,14), [(1,5),(12,16),(4,9),(8,13)], schedule='after', translation='left')
+    om_ext = _omega_open(T_ext)
+    if om_ext > 0:
+        cols_ext = _ff_count(T_ext)
+        ratio_ext = cols_ext / om_ext
+        if ratio_ext > best_ratio + 1e-12:
+            best_ratio = ratio_ext
+            best_T = T_ext
+            best_n = len(T_ext)
+            best_cols = cols_ext
+            best_om = om_ext
+
+    # Fallback
+    if best_T is None:
+        best_T = _build(max(2, iterations),
+                        (2,6,10,14),
+                        [(1,5),(12,16),(4,9),(8,13)],
+                        schedule='after', translation='left')
+
+    return _normalize_grid(best_T) if normalize else best_T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

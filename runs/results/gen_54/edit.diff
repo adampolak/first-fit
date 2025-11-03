@@ -1,0 +1,310 @@
+--- a/original.py
++++ b/original.py
+@@ -1,49 +1,275 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+   """
+-  Construct a sequence of intervals of real line,
+-  in the order in which they are presented to FirstFit,
+-  so that it maximizes the number of colors used by FirstFit
+-  divided by the maximum number of intervals that cover a single point
+-
+-  The initial implementation uses the construction from
+-  Figure 4 in https://arxiv.org/abs/1506.00192
+-
+-  Returns:
+-    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
++  Construct a sequence of intervals using a Figure-4 style recursion
++  but with:
++    - alternating offsets and rotated blocker templates across levels, and
++    - a conservative "corridor waves" augmenter that may append up to two
++      extra intervals (wings) that force new FirstFit colors while
++      preserving the clique number.
++
++  The function returns a list of open intervals in arrival order.
+   """
+ 
+-  T = [(0, 1)]
+-  for _ in range(4):
++  # --- geometry helpers (self-contained) ---
++  def overlaps(a, b):
++    (l1, r1), (l2, r2) = a, b
++    return max(l1, l2) < min(r1, r2)
++
++  def firstfit_partition(intervals):
++    colors = []
++    for iv in intervals:
++      placed = False
++      for c in colors:
++        conflict = False
++        for u in c:
++          if overlaps(u, iv):
++            conflict = True
++            break
++        if not conflict:
++          c.append(iv)
++          placed = True
++          break
++      if not placed:
++        colors.append([iv])
++    return colors
++
++  def firstfit_colors(intervals):
++    return len(firstfit_partition(intervals))
++
++  def clique_number(intervals):
++    events = []
++    for (l, r) in intervals:
++      if l >= r:
++        continue
++      events.append((l, +1))
++      events.append((r, -1))
++    # open intervals: process -1 before +1 at the same coordinate
++    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++    cur = 0
++    best = 0
++    i = 0
++    while i < len(events):
++      x = events[i][0]
++      # process all events at x (ordering already makes -1 before +1)
++      while i < len(events) and events[i][0] == x:
++        cur += events[i][1]
++        i += 1
++      if cur > best:
++        best = cur
++    return best
++
++  def coverage_cells(intervals):
++    """
++    Return coverage 'cells' as (a, b, m) meaning for any x in (a,b) exactly m intervals cover x.
++    """
++    events = []
++    for (l, r) in intervals:
++      if l >= r:
++        continue
++      events.append((l, +1))
++      events.append((r, -1))
++    if not events:
++      return []
++    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
++    cells = []
++    cur = 0
++    i = 0
++    while i < len(events):
++      x = events[i][0]
++      # process all events at x
++      while i < len(events) and events[i][0] == x:
++        cur += events[i][1]
++        i += 1
++      # next coordinate
++      if i < len(events):
++        nx = events[i][0]
++        if x < nx:
++          cells.append((x, nx, cur))
++    return cells
++
++  def extract_runs(cells, cap):
++    """
++    From cells extract maximal contiguous runs where coverage <= cap.
++    Return list of (L, R, min_m_on_run, max_m_on_run).
++    """
++    runs = []
++    cur_L = cur_R = None
++    cur_min = None
++    cur_max = None
++    for (l, r, m) in cells:
++      if m <= cap:
++        if cur_L is None:
++          cur_L, cur_R = l, r
++          cur_min = m
++          cur_max = m
++        else:
++          # extend if contiguous
++          if abs(l - cur_R) < 1e-12:
++            cur_R = r
++            if m < cur_min:
++              cur_min = m
++            if m > cur_max:
++              cur_max = m
++          else:
++            runs.append((cur_L, cur_R, cur_min, cur_max))
++            cur_L, cur_R = l, r
++            cur_min = m
++            cur_max = m
++      else:
++        if cur_L is not None:
++          runs.append((cur_L, cur_R, cur_min, cur_max))
++          cur_L = cur_R = cur_min = cur_max = None
++    if cur_L is not None:
++      runs.append((cur_L, cur_R, cur_min, cur_max))
++    return runs
++
++  def colors_hit_by_segment(segment, color_classes):
++    (L, R) = segment
++    hit = 0
++    for cls in color_classes:
++      ok = False
++      for (l, r) in cls:
++        if max(l, L) < min(r, R):
++          ok = True
++          break
++      if ok:
++        hit += 1
++    return hit
++
++  def pick_augmentable_run(baseline, omega_cap):
++    cells = coverage_cells(baseline)
++    runs = extract_runs(cells, omega_cap - 1)
++    color_classes = firstfit_partition(baseline)
++    total_colors = len(color_classes)
++    best = None
++    for (L, R, min_m, max_m) in runs:
++      if R - L <= 0:
++        continue
++      hit = colors_hit_by_segment((L, R), color_classes)
++      if hit < total_colors:
++        continue
++      # try to find an internal cell with m <= omega_cap - 2 to allow two waves
++      core = None
++      allow_two = False
++      if min_m <= omega_cap - 2:
++        # find the widest cell inside (L,R) with low coverage
++        best_len = -1.0
++        for (a, b, m) in cells:
++          if m <= omega_cap - 2:
++            lo = max(L, a)
++            hi = min(R, b)
++            if hi > lo:
++              length = hi - lo
++              if length > best_len:
++                best_len = length
++                # pick a core strictly inside the cell
++                margin = min((hi - lo) * 0.2, 1.0)
++                core = (lo + margin, hi - margin) if hi - lo > 2 * margin else (lo + (hi-lo)/4.0, hi - (hi-lo)/4.0)
++        allow_two = core is not None
++      # fabricate a small core if none but hit == total_colors (single-wave possible)
++      if core is None:
++        mid = (L + R) / 2.0
++        core = (mid - (R - L) * 0.05, mid + (R - L) * 0.05)
++        # ensure strict interior
++        core = (max(L + 1e-9, core[0]), min(R - 1e-9, core[1]))
++      return (L, R, allow_two, core)
++    return None
++
++  def add_wave(intervals, segment, omega_cap):
++    cls = firstfit_partition(intervals)
++    total_colors = len(cls)
++    # must intersect all existing color classes
++    if colors_hit_by_segment(segment, cls) < total_colors:
++      return intervals, False
++    cand = list(intervals) + [segment]
++    if clique_number(cand) > omega_cap:
++      return intervals, False
++    # check FirstFit assigns a new color
++    if firstfit_colors(cand) <= total_colors:
++      return intervals, False
++    return cand, True
++
++  def augment_with_corridor_waves(baseline):
++    if not baseline:
++      return baseline
++    omega_cap = clique_number(baseline)
++    if omega_cap <= 0:
++      return baseline
++    picked = pick_augmentable_run(baseline, omega_cap)
++    if picked is None:
++      return baseline
++    (L, R, allow_two, core) = picked
++    c_lo, c_hi = core
++    # tighten core a bit to be safe
++    eps = max(1e-6, (R - L) * 1e-3)
++    c_lo = max(L + eps, c_lo)
++    c_hi = min(R - eps, c_hi)
++    if not (L < c_lo < c_hi < R):
++      return baseline
++    # Left-wing + core
++    J_left = (L, c_hi)
++    T1, ok1 = add_wave(baseline, J_left, omega_cap)
++    if not ok1:
++      # try right-wing first
++      J_right = (c_lo, R)
++      T1, ok1 = add_wave(baseline, J_right, omega_cap)
++      if not ok1:
++        return baseline
++      else:
++        J_left = J_right
++    # Try complementary wing
++    J_other = (c_lo, R) if J_left[0] == L else (L, c_hi)
++    T2, ok2 = add_wave(T1, J_other, omega_cap)
++    if ok2:
++      return T2
++    # If two waves were allowed, try to shrink the second wing toward the core progressively
++    if allow_two:
++      for frac in [0.05, 0.1, 0.2, 0.33, 0.5]:
++        if J_left[0] == L:
++          J_try = (c_lo + frac * (c_hi - c_lo), R)
++        else:
++          J_try = (L, c_hi - frac * (c_hi - c_lo))
++        T2, ok2 = add_wave(T1, J_try, omega_cap)
++        if ok2:
++          return T2
++    return T1
++
++  # --- Build alternating-offset baseline ---
++  offsets_seq = [
++    (2, 6, 10, 14),
++    (1, 5, 9, 13),
++    (3, 7, 11, 15),
++    (0, 4, 8, 12),
++  ]
++  base_blockers = ((1, 5), (12, 16), (4, 9), (8, 13))
++
++  T = [(0.0, 1.0)]
++  k = 4
++  for i in range(k):
+     lo = min(l for l, r in T)
+     hi = max(r for l, r in T)
+     delta = hi - lo
+     S = []
+-    for start in (2, 6, 10, 14):
+-      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+-    S += [
+-      (delta * 1, delta * 5),
+-      (delta * 12, delta * 16),
+-      (delta * 4, delta * 9),
+-      (delta * 8, delta * 13)
+-    ]
++    offsets = offsets_seq[i % len(offsets_seq)]
++    for start in offsets:
++      offset = delta * start - lo
++      for (l, r) in T:
++        S.append((l + offset, r + offset))
++    # rotate blocker template to create staggered cross-level links
++    b_rot = base_blockers[i % len(base_blockers):] + base_blockers[:i % len(base_blockers)]
++    for (a, b) in b_rot:
++      S.append((delta * a, delta * b))
+     T = S
+-  return T
+-
+-  # return [  # Figure 3, OPT=2, FF=4
+-  #   (2,3),
+-  #   (6,7),
+-  #   (10,11),
+-  #   (14,15),
+-  #   (1,5),
+-  #   (12,16),
+-  #   (4,9),
+-  #   (8,13),
+-  # ]
++
++  # --- Conservative augmentation: try to add corridor waves ---
++  T_aug = augment_with_corridor_waves(T)
++
++  return T_aug
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

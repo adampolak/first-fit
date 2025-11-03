@@ -1,0 +1,81 @@
+<NAME>
+normalize_and_parameterize
+</NAME>
+
+<DESCRIPTION>
+Introduce an order-preserving normalization that remaps all endpoints to a compact integer grid. This keeps open-interval semantics intact while greatly reducing coordinate magnitude, which helps downstream verifiers and potential augmenters without altering FirstFit behavior or the clique number. Additionally, expose the iteration depth as a parameter (default 4) to ease future experimentation. The construction itself remains the classic 4-copy/4-blocker recursion, ensuring we at least preserve the current best score (≈2.6 with ω=5 and 13 colors) while making the instance geometrically cleaner for subsequent evolutionary steps.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+=======
+def construct_intervals(iterations: int = 4):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  # Classic 4-copy/4-blocker recursive pattern (baseline adversary)
+  T = [(0.0, 1.0)]
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13),
+    ]
+    T = S
+
+  # Order-preserving normalization: remap endpoints to compact integers.
+  # This preserves all overlap relations for open intervals.
+  endpoints = sorted(set(x for seg in T for x in seg))
+  mapping = {x: i for i, x in enumerate(endpoints)}
+  T_norm = [(mapping[l], mapping[r]) for (l, r) in T]
+  return T_norm
+>>>>>>> REPLACE
+
+</DIFF>

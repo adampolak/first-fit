@@ -1,0 +1,210 @@
+# EVOLVE-BLOCK-START
+
+# ---- Utilities: FirstFit, clique number, and scoring ----
+
+def _firstfit_colors(intervals):
+    """
+    FirstFit for open intervals in given arrival order.
+    Maintain last_end for each color; put interval (l, r) in the lowest-index
+    color i with l >= last_end[i] (non-overlap for open intervals).
+    """
+    last_end = []
+    for (l, r) in intervals:
+        # skip degenerate
+        if l >= r:
+            continue
+        placed = False
+        for i in range(len(last_end)):
+            if l >= last_end[i]:
+                last_end[i] = r
+                placed = True
+                break
+        if not placed:
+            last_end.append(r)
+    return len(last_end)
+
+def _clique_number(intervals):
+    """
+    Sweep-line on open intervals.
+    For events at the same coordinate, process right endpoints before left endpoints.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))   # left-open
+        events.append((r, -1))   # right-open
+    # sort by position; ties: right (-1) before left (+1)
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = 0
+    best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+def _score(intervals):
+    """Return (ratio, omega, colors, n)."""
+    n = len(intervals)
+    if n == 0:
+        return (0.0, 0, 0, 0)
+    omega = _clique_number(intervals)
+    if omega == 0:
+        return (0.0, 0, 0, n)
+    colors = _firstfit_colors(intervals)
+    return (colors / omega, omega, colors, n)
+
+
+# ---- Generator: 4-copy + 4-blocker expansion ----
+
+def _expand_once(T, offsets, blockers):
+    """
+    One expansion step:
+    - Make four translated copies of T at delta-scaled offsets (relative to left anchor).
+    - Add four delta-scaled blockers.
+    """
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+
+    S = []
+    # Four tiled copies
+    for start in offsets:
+        offset = delta * start - lo
+        for (l, r) in T:
+            S.append((l + offset, r + offset))
+
+    # Four blockers that couple copies across the span
+    for (a, b) in blockers:
+        S.append((delta * a, delta * b))
+
+    return S
+
+def _build_candidate(depth_k, offsets, blockers, base_seed=None):
+    """
+    Recursively build a candidate with the given depth, offsets, and blockers.
+    base_seed: optional; default single short interval (0,1).
+    """
+    if base_seed is None:
+        T = [(0.0, 1.0)]
+    else:
+        T = list(base_seed)
+    for _ in range(depth_k):
+        T = _expand_once(T, offsets, blockers)
+    return T
+
+
+# ---- Pruning: conservative tail-removal pass ----
+
+def _prune_tail_if_safe(T, target_ratio, target_omega, max_attempts=120):
+    """
+    Try to remove up to max_attempts intervals from the tail while preserving
+    (ratio >= target_ratio) and omega == target_omega.
+    Returns possibly shrunk T.
+    """
+    if not T:
+        return T
+    # Work on a copy
+    U = list(T)
+    attempts = 0
+    i = len(U) - 1
+    while attempts < max_attempts and i >= 0 and len(U) > 0:
+        attempts += 1
+        cand = U[:i] + U[i+1:]
+        ratio, om, colors, _ = _score(cand)
+        # keep if omega preserved and ratio maintained (allow tiny numeric slack)
+        if om == target_omega and ratio >= target_ratio - 1e-12:
+            U = cand
+            # don't advance i to try removing more near this area
+        else:
+            i -= 1
+    return U
+
+
+# ---- Search controller: enumerate a small grid and pick best ----
+
+def construct_intervals(iterations=3):
+    """
+    Construct a sequence of open intervals (l, r) to maximize FirstFit colors / omega.
+    Structural redesign:
+      - Enumerate multiple (k, offsets, blockers) combos and pick the best.
+      - Includes the proven 4-copy Figure-4 pattern as a candidate.
+      - Optionally prune a small tail without hurting the ratio.
+
+    Arguments:
+      iterations: kept for API compatibility; used to bias the depth set.
+    Returns:
+      intervals: list[(l, r)] in arrival order.
+    """
+    # Candidate depths: sweep around {3,4,5}, include caller's 'iterations'
+    depth_candidates = sorted(set([3, 4, 5, int(iterations)]))
+
+    # Offsets sets (Potential Recommendation #2)
+    offsets_options = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+
+    # Blocker templates A/B/C (Potential Recommendation #3)
+    blockers_options = [
+        # A: classic Figure 4
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # B: shifted inner pair geometry
+        ((0, 4), (11, 15), (3, 8), (7, 12)),
+        # C: alternate symmetrical pairs
+        ((2, 6), (13, 17), (4, 9), (8, 13)),
+    ]
+
+    # Limit the size blowup for k=5
+    MAX_INTERVALS = 2400
+
+    best = None  # (ratio, omega, colors, n, intervals)
+
+    for k in depth_candidates:
+        for offsets in offsets_options:
+            for blockers in blockers_options:
+                T = _build_candidate(k, offsets, blockers, base_seed=[(0.0, 1.0)])
+                if len(T) > MAX_INTERVALS:
+                    continue
+                ratio, omega, colors, n = _score(T)
+                cand = (ratio, omega, colors, n, T)
+
+                if best is None:
+                    best = cand
+                else:
+                    # Prefer higher ratio; tie-breaker: smaller n; tie: larger colors
+                    if cand[0] > best[0] + 1e-12:
+                        best = cand
+                    elif abs(cand[0] - best[0]) <= 1e-12:
+                        if cand[3] < best[3]:
+                            best = cand
+                        elif cand[3] == best[3] and cand[2] > best[2]:
+                            best = cand
+
+    # Fallback to the classic generator if search failed (shouldn't happen)
+    if best is None:
+        # original simple Figure-4 style with k=4
+        T = [(0.0, 1.0)]
+        for _ in range(4):
+            T = _expand_once(T, (2, 6, 10, 14),
+                             ((1, 5), (12, 16), (4, 9), (8, 13)))
+        return T
+
+    # Optional conservative pruning of tail to shrink n if it does not hurt ratio/omega
+    base_ratio, base_omega, _, _ = best[0], best[1], best[2], best[3]
+    pruned = _prune_tail_if_safe(best[4], base_ratio, base_omega, max_attempts=160)
+
+    # Ensure we don't accidentally worsen the witness
+    pr_ratio, pr_omega, pr_colors, _ = _score(pruned)
+    if pr_omega == base_omega and pr_ratio >= base_ratio - 1e-12:
+        return pruned
+    return best[4]
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

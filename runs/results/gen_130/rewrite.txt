@@ -1,0 +1,242 @@
+# EVOLVE-BLOCK-START
+
+from math import gcd
+from collections import defaultdict
+
+# ------------------------------
+# Basic geometric utilities
+# ------------------------------
+
+def overlaps(a, b):
+    """Open-interval overlap test: True iff intervals overlap strictly."""
+    (l1, r1), (l2, r2) = a, b
+    return max(l1, l2) < min(r1, r2)
+
+# ------------------------------
+# FirstFit and clique computations
+# ------------------------------
+
+def firstfit_colors(intervals):
+    """
+    Simulate FirstFit coloring on the given arrival order (list of (l,r)).
+    Uses the invariant that each color class stores the last interval assigned
+    (intervals in a color are non-overlapping and are assigned in arrival order).
+    This allows checking only the last interval in each color for conflicts,
+    which speeds up the common-case dramatically.
+    """
+    colors_last = []  # store last interval in each color class
+    for iv in intervals:
+        placed = False
+        for i, last in enumerate(colors_last):
+            if not overlaps(iv, last):
+                # safe to place: update last interval for this color
+                colors_last[i] = iv
+                placed = True
+                break
+        if not placed:
+            colors_last.append(iv)
+    return len(colors_last)
+
+def clique_number(intervals):
+    """
+    Compute omega (maximum number of open intervals covering a single point)
+    using an event sweep. For open intervals we treat right endpoints before left
+    endpoints at equal coordinates so that intervals touching at endpoints don't count.
+    """
+    events = []
+    for (l, r) in intervals:
+        if l >= r:
+            continue
+        events.append((l, +1))
+        events.append((r, -1))
+    if not events:
+        return 0
+    # sort by coordinate; if tie, -1 before +1
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+        cur += t
+        if cur > best:
+            best = cur
+    return best
+
+# ------------------------------
+# Normalization: floats -> compact integers
+# ------------------------------
+
+def normalize_intervals(intervals):
+    """
+    Map the set of interval endpoints to a small integer grid.
+    - Collect sorted unique endpoints, map them to even integers 0,2,4,...
+    - Translate so the minimum endpoint becomes 0.
+    - Divide all coordinates by gcd of endpoints to shrink.
+    Returns list of integer intervals (l,r).
+    """
+    if not intervals:
+        return []
+    pts = sorted({x for seg in intervals for x in seg})
+    mp = {}
+    cur = 0
+    for x in pts:
+        mp[x] = cur
+        cur += 2
+    mapped = [(mp[l], mp[r]) for l, r in intervals]
+    mn = min(a for a, b in mapped)
+    shifted = [(a - mn, b - mn) for a, b in mapped]
+    # compute gcd of all nonzero endpoints
+    g = 0
+    for a, b in shifted:
+        g = gcd(g, abs(a))
+        g = gcd(g, abs(b))
+    if g > 1:
+        shrunk = [(a // g, b // g) for a, b in shifted]
+    else:
+        shrunk = shifted
+    return shrunk
+
+# ------------------------------
+# Construction primitives
+# ------------------------------
+
+def expand_once(T, offsets=(2,6,10,14), blockers=((1,5),(12,16),(4,9),(8,13)), translation='left'):
+    """
+    Perform one expansion step: replace T by translated/scaled copies and add blockers.
+    - offsets: positions (multiples of delta) where copies are placed
+    - blockers: blocker intervals given in (a,b) multiplicative coordinates
+    - translation: 'left' uses delta*start - lo; 'center' uses delta*start - center
+    """
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    center = (lo + hi) / 2.0
+    S = []
+    for start in offsets:
+        if translation == 'left':
+            off = delta * start - lo
+        else:
+            off = delta * start - center
+        for (l, r) in T:
+            S.append((l + off, r + off))
+    # append blockers scaled by delta (anchored by left or center depending on translation)
+    for (a, b) in blockers:
+        if translation == 'left':
+            S.append((delta * a, delta * b))
+        else:
+            S.append((delta * a - center, delta * b - center))
+    return S
+
+# ------------------------------
+# Pruning helpers
+# ------------------------------
+
+def prune_strict(intervals, target_cols, target_om):
+    """
+    Strict pruning: remove intervals one-by-one (prefer longer ones first)
+    if removal preserves both FirstFit color count and omega exactly.
+    Operates on float coordinates to avoid normalization artifacts.
+    """
+    cur = list(intervals)
+    def length(iv): return iv[1] - iv[0]
+    changed = True
+    while changed:
+        changed = False
+        # deterministic order: longer intervals first, ties broken by index
+        order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+        for idx in order:
+            cand = cur[:idx] + cur[idx+1:]
+            if not cand:
+                continue
+            if firstfit_colors(cand) == target_cols and clique_number(cand) == target_om:
+                cur = cand
+                changed = True
+                break
+    return cur
+
+def prune_relaxed(intervals, min_ratio, max_omega):
+    """
+    Relaxed pruning: greedily remove intervals if FirstFit/omega >= min_ratio
+    and omega does not exceed max_omega. Prefer removing longer intervals first.
+    """
+    cur = list(intervals)
+    def length(iv): return iv[1] - iv[0]
+    changed = True
+    while changed:
+        changed = False
+        order = sorted(range(len(cur)), key=lambda i: (-length(cur[i]), i))
+        for idx in order:
+            cand = cur[:idx] + cur[idx+1:]
+            if not cand:
+                continue
+            om = clique_number(cand)
+            if om == 0 or om > max_omega:
+                continue
+            cols = firstfit_colors(cand)
+            ratio = cols / om
+            if ratio + 1e-12 >= min_ratio and om <= max_omega:
+                cur = cand
+                changed = True
+                break
+    return cur
+
+# ------------------------------
+# Orchestrator: build + pruning
+# ------------------------------
+
+def construct_intervals(depth=4):
+    """
+    Construct the adversarial interval sequence using repeated expansions.
+    Default depth=4 reproduces the known strong witness (FF=13, OPT=5).
+    At each level we expand, compute local FF/omega, and run strict pruning
+    to remove redundant intervals. After finished, run a final relaxed prune
+    then normalize to compact integer coordinates.
+    """
+    # base seed
+    T = [(0.0, 1.0)]
+
+    # parameters (kept simple and deterministic; can be tuned)
+    offsets = (2, 6, 10, 14)
+    blockers = ((1,5), (12,16), (4,9), (8,13))
+    translation = 'left'
+
+    # iterative expansion with per-level strict pruning
+    for level in range(depth):
+        S = expand_once(T, offsets=offsets, blockers=blockers, translation=translation)
+        # compute target values on raw floats
+        tgt_om = clique_number(S)
+        tgt_cols = firstfit_colors(S)
+        # strict prune to remove intervals that don't affect the local witness
+        T = prune_strict(S, tgt_cols, tgt_om)
+
+    # final evaluation of raw best
+    raw_best = list(T)
+    raw_cols = firstfit_colors(raw_best)
+    raw_om = clique_number(raw_best)
+    if raw_om == 0:
+        return []
+
+    # relaxed pruning: keep ratio and don't increase omega
+    target_ratio = raw_cols / raw_om
+    pruned = prune_relaxed(raw_best, target_ratio, raw_om)
+
+    # normalize to compact integer grid
+    final = normalize_intervals(pruned)
+    # safety: if normalization produced empty, fallback to normalized raw_best
+    if not final:
+        return normalize_intervals(raw_best)
+
+    # final sanity: ensure we preserved ratio (allow tiny numerical slack)
+    om_final = clique_number(final)
+    cols_final = firstfit_colors(final)
+    if om_final == 0:
+        return normalize_intervals(raw_best)
+    if cols_final / om_final + 1e-12 < target_ratio or om_final > raw_om:
+        # revert
+        return normalize_intervals(raw_best)
+
+    return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

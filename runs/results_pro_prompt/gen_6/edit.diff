@@ -1,0 +1,280 @@
+--- a/original.py
++++ b/original.py
+@@ -1,121 +1,216 @@
+ # EVOLVE-BLOCK-START
+ 
+ def construct_intervals():
+   """
+   Construct a sequence of open intervals presented to FirstFit.
+-  Improved version: search over recursion depths and arrival orders
+-  of a fractal/tile construction to maximize FirstFit / OPT ratio.
+-
++  Crossover version:
++    - Keep the Figure 4-style recursive tiling (fractal) generator.
++    - Search across depths and multiple adversarial orders.
++    - Speed up FirstFit evaluation via interval-graph adjacency (sweep-line).
++  
+   Returns:
+-    intervals: list of tuples (l, r) representing open intervals [l, r)
++    intervals: list of tuples (l, r) representing open intervals (l, r)
++               in the arrival order that maximizes FirstFit/OPT found.
+   """
+   import random
+ 
++  # ---------------- Fractal (Figure 4-style) generator ----------------
+   def build_fractal(depth, starts=(2, 6, 10, 14), caps=((1, 5), (12, 16), (4, 9), (8, 13))):
++    # Iterative construction as in the inspiration and current code
+     T = [(0.0, 1.0)]
+     for _ in range(depth):
+       lo = min(l for l, r in T)
+       hi = max(r for l, r in T)
+       delta = hi - lo
+       S = []
+       for start in starts:
+         shift = delta * start - lo
+         for l, r in T:
+           S.append((shift + l, shift + r))
+       for a, b in caps:
+         S.append((delta * a, delta * b))
+       T = S
+-    # Normalize so leftmost point is 0.0 (keeps numbers small)
+-    lo = min(l for l, r in T)
+-    T = [(l - lo, r - lo) for l, r in T]
++    # Normalize so leftmost point is 0.0
++    base = min(l for l, r in T)
++    T = [(l - base, r - base) for l, r in T]
+     return T
+ 
+-  def firstfit_for_order(intervals):
+-    # Greedy FirstFit in the given order
+-    colors = []
+-    for i, (l, r) in enumerate(intervals):
+-      used = set()
+-      # Check overlap with previously colored intervals
+-      # For open intervals (l, r) overlaps (l2, r2) iff l < r2 and l2 < r
+-      for j, (lj, rj) in enumerate(intervals[:i]):
+-        if lj < r and l < rj:
+-          used.add(colors[j])
+-      # assign smallest positive integer not used
+-      c = 1
+-      while c in used:
+-        c += 1
+-      colors.append(c)
+-    return colors
+-
+-  def firstfit_colors(intervals):
+-    assigned = firstfit_for_order(intervals)
+-    return max(assigned) if assigned else 0
+-
++  # ---------------- Graph utilities: OPT and adjacency ----------------
+   def clique_number(intervals):
+-    # Sweep-line to compute maximum number of intervals covering a point
+-    # For open intervals, endpoints do not count as overlap; process ends before starts on ties.
++    # Sweep-line for open intervals: end events before start events on ties
+     events = []
+     for l, r in intervals:
+       events.append((l, 1))   # start
+       events.append((r, -1))  # end
+-    events.sort(key=lambda x: (x[0], x[1]))  # end (-1) sorted before start (1) on ties
++    events.sort(key=lambda x: (x[0], x[1]))
+     curr = 0
+     best = 0
+-    for pos, delta in events:
++    for _, delta in events:
+       curr += delta
+       if curr > best:
+         best = curr
+     return best
+ 
+-  # Try several depths and several arrival orderings; pick best ratio
++  def adjacency_sweep(intervals):
++    """
++    Build adjacency (overlap) list for the interval graph in O(n*omega).
++    Sort by left endpoint; maintain active intervals with right > current left.
++    For open intervals, we drop any active with right <= current left.
++    """
++    n = len(intervals)
++    idxs = list(range(n))
++    idxs.sort(key=lambda i: (intervals[i][0], intervals[i][1]))
++    neighbors = [[] for _ in range(n)]
++    active = []  # indices of intervals overlapping current l
++    for i in idxs:
++      l_i, r_i = intervals[i]
++      # Remove those that end no later than l_i (open intervals)
++      if active:
++        active = [j for j in active if intervals[j][1] > l_i]
++      # All remaining active intervals overlap i
++      for j in active:
++        neighbors[i].append(j)
++        neighbors[j].append(i)
++      active.append(i)
++    return neighbors
++
++  # ---------------- Fast FirstFit using precomputed adjacency ----------------
++  def firstfit_colors_for_order(order_idx, neighbors):
++    """
++    Compute FirstFit colors for a given vertex order on a fixed interval graph.
++    order_idx: list of indices into the base interval list
++    neighbors: adjacency list (undirected) by indices
++    Returns: max color used
++    """
++    n = len(order_idx)
++    colors = [-1] * n  # color by vertex index (but we will expand to length of neighbors)
++    # Adjust to the total number of vertices; map vertex->color
++    colors = [-1] * len(neighbors)
++    max_color = 0
++    for pos, v in enumerate(order_idx):
++      # Track used colors by neighbors already colored
++      # Since max_color grows gradually, an array is faster than a set
++      used = [False] * (max_color + 2)
++      for u in neighbors[v]:
++        c = colors[u]
++        if c != -1 and c <= max_color + 1:
++          used[c] = True
++      # Smallest unused positive color
++      c = 1
++      while c <= max_color and used[c]:
++        c += 1
++      if c == max_color + 1:
++        max_color += 1
++      colors[v] = c
++    return max_color
++
++  # ---------------- Candidate arrival orders ----------------
++  def generate_orders(intervals, opt, rng, heavy=True):
++    """
++    Produce a list of candidate ordering strategies as index permutations.
++    heavy=True includes more orders; for large n heavy=False to cap runtime.
++    """
++    n = len(intervals)
++    idx = list(range(n))
++    lengths = [intervals[i][1] - intervals[i][0] for i in range(n)]
++    orders = []
++
++    # Base orders
++    orders.append(("fractal", idx))
++    orders.append(("reversed", list(reversed(idx))))
++
++    # Heuristic orders
++    left_sorted = sorted(idx, key=lambda i: (intervals[i][0], intervals[i][1]))
++    right_sorted = sorted(idx, key=lambda i: (-intervals[i][0], -intervals[i][1]))
++    short_first = sorted(idx, key=lambda i: (lengths[i], intervals[i][0]))
++    long_first = sorted(idx, key=lambda i: (-lengths[i], intervals[i][0]))
++
++    orders.append(("left_first", left_sorted))
++    orders.append(("right_first", right_sorted))
++    orders.append(("short_first", short_first))
++    orders.append(("long_first", long_first))
++
++    # Interleave extremes by length (aim to maximize color reuse pressure)
++    sorted_by_len = short_first
++    alt = []
++    lo, hi = 0, n - 1
++    while lo <= hi:
++      alt.append(sorted_by_len[hi])
++      if lo < hi:
++        alt.append(sorted_by_len[lo])
++      lo += 1
++      hi -= 1
++    orders.append(("alt_long_short", alt))
++
++    # Zig-zag by left endpoint in blocks to create waves
++    block = max(5, min(64, n // max(2, opt)))
++    zigzag = []
++    for b_start in range(0, n, block):
++      block_slice = left_sorted[b_start:b_start + block]
++      if (b_start // block) % 2 == 0:
++        zigzag.extend(block_slice)
++      else:
++        zigzag.extend(reversed(block_slice))
++    orders.append(("zigzag_left", zigzag))
++
++    # Deterministic random shuffles for diversity
++    rand_counts = 2 if heavy else 1
++    for i in range(rand_counts):
++      tmp = list(idx)
++      rng.shuffle(tmp)
++      orders.append((f"rand_{i}", tmp))
++
++    return orders
++
++  # ---------------- Search across depths and orders ----------------
+   best_seq = None
+   best_meta = None
+   best_ratio = -1.0
+ 
+-  random_seed = 1234567
+-
+-  # Search depths 1..4 (original used depth=2). Depth 4 yields 592 intervals; manageable.
+-  for depth in range(1, 5):
++  random_seed = 20240529
++  rng_global = random.Random(random_seed)
++
++  # Depths 1..6. With adjacency acceleration, depth 5–6 are feasible.
++  for depth in range(1, 7):
+     seq = build_fractal(depth)
++    n = len(seq)
+     opt = clique_number(seq) or 1
+ 
+-    # Generate a small collection of orders to test (adversary can choose any order)
+-    orders = []
+-    orders.append(("fractal", list(seq)))
+-    orders.append(("reversed", list(reversed(seq))))
+-    orders.append(("short_first", sorted(seq, key=lambda x: (x[1] - x[0], x[0]))))
+-    orders.append(("long_first", sorted(seq, key=lambda x: -(x[1] - x[0]))))
+-    orders.append(("left_first", sorted(seq, key=lambda x: x[0])))
+-    orders.append(("right_first", sorted(seq, key=lambda x: -x[0])))
+-    # A few seeded random shuffles for diversity (deterministic)
++    # Precompute adjacency once per depth; near O(n*ω)
++    neighbors = adjacency_sweep(seq)
++
++    # Limit heavy order search for very large n
++    heavy = n <= 6000
+     rng = random.Random(random_seed + depth)
+-    for i in range(3):
+-      tmp = list(seq)
+-      rng.shuffle(tmp)
+-      orders.append((f"rand_{i}", tmp))
+-
+-    for name, candidate in orders:
+-      colors_used = firstfit_colors(candidate)
++    orders = generate_orders(seq, opt, rng, heavy=heavy)
++
++    for name, order_idx in orders:
++      colors_used = firstfit_colors_for_order(order_idx, neighbors)
+       ratio = colors_used / opt
+-      # Prefer higher ratio; tie-breaker: fewer intervals (smaller witness) then fewer colors (no, prefer more colors)
+-      if ratio > best_ratio + 1e-12:
++      # Accept if strictly better; tie-break by smaller n then larger colors
++      if ratio > best_ratio + 1e-12 or (abs(ratio - best_ratio) <= 1e-12 and (best_meta is None or n < best_meta[-1] or (n == best_meta[-1] and colors_used > best_meta[2]))):
+         best_ratio = ratio
+-        best_seq = candidate
+-        best_meta = (depth, name, colors_used, opt, len(candidate))
+-
+-  # Fallback (shouldn't happen): return depth=2 original pattern
++        best_seq = [seq[i] for i in order_idx]
++        best_meta = (depth, name, colors_used, opt, n)
++
++  # Fallback (unlikely): return depth=2 fractal order
+   if best_seq is None:
+-    best_seq = build_fractal(2)
+-    best_meta = (2, "fallback", firstfit_colors(best_seq), clique_number(best_seq), len(best_seq))
++    seq = build_fractal(2)
++    n = len(seq)
++    opt = clique_number(seq) or 1
++    neighbors = adjacency_sweep(seq)
++    colors_used = firstfit_colors_for_order(list(range(n)), neighbors)
++    best_seq = seq
++    best_meta = (2, "fallback", colors_used, opt, n)
+ 
+   # Print a short validation line
+   depth, order_name, ff_colors, opt_val, n_intervals = best_meta
+   print(f"construct_intervals: depth={depth}, order={order_name}, n={n_intervals}, FirstFit={ff_colors}, OPT={opt_val}, ratio={ff_colors/opt_val:.3f}")
+ 
+   return best_seq
+ 
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

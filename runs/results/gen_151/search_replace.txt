@@ -1,0 +1,386 @@
+<NAME>
+multi_run_waves_and_relaxed_gate
+</NAME>
+
+<DESCRIPTION>
+I relax the overly strict “hit all colors” gate and introduce a greedy, multi-run augmentation that adds waves across several disjoint low-coverage corridors. The prior augmentation never improved over the canonical 13/5 frontier because it required a candidate segment to intersect every color class up-front, which is stronger than necessary and likely blocks valid augmentations. Instead, I let the FirstFit simulation decide whether a new segment forces a new color while maintaining omega.
+
+Concretely:
+- Relax add_wave: remove the precheck “must overlap all colors” and rely on FirstFit(cand) > FirstFit(cur) to test if the new interval truly forces a new color, while still verifying clique_number does not grow.
+- Simplify pick_augmentable_run to choose the longest corridor with coverage <= omega-1 and compute a usable “core” if coverage dips to <= omega-2, enabling two overlapping “wings” that keep omega stable.
+- Add augment_with_many_waves: greedily add one (or two wings) per disjoint run (runs from baseline are disjoint), preserving omega. This constructs multiple layers (“towers”) across different corridors, coupling colors across layers while respecting the omega cap.
+- In the orchestrator, evaluate base, single-run augmentation, and multi-run augmentation and keep the best.
+
+This strategy adheres to known heuristics: building a spine and injecting waves, arrival-order engineering via appended blockers, and layered towers using two-wing waves when a corridor’s interior admits coverage <= omega-2. It is deterministic, keeps footprint manageable, and can strictly improve FirstFit without raising omega beyond baseline.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def pick_augmentable_run(baseline, omega_cap):
+    """
+    Given a baseline instance and omega, find a run R where:
+      - coverage <= omega_cap-1 (so adding a single wave keeps omega <= omega_cap),
+      - it intersects every color class (so a wave placed here forces a new color).
+    Additionally, prefer runs whose interior contains a cell with coverage <= omega_cap-2,
+    enabling two overlapping waves (sharing a small core).
+    Returns (run_L, run_R, allow_two_waves, core_cell) or None.
+    """
+    cells = coverage_cells(baseline)
+    # runs where baseline coverage <= omega-1
+    runs = extract_runs(cells, omega_cap - 1)
+    color_classes = firstfit_partition(baseline)
+    total_colors = len(color_classes)
+
+    best = None
+    # Score runs by (covers_all_colors, allow_two_waves, length, hit_count)
+    for (L, R, min_m, max_m) in runs:
+        if R - L <= 0:
+            continue
+        hit = colors_hit_by_segment((L, R), color_classes)
+        covers_all = (hit == total_colors)
+        # find an internal cell with m <= omega-2 to allow 2-wave overlap core
+        allow_two = False
+        core = None
+        if min_m <= omega_cap - 2:
+            # pick the widest cell within (L,R) that has m <= omega-2
+            best_len = -1.0
+            for (a, b, m) in cells:
+                if m <= omega_cap - 2:
+                    # ensure (a,b) lies within (L,R)
+                    lo = max(L, a)
+                    hi = min(R, b)
+                    if hi > lo:
+                        length = hi - lo
+                        if length > best_len:
+                            best_len = length
+                            # keep a small margin inside the cell to avoid touching endpoints
+                            eps = max(1.0, (hi - lo) / 10.0)
+                            core = (lo + eps/2.0, hi - eps/2.0) if (hi - lo) > 2*eps else (lo + (hi-lo)/4.0, hi - (hi-lo)/4.0)
+            allow_two = core is not None
+        score = (
+            1 if covers_all else 0,
+            1 if allow_two else 0,
+            R - L,
+            hit
+        )
+        if best is None or score > best[0]:
+            best = (score, (L, R, allow_two, core, hit, total_colors))
+    if best is None:
+        return None
+    _, (L, R, allow_two, core, hit, total) = best
+    if hit < total:
+        return None
+    # ensure we have some core; if not allowing two waves, fabricate a tiny core
+    if not allow_two:
+        # build a tiny core inside (L,R) where coverage <= omega-1 (always true by construction)
+        mid = (L + R) / 2.0
+        core = (mid - (R - L) / 100.0, mid + (R - L) / 100.0)
+    return (L, R, allow_two, core)
+=======
+def pick_augmentable_run(baseline, omega_cap):
+    """
+    Relaxed selection:
+    - Pick the longest run where baseline coverage <= omega_cap-1.
+    - Compute a 'core' subsegment if coverage dips to <= omega_cap-2 to allow two wings.
+    Returns (run_L, run_R, allow_two_waves, core_cell) or None.
+    """
+    cells = coverage_cells(baseline)
+    runs = extract_runs(cells, omega_cap - 1)
+    if not runs:
+        return None
+    # choose the longest such run; tie-break by smaller min coverage
+    (L, R, min_m, max_m) = max(runs, key=lambda t: ((t[1] - t[0]), -t[2]))
+    core = None
+    allow_two = False
+    if min_m <= omega_cap - 2:
+        best_len = -1.0
+        for (a, b, m) in cells:
+            if m <= omega_cap - 2:
+                lo = max(L, a)
+                hi = min(R, b)
+                if hi > lo:
+                    length = hi - lo
+                    if length > best_len:
+                        best_len = length
+                        eps = max(1.0, (hi - lo) / 10.0)
+                        core = (lo + eps/2.0, hi - eps/2.0) if (hi - lo) > 2*eps else (lo + (hi-lo)/4.0, hi - (hi-lo)/4.0)
+        allow_two = core is not None
+    if core is None:
+        # fabricate a tiny core in the middle (safe since coverage <= omega_cap-1 on (L,R))
+        mid = (L + R) / 2.0
+        core = (mid - (R - L) / 100.0, mid + (R - L) / 100.0)
+    return (L, R, allow_two, core)
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def add_wave(intervals, segment, omega_cap):
+    """
+    Try to append 'segment' as a wave; accept only if omega remains <= omega_cap
+    and it forces a new color (overlaps one interval from every existing color class).
+    Returns (new_intervals, success).
+    """
+    cur_colors = firstfit_partition(intervals)
+    total_colors = len(cur_colors)
+    # must hit all colors
+    if colors_hit_by_segment(segment, cur_colors) < total_colors:
+        return intervals, False
+    cand = intervals + [segment]
+    if clique_number(cand) > omega_cap:
+        return intervals, False
+    # also check FirstFit assigns a new color
+    if firstfit_colors(cand) <= total_colors:
+        return intervals, False
+    return cand, True
+=======
+def add_wave(intervals, segment, omega_cap):
+    """
+    Try to append 'segment' as a wave; accept only if omega remains <= omega_cap
+    and FirstFit must allocate a new color on this arrival.
+    Returns (new_intervals, success).
+    """
+    cur_colors = firstfit_partition(intervals)
+    total_colors = len(cur_colors)
+    cand = intervals + [segment]
+    if clique_number(cand) > omega_cap:
+        return intervals, False
+    # require that the new segment truly forces a new color
+    if firstfit_colors(cand) <= total_colors:
+        return intervals, False
+    return cand, True
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+def augment_with_corridor_waves(baseline):
+    """
+    Main augmenter:
+    - Find an augmentable run R intersecting all colors,
+    - Add one wave J1 = (L, c_hi),
+    - If possible, add a second wave J2 = (c_lo, R),
+      both sharing only a tiny 'core' segment C to keep omega stable.
+    """
+    if not baseline:
+        return baseline
+    omega_cap = clique_number(baseline)
+    if omega_cap <= 0:
+        return baseline
+
+    picked = pick_augmentable_run(baseline, omega_cap)
+    if picked is None:
+        return baseline
+    (L, R, allow_two, core) = picked
+
+    # Define a small core safely inside (L,R)
+    c_lo, c_hi = core
+    # Ensure core lies strictly inside (L,R)
+    c_lo = max(L + 1.0, min(c_lo, R - 2.0))
+    c_hi = min(R - 1.0, max(c_hi, L + 2.0))
+    if not (L < c_lo < c_hi < R):
+        return baseline
+
+    # Construct first wave taking left wing + core
+    J1 = (L, c_hi)
+    T1, ok1 = add_wave(baseline, J1, omega_cap)
+    if not ok1:
+        # try right wing first if left fails
+        J1_alt = (c_lo, R)
+        T1, ok1 = add_wave(baseline, J1_alt, omega_cap)
+        if not ok1:
+            return baseline  # no augmentation possible
+        else:
+            # right-wing succeeded
+            J1 = J1_alt
+
+    # Try a second wave: the complementary wing
+    J2 = (c_lo, R) if J1 == (L, c_hi) else (L, c_hi)
+    # Try strictly limiting overlap to the core by slightly tightening towards core
+    tight = 0.0
+    T2, ok2 = add_wave(T1, J2, omega_cap)
+    if not ok2 and allow_two:
+        # progressively shrink to keep overlap minimal while attempting to cover all colors
+        for shrink in [0.0, 0.1, 0.2, 0.3]:
+            if J1 == (L, c_hi):
+                J2_try = (c_lo + shrink * (c_hi - c_lo), R)
+            else:
+                J2_try = (L, c_hi - shrink * (c_hi - c_lo))
+            T2, ok2 = add_wave(T1, J2_try, omega_cap)
+            if ok2:
+                break
+
+    return T2 if ok2 else T1
+=======
+def augment_with_corridor_waves(baseline):
+    """
+    Main augmenter:
+    - Find an augmentable run R,
+    - Add one wave J1 = (L, c_hi),
+    - If possible, add a second wave J2 = (c_lo, R),
+      both sharing only a tiny 'core' segment C to keep omega stable.
+    """
+    if not baseline:
+        return baseline
+    omega_cap = clique_number(baseline)
+    if omega_cap <= 0:
+        return baseline
+
+    picked = pick_augmentable_run(baseline, omega_cap)
+    if picked is None:
+        return baseline
+    (L, R, allow_two, core) = picked
+
+    # Define a small core safely inside (L,R)
+    c_lo, c_hi = core
+    # Ensure core lies strictly inside (L,R)
+    c_lo = max(L + 1.0, min(c_lo, R - 2.0))
+    c_hi = min(R - 1.0, max(c_hi, L + 2.0))
+    if not (L < c_lo < c_hi < R):
+        return baseline
+
+    # Construct first wave taking left wing + core
+    J1 = (L, c_hi)
+    T1, ok1 = add_wave(baseline, J1, omega_cap)
+    if not ok1:
+        # try right wing first if left fails
+        J1_alt = (c_lo, R)
+        T1, ok1 = add_wave(baseline, J1_alt, omega_cap)
+        if not ok1:
+            return baseline  # no augmentation possible
+        else:
+            # right-wing succeeded
+            J1 = J1_alt
+
+    # Try a second wave: the complementary wing
+    J2 = (c_lo, R) if J1 == (L, c_hi) else (L, c_hi)
+    # Try strictly limiting overlap to the core by slightly tightening towards core
+    T2, ok2 = add_wave(T1, J2, omega_cap)
+    if not ok2 and allow_two:
+        # progressively shrink to keep overlap minimal
+        for shrink in [0.0, 0.1, 0.2, 0.3]:
+            if J1 == (L, c_hi):
+                J2_try = (c_lo + shrink * (c_hi - c_lo), R)
+            else:
+                J2_try = (L, c_hi - shrink * (c_hi - c_lo))
+            T2, ok2 = add_wave(T1, J2_try, omega_cap)
+            if ok2:
+                break
+
+    return T2 if ok2 else T1
+
+
+def augment_with_many_waves(baseline):
+    """
+    Greedy multi-run augmenter:
+    - Over disjoint baseline runs where coverage <= omega-1, try to add one wave per run.
+    - If a run admits two wings (has a subcell with coverage <= omega-2), add both wings
+      that only overlap on a tiny core to keep omega stable.
+    The runs computed from the baseline are disjoint, so adding one wave per run cannot
+    stack coverage beyond +1 at any point.
+    """
+    if not baseline:
+        return baseline
+    omega_cap = clique_number(baseline)
+    if omega_cap <= 0:
+        return baseline
+
+    cells = coverage_cells(baseline)
+    runs = extract_runs(cells, omega_cap - 1)
+    if not runs:
+        return baseline
+
+    # sort runs by length (descending)
+    runs_sorted = sorted(runs, key=lambda t: (t[1] - t[0]), reverse=True)
+
+    T = list(baseline)
+    added = 0
+    max_add = min(12, 2 * len(runs_sorted))  # conservative cap on augmentations
+
+    def find_core(L, R):
+        best_len = -1.0
+        best = None
+        for (a, b, m) in cells:
+            if m <= omega_cap - 2:
+                lo = max(L, a)
+                hi = min(R, b)
+                if hi > lo:
+                    length = hi - lo
+                    if length > best_len:
+                        best_len = length
+                        eps = max(1.0, (hi - lo) / 10.0)
+                        best = (lo + eps/2.0, hi - eps/2.0) if (hi - lo) > 2*eps else (lo + (hi-lo)/4.0, hi - (hi-lo)/4.0)
+        return best
+
+    for (L, R, min_m, max_m) in runs_sorted:
+        if added >= max_add or R - L <= 0:
+            break
+        eps = max(1.0, (R - L) / 200.0)
+        if min_m <= omega_cap - 2:
+            core = find_core(L, R)
+            if core is not None and L + eps < core[1] and core[0] < R - eps:
+                # left wing + core
+                Jleft = (L + eps, core[1])
+                T1, ok1 = add_wave(T, Jleft, omega_cap)
+                if ok1:
+                    T = T1
+                    added += 1
+                # right wing + core
+                Jright = (core[0], R - eps)
+                T1, ok2 = add_wave(T, Jright, omega_cap)
+                if ok2:
+                    T = T1
+                    added += 1
+                if added >= max_add:
+                    break
+                continue
+        # fallback: single wave across the run
+        J = (L + eps, R - eps)
+        T1, ok = add_wave(T, J, omega_cap)
+        if ok:
+            T = T1
+            added += 1
+        if added >= max_add:
+            break
+
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+        base = build_baseline(k=k, offsets=offs, blockers=blockers)
+        # augment
+        aug = augment_with_corridor_waves(base)
+        # Evaluate
+        om = clique_number(aug)
+        cols = firstfit_colors(aug)
+        ratio = cols / max(1, om)
+        score = ratio - 1e-6 * (len(aug) / 10000.0)
+        cand = (score, om, cols, len(aug), aug)
+        if best is None:
+            best = cand
+        else:
+            if cand[0] > best[0] + 1e-9:
+                best = cand
+            elif abs(cand[0] - best[0]) <= 1e-9:
+                # smaller n preferred, then more colors
+                if cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]):
+                    best = cand
+=======
+        base = build_baseline(k=k, offsets=offs, blockers=blockers)
+        # augment variants
+        aug1 = augment_with_corridor_waves(base)
+        aug2 = augment_with_many_waves(base)
+        candidates = [base, aug1, aug2]
+        # Evaluate all and pick the best
+        for aug in candidates:
+            om = clique_number(aug)
+            cols = firstfit_colors(aug)
+            ratio = cols / max(1, om)
+            score = ratio - 1e-6 * (len(aug) / 10000.0)
+            cand = (score, om, cols, len(aug), aug)
+            if best is None or cand[0] > best[0] + 1e-9 or (abs(cand[0] - best[0]) <= 1e-9 and (cand[3] < best[3] or (cand[3] == best[3] and cand[2] > best[2]))):
+                best = cand
+>>>>>>> REPLACE
+</DIFF>

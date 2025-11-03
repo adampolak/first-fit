@@ -1,0 +1,55 @@
+<NAME>
+correct_firstfit_simulation
+</NAME>
+
+<DESCRIPTION>
+Replace the incorrect fast heuristic _ff_count (which used only the last end per color and can be wrong for arbitrary arrival orders) with a correct FirstFit simulation that checks pairwise conflicts within each color class. This yields accurate FirstFit counts during the parameter search, improving selection of adversarial constructions. The change is local and deterministic, preserves the function name and signature, and should increase the chance of finding stronger instances for FirstFit while keeping omega computations unchanged.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def _ff_count(intervals):
+    """
+    Fast FirstFit color count using per-color last end tracking.
+    For open intervals, a color c is compatible if l >= last_end[c].
+    """
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+=======
+def _ff_count(intervals):
+    """
+    Accurate FirstFit color count by simulating the online assignment.
+    For each arriving interval we try colors in increasing order and place
+    the interval in the first color whose existing intervals do not overlap it.
+    This is the correct FirstFit behavior for arbitrary arrival orders.
+    """
+    # color_classes[c] is the list of intervals already assigned to color c
+    color_classes = []
+    for (l, r) in intervals:
+        placed = False
+        # try to place in the smallest-indexed color with no overlap
+        for cls in color_classes:
+            conflict = False
+            for (al, ar) in cls:
+                # open intervals overlap iff not (ar <= l or r <= al)
+                if not (ar <= l or r <= al):
+                    conflict = True
+                    break
+            if not conflict:
+                cls.append((l, r))
+                placed = True
+                break
+        if not placed:
+            color_classes.append([(l, r)])
+    return len(color_classes)
+>>>>>>> REPLACE
+</DIFF>

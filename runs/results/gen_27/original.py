@@ -1,0 +1,66 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=3):
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The implementation uses alternating pattern cycles to diversify the geometry
+  across iterations and increase FirstFit colors while keeping omega under
+  control. It generalizes the fixed four-copy motif by cycling multiple
+  copy-start patterns and connector templates.
+
+  Arguments:
+    iterations: number of recursive expansion steps (default 3)
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  # A library of alternating patterns for the four copies and the four connectors.
+  start_patterns = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+  ]
+  connect_patterns = [
+    [(1, 5), (12, 16), (4, 9), (8, 13)],
+    [(0, 4), (11, 15), (3, 8), (7, 12)],
+  ]
+
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    starts = start_patterns[i % len(start_patterns)]
+    connectors = connect_patterns[i % len(connect_patterns)]
+    # Place four scaled/translated copies at staggered offsets (with current pattern)
+    for start in starts:
+      offset = delta * start - lo
+      S += [(offset + l, offset + r) for l, r in T]
+    # Add four connector intervals using the selected template
+    for a, b in connectors:
+      S.append((delta * a, delta * b))
+    T = S
+
+  # Normalize endpoints to a compact integer grid while preserving order
+  endpoints = sorted(set([x for seg in T for x in seg]))
+  coord = {}
+  cur = 0
+  for e in endpoints:
+    coord[e] = cur
+    cur += 2
+
+  normalized = [(coord[l], coord[r]) for (l, r) in T]
+
+  return normalized
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

@@ -1,0 +1,17 @@
+<NAME>
+increase_depth_to_7
+</NAME>
+
+<DESCRIPTION>
+We keep the proven recursive cap construction but push the recursion one level deeper. Empirically for this pattern, FirstFit uses about 3*depth+1 colors while the clique number grows about depth+1, so the ratio (3*depth+1)/(depth+1) increases with depth and approaches 3. Moving from depth=4 (ratio ≈ 2.60) to depth=7 should raise the ratio to roughly 22/8 = 2.75, improving the combined score without changing the structural guarantees of the construction. This is a targeted, low‑risk modification consistent with the recursive strategy and the literature-inspired cap approach.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Increase recursion depth to grow FF faster than omega (empirically).
+  depth = 4
+=======
+  # Increase recursion depth further to amplify FF/omega ratio (empirically).
+  depth = 7
+>>>>>>> REPLACE
+</DIFF>

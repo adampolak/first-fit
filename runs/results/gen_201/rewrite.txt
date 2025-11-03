@@ -1,0 +1,230 @@
+# EVOLVE-BLOCK-START
+
+from collections import OrderedDict
+
+# Global cache for fingerprinted interval patterns
+_MAX_CACHE_SIZE = 4096
+_cache = OrderedDict()  # fingerprint -> (score, omega, colors, n, normalized_intervals)
+
+def _normalize_grid(intervals):
+  """
+  Map endpoints to a compact integer grid preserving order and open-interval overlaps.
+  Returns a list of integer pairs (l, r).
+  """
+  if not intervals:
+    return []
+  pts = sorted(set([x for seg in intervals for x in seg]))
+  coord = {p: 2*i for i, p in enumerate(pts)}
+  return [(coord[l], coord[r]) for (l, r) in intervals]
+
+def overlaps(a, b):
+  # Open-interval overlap test
+  return max(a[0], b[0]) < min(a[1], b[1])
+
+def firstfit_colors(intervals):
+  """
+  Simulate FirstFit coloring on the given arrival order.
+  Each color class is a set of pairwise-disjoint intervals.
+  """
+  colors = []
+  for iv in intervals:
+    placed = False
+    for c in colors:
+      if all(not overlaps(u, iv) for u in c):
+        c.append(iv)
+        placed = True
+        break
+    if not placed:
+      colors.append([iv])
+  return len(colors)
+
+def clique_number(intervals):
+  """
+  Compute omega = maximum number of intervals covering a point.
+  Implemented on the integer-grid endpoints (open intervals).
+  """
+  events = []
+  for (l, r) in intervals:
+    if l < r:
+      events.append((l, +1))
+      events.append((r, -1))
+  events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+  cur = 0
+  best = 0
+  for _, t in events:
+    cur += t
+    if cur > best:
+      best = cur
+  return best
+
+def _fingerprint(T):
+  # Fingerprint the normalized grid to enable caching
+  Tn = _normalize_grid(T)
+  return tuple(Tn)
+
+def _evaluate_with_cache(T):
+  """
+  Evaluate and cache the result for a given interval sequence T.
+  Returns (score, omega, colors, n, Tn).
+  """
+  Tn = _normalize_grid(T)
+  key = tuple(Tn)
+  if key in _cache:
+    # Move to end to reflect recent use (LRU-like behavior)
+    _cache.move_to_end(key)
+    return _cache[key]
+
+  if not Tn:
+    res = (-1.0, 0, 0, 0, Tn)
+  else:
+    om = clique_number(Tn)
+    cols = firstfit_colors(Tn)
+    score = cols / om if om > 0 else -1.0
+    res = (score, om, cols, len(Tn), Tn)
+
+  _cache[key] = res
+  _cache.move_to_end(key)
+  if len(_cache) > _MAX_CACHE_SIZE:
+    _cache.popitem(last=False)
+  return res
+
+def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left',
+                  schedule='after', interleave='block', reverse_alt=False):
+  """
+  Recursively expand the base_seed k times using a 4-copy + 4-blockers scheme.
+  - translation: 'left' or 'center' for copy offsets
+  - blocker_anchor: 'left' or 'center' for blocker placement
+  - schedule / interleave control ordering of copies vs blockers
+  - reverse_alt toggles reversal of every other copy (for exploration)
+  """
+  T = list(base_seed)
+  for _level in range(k):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    center = (lo + hi) / 2.0
+
+    # Build four copies
+    copies = []
+    for idx, start in enumerate(offsets):
+      off = delta * start - lo if translation == 'left' else delta * start - center
+      seq = T if not (reverse_alt and (idx % 2 == 1)) else list(reversed(T))
+      copies.append([(l + off, r + off) for (l, r) in seq])
+
+    # Build blockers
+    blockers_list = []
+    for (a, b) in blockers:
+      if blocker_anchor == 'left':
+        blockers_list.append((delta * a, delta * b))
+      else:
+        blockers_list.append((delta * a - center, delta * b - center))
+
+    # Interleave according to schedule
+    if schedule == 'before':
+      S = blockers_list + [iv for lst in copies for iv in lst]
+    elif schedule == 'split':
+      h = max(1, len(copies) // 2)
+      first_half = []
+      for i in range(h):
+        first_half.extend(copies[i])
+      second_half = []
+      for i in range(h, len(copies)):
+        second_half.extend(copies[i])
+      S = first_half + blockers_list + second_half
+    elif schedule == 'mix':
+      S = []
+      max_len = max((len(lst) for lst in copies), default=0)
+      for i in range(max_len):
+        for lst in copies:
+          if i < len(lst):
+            S.append(lst[i])
+        S.extend(blockers_list)
+    else:
+      S = [iv for lst in copies for iv in lst] + blockers_list
+
+    T = S
+  return T
+
+def evaluate(T):
+  """
+  Evaluate a candidate interval sequence T.
+  Returns (score, omega, colors, n, Tn).
+  """
+  if not T:
+    return (-1.0, 0, 0, 0, [])
+  return _evaluate_with_cache(T)
+
+def construct_intervals(iterations=4):
+  """
+  Generate a sequence of intervals designed to stress FirstFit,
+  using a parameterized pattern library with a cap on size.
+  """
+  # Pattern libraries (canonical and variants)
+  offsets_set = [
+    (2, 6, 10, 14),
+    (1, 5, 9, 13),
+    (3, 7, 11, 15),
+    (0, 4, 8, 12),
+    (2, 6, 9, 14),
+    (2, 7, 11, 14),
+    (1.5, 5.5, 9.5, 13.5),
+  ]
+  blockers_templates = [
+    ((1,5), (12,16), (4,9), (8,13)),
+    ((0,4), (6,10), (8,12), (14,18)),
+    ((2,6), (4,8), (10,14), (12,16)),
+    ((1,5), (12,16), (3,7), (9,13)),
+    ((1,6), (11,16), (4,8), (10,14)),
+    ((1,5), (12,16), (4,9), (8,13), (2,14), (6,10)),
+  ]
+  translations = ['left', 'center']
+  blocker_anchors = ['left', 'center']
+  depths = [3, 4, 5]
+  base_seeds = [
+    [(0.0, 1.0)],
+    [(0.0, 1.0), (2.0, 3.0)]
+  ]
+
+  best = None  # best candidate: (score, om, colors, n, Tn)
+
+  for base in base_seeds:
+    for k in depths:
+      # cap growth to avoid explosion; maintain manageable sizes
+      if (4 ** k) * (len(base) + 2) > 2600:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              T = build_pattern(base_seed=base, k=k, offsets=offsets, blockers=blockers,
+                                translation=tr, blocker_anchor=ba)
+              score, om, cols, n, Tn = evaluate(T)
+              cand = (score, om, cols, n, Tn)
+              if best is None or cand[0] > best[0] + 1e-9 or (abs(cand[0] - best[0]) <= 1e-9 and cand[3] < best[3]):
+                best = cand
+
+  # Fallback to baseline if nothing selected
+  if best is None:
+    T = [(0.0, 1.0)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        off = delta * start - lo
+        S.extend([(l + off, r + off) for (l, r) in T])
+      S += [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13),
+      ]
+      T = S
+    return _normalize_grid(T)
+
+  return best[4]
+
+def run_experiment(**kwargs):
+  return construct_intervals()
+# EVOLVE-BLOCK-END

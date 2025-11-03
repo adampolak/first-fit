@@ -1,0 +1,107 @@
+<NAME>permute_copies_ff_variants</NAME>
+<DESCRIPTION>Propose adding deterministic permutation variants for the 4 copied blocks at each recursive level. By varying the order of the 4 copies (while keeping the blockers fixed), FirstFit behavior can explore different coloring patterns without changing omega. This deterministic mutation aims to discover configurations that push the FF/omega ratio higher than the baseline. We implement a copy_order parameter in the pattern builder and sweep a small set of permutations in the main search, ensuring reproducibility and compatibility with the existing framework.</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left'):
+    """
+    Recursively expand base_seed k times with 4 copies and 4 blockers.
+    translation in {'left','center'} controls copy offsets.
+    blocker_anchor in {'left','center'} controls blocker placement.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      S = []
+      for start in offsets:
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        for (l, r) in T:
+          S.append((l + off, r + off))
+
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S.append((delta * a, delta * b))
+        else:
+          S.append((delta * a - center, delta * b - center))
+
+      T = S
+    return T
+=======
+  def build_pattern(base_seed, k, offsets, blockers, translation='left', blocker_anchor='left', copy_order=None):
+    """
+    Recursively expand base_seed k times with 4 copies and 4 blockers.
+    translation in {'left','center'} controls copy offsets.
+    blocker_anchor in {'left','center'} controls blocker placement.
+    If copy_order is provided, it should be a permutation (tuple of indices) into offsets.
+    """
+    T = list(base_seed)
+    for _ in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # determine the order we copy the four offset blocks
+      if copy_order is None:
+        order = list(range(len(offsets)))
+      else:
+        order = list(copy_order)
+
+      S = []
+      for idx in order:
+        start = offsets[idx]
+        if translation == 'left':
+          off = delta * start - lo
+        else:  # center-based
+          off = delta * start - center
+        for (l, r) in T:
+          S.append((l + off, r + off))
+
+      for (a, b) in blockers:
+        if blocker_anchor == 'left':
+          S.append((delta * a, delta * b))
+        else:
+          S.append((delta * a - center, delta * b - center))
+
+      T = S
+    return T
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+  for base in base_seeds:
+    for k in depths:
+      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+      if (4 ** k) * (len(base) + 2) > 3000:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              T = build_pattern(base_seed=base, k=k, offsets=offsets,
+                                blockers=blockers, translation=tr, blocker_anchor=ba)
+              score, om, cols, n = evaluate(T)
+=======
+  for base in base_seeds:
+    for k in depths:
+      # avoid overly large instances (approx size ~ 4^k * |base| + O(4^k))
+      if (4 ** k) * (len(base) + 2) > 3000:
+        continue
+      for offsets in offsets_set:
+        for blockers in blockers_templates:
+          for tr in translations:
+            for ba in blocker_anchors:
+              for co in [None, (1,0,2,3), (2,3,0,1), (3,1,2,0)]:
+                T = build_pattern(base_seed=base, k=k, offsets=offsets,
+                                  blockers=blockers, translation=tr, blocker_anchor=ba,
+                                  copy_order=co)
+                score, om, cols, n = evaluate(T)
+>>>>>>> REPLACE
+</DIFF>

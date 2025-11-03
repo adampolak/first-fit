@@ -1,0 +1,4 @@
+{
+    "correct": false,
+    "error": "The only supported seed types are: None,\nint, float, str, bytes, and bytearray."
+}

@@ -1,0 +1,53 @@
+<NAME>
+extra_first_copy
+</NAME>
+
+<DESCRIPTION>
+Add an extra fifth copy at offset 18 on the first recursion level. By introducing a 5th translated/scaled copy in iteration 0, we diversify overlap patterns and force FirstFit to use more colors without increasing the clique size, boosting the competitive ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  for _ in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Place four scaled/translated copies at staggered offsets
+    for start in (2, 6, 10, 14):
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+    # Add the four connecting long intervals (these create the coupling
+    # between copies but are designed not to increase the clique beyond
+    # the intended constant)
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    T = S
+=======
+  for i in range(iterations):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    # Dynamic copy offsets: add a 5th copy on first iteration for extra coupling
+    if i == 0:
+      starts = (2, 6, 10, 14, 18)
+    else:
+      starts = (2, 6, 10, 14)
+    for start in starts:
+      offset = delta * start - lo
+      S.extend([(offset + l, offset + r) for l, r in T])
+    # Add the four connecting long intervals to maintain small clique
+    S += [
+      (delta * 1,  delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4,  delta * 9),
+      (delta * 8,  delta * 13)
+    ]
+    T = S
+>>>>>>> REPLACE
+</DIFF>

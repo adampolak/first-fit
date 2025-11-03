@@ -1,0 +1,199 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+    """
+    Construct a sequence of open intervals presented to FirstFit.
+    This combines the classic recursive 4-copy + 4-blocker gadget with a
+    small enumerative search over reasonable geometric variants to pick
+    the best candidate by FirstFit/omega ratio.
+
+    Arguments:
+      iterations: nominal number of recursive expansion steps (default 4)
+
+    Returns:
+      intervals: list of tuples (l, r) with integer endpoints (open intervals)
+    """
+
+    # --- helpers -------------------------------------------------------
+    def firstfit_colors(intervals):
+        """Efficient FirstFit: track last end per color (intervals must be in arrival order)."""
+        last_end = []  # last end for each color class
+        for (l, r) in intervals:
+            placed = False
+            for i in range(len(last_end)):
+                if l >= last_end[i]:
+                    last_end[i] = r
+                    placed = True
+                    break
+            if not placed:
+                last_end.append(r)
+        return len(last_end)
+
+    def clique_number(intervals):
+        """
+        Sweep-line to compute maximum depth for open intervals.
+        Process right endpoints before left endpoints at equal coordinate.
+        """
+        events = []
+        for (l, r) in intervals:
+            if l >= r:
+                continue
+            events.append((l, +1))
+            events.append((r, -1))
+        if not events:
+            return 0
+        # sort: coordinate ascending; for equal coordinate, handle -1 (right) before +1 (left)
+        events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+        cur = 0
+        best = 0
+        for _, t in events:
+            cur += t
+            if cur > best:
+                best = cur
+        return best
+
+    def normalize_grid(intervals):
+        """
+        Map all unique endpoints to even integers: 0,2,4,...
+        This yields compact integer coordinates while preserving all relative
+        ordering and strict inequalities.
+        """
+        if not intervals:
+            return []
+        eps = 1e-12
+        endpoints = sorted(set(x for seg in intervals for x in seg))
+        coord = {}
+        cur = 0
+        for e in endpoints:
+            # treat nearly-equal floats as equal using eps
+            coord[e] = cur
+            cur += 2
+        return [(coord[l], coord[r]) for (l, r) in intervals]
+
+    def build_candidate(k, offsets=(2, 6, 10, 14), translation='left', schedule='after', extra_first=False):
+        """
+        Build a k-level recursive pattern:
+          - offsets: tuple of multipliers for placing copies
+          - translation: 'left' aligns copies by left endpoint, 'center' aligns by center
+          - schedule: 'after' -> copies then blockers; 'before' -> blockers then copies;
+                      'split' -> first half copies, blockers, remaining copies
+          - extra_first: if True, add one extra copy offset on the first level to diversify pattern
+        """
+        T = [(0.0, 1.0)]
+        for level in range(k):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            center = (lo + hi) / 2.0
+
+            offs = list(offsets)
+            if extra_first and level == 0:
+                offs = offs + [max(offs) + 4]
+
+            def make_copies(src, offs_local):
+                S = []
+                for start in offs_local:
+                  if translation == 'left':
+                    off = delta * start - lo
+                  else:
+                    off = delta * start - center
+                  for (l, r) in src:
+                    S.append((l + off, r + off))
+                return S
+
+            blockers = [
+                (delta * 1,  delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4,  delta * 9),
+                (delta * 8,  delta * 13),
+            ]
+
+            if schedule == 'before':
+                S = blockers[:] + make_copies(T, offs)
+            elif schedule == 'split':
+                h = max(1, len(offs) // 2)
+                first = offs[:h]
+                second = offs[h:]
+                S = make_copies(T, first) + blockers[:] + make_copies(T, second)
+            else:  # 'after' or default
+                S = make_copies(T, offs) + blockers[:]
+
+            T = S
+        return T
+
+    # --- candidate enumeration -----------------------------------------
+    # Try a modest set of variants to avoid explosion but gain diversity
+    depths = [max(2, iterations - 1), iterations]
+    translations = ['left', 'center']
+    schedules = ['after', 'split', 'before']
+    offsets_options = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),   # shifted
+        (3, 7, 11, 15),  # alternate stagger
+        (1.5, 5.5, 9.5, 13.5),  # half-step stagger
+    ]
+    extras = [False, True]
+
+    best_T = None
+    best_ratio = -1.0
+    best_metrics = None
+
+    # Limit candidates to keep runtime modest
+    for k in depths:
+        for trans in translations:
+            for sch in schedules:
+                for offs in offsets_options:
+                    for ex in extras:
+                        # cheap size guard: approximate growth ~ len(offs)^k, avoid too big
+                        approx_size = (len(offs) ** k)
+                        if approx_size > 3000:  # conservative cap
+                            continue
+                        T = build_candidate(k=k, offsets=offs, translation=trans, schedule=sch, extra_first=ex)
+                        # normalize for evaluation (but keep float geometry for building)
+                        Tn = normalize_grid(T)
+                        if not Tn:
+                            continue
+                        om = clique_number(Tn)
+                        if om == 0:
+                            continue
+                        cols = firstfit_colors(Tn)
+                        ratio = cols / om
+                        n = len(Tn)
+                        # prefer larger ratio, tie-break by smaller n then more colors
+                        better = False
+                        if ratio > best_ratio + 1e-12:
+                            better = True
+                        elif abs(ratio - best_ratio) <= 1e-12:
+                            if best_metrics is None or n < best_metrics[2]:
+                                better = True
+                            elif n == best_metrics[2] and cols > best_metrics[1]:
+                                better = True
+                        if better:
+                            best_ratio = ratio
+                            best_T = T
+                            best_metrics = (ratio, cols, n, om)
+
+    # --- fallback baseline if search didn't yield a candidate -----------
+    if best_T is None:
+        T = [(0.0, 1.0)]
+        for _ in range(iterations):
+            lo = min(l for l, r in T)
+            hi = max(r for l, r in T)
+            delta = hi - lo
+            S = []
+            for start in (2, 6, 10, 14):
+                offset = delta * start - lo
+                S.extend([(l + offset, r + offset) for (l, r) in T])
+            S += [
+                (delta * 1, delta * 5),
+                (delta * 12, delta * 16),
+                (delta * 4, delta * 9),
+                (delta * 8, delta * 13)
+            ]
+            T = S
+        return normalize_grid(T)
+
+    # Normalize and return the best candidate found
+    return normalize_grid(best_T)
+
+# EVOLVE-BLOCK-END

@@ -1,0 +1,31 @@
+<NAME>
+add_tower_caps
+</NAME>
+
+<DESCRIPTION>
+Inject two extra long “cap” intervals at each expansion level within `_build` to couple the four towers more tightly. These caps span from 2→10 and 6→14 in units of the current delta, forcing FirstFit to open additional colors while only minimally affecting the clique size. This simple augmentation is inspired by the cap-augmented constructions and can raise the FF/ω ratio above 2.6.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+      if schedule == 'before':
+        S = list(blk) + place_copies(T, starts)
+      elif schedule == 'split':
+        h = len(starts) // 2
+        S = place_copies(T, starts[:h]) + list(blk) + place_copies(T, starts[h:])
+      else:  # 'after'
+        S = place_copies(T, starts) + list(blk)
+      T = S
+=======
+      if schedule == 'before':
+        S = list(blk) + place_copies(T, starts)
+      elif schedule == 'split':
+        h = len(starts) // 2
+        S = place_copies(T, starts[:h]) + list(blk) + place_copies(T, starts[h:])
+      else:  # 'after'
+        S = place_copies(T, starts) + list(blk)
+      # add extra caps to couple towers without raising clique too much
+      S.extend([(delta * 2, delta * 10), (delta * 6, delta * 14)])
+      T = S
+>>>>>>> REPLACE
+</DIFF>

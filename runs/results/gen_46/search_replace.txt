@@ -1,0 +1,50 @@
+<NAME>
+postprune_after_search
+</NAME>
+
+<DESCRIPTION>
+Insert a deterministic post-processing prune step after the adaptive witness construction. If the search yields a best_T (or falls back to canonical), greedily remove intervals as long as the FirstFit/omega ratio (on the normalized witness) does not drop. This aims to produce a more compact witness without sacrificing the observed adversarial power, potentially improving robustness under validation and enabling faster downstream processing.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Fallback to canonical if search failed
+  if best_T is None:
+      best_T = _build_candidate(depth=max(2, iterations), starts=(2, 6, 10, 14),
+                                blockers=[(1, 5), (12, 16), (4, 9), (8, 13)],
+                                schedule='after', extra_first=False, translation='left')
+
+  return _normalize_grid(best_T) if normalize else best_T
+=======
+  # Fallback to canonical if search failed
+  if best_T is None:
+      best_T = _build_candidate(depth=max(2, iterations), starts=(2, 6, 10, 14),
+                                blockers=[(1, 5), (12, 16), (4, 9), (8, 13)],
+                                schedule='after', extra_first=False, translation='left')
+
+  # Post-processing prune: shrink best_T while preserving the FirstFit/omega ratio
+  def _ratio_of(T):
+      TT = _normalize_grid(T)
+      om = _omega_open(TT)
+      if om <= 0:
+          return -1.0
+      return _ff_count(TT) / om
+
+  if best_T is not None:
+      target = _ratio_of(best_T)
+      if target > 0:
+          cur = best_T[:]
+          improved = True
+          while improved:
+              improved = False
+              for idx in range(len(cur)):
+                  cand = cur[:idx] + cur[idx+1:]
+                  if _ratio_of(cand) >= target - 1e-12:
+                      cur = cand
+                      improved = True
+                      break
+          best_T = cur
+
+  return _normalize_grid(best_T) if normalize else best_T
+>>>>>>> REPLACE
+</DIFF>

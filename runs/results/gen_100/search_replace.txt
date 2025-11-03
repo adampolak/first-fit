@@ -1,0 +1,63 @@
+<NAME>
+add_half_step_offsets
+</NAME>
+<DESCRIPTION>
+Add a new half-step staggered offsets pattern (1.5, 5.5, 9.5, 13.5) to the sweep of `offsets_set`. This variant misaligns the tiled copies relative to blockers and may push FirstFit to use extra colors without increasing the clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    offsets_set = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+    ]
+=======
+    offsets_set = [
+        (2, 6, 10, 14),  # baseline
+        (1, 5, 9, 13),
+        (3, 7, 11, 15),
+        (0, 4, 8, 12),
+        # half-step staggered pattern
+        (1.5, 5.5, 9.5, 13.5),
+    ]
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+add_six_blocker_template
+</NAME>
+<DESCRIPTION>
+Introduce a six-blocker template (Template F) with two extra caps `(2,14)` and `(6,10)` to the blocker templates. This increases coupling across copies and may force FirstFit to consume more colors while preserving the clique size.
+</DESCRIPTION>
+<DIFF>
+<<<<<<< SEARCH
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: lengthened first and second
+        ((1, 6), (11, 16), (4, 9), (8, 13)),
+        # Template E: shifted and broadened
+        ((0, 5), (10, 15), (3, 8), (7, 12)),
+    ]
+=======
+    blockers_templates = [
+        # Template A: baseline
+        ((1, 5), (12, 16), (4, 9), (8, 13)),
+        # Template B
+        ((0, 4), (6, 10), (8, 12), (14, 18)),
+        # Template C
+        ((2, 6), (4, 8), (10, 14), (12, 16)),
+        # Template D: lengthened first and second
+        ((1, 6), (11, 16), (4, 9), (8, 13)),
+        # Template E: shifted and broadened
+        ((0, 5), (10, 15), (3, 8), (7, 12)),
+        # Template F: six-blocker couplers (two extra caps)
+        ((1, 5), (12, 16), (4, 9), (8, 13), (2, 14), (6, 10)),
+    ]
+>>>>>>> REPLACE
+</DIFF>

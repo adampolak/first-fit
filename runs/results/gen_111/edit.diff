@@ -1,0 +1,273 @@
+--- a/original.py
++++ b/original.py
+@@ -1,151 +1,137 @@
+ # EVOLVE-BLOCK-START
++from dataclasses import dataclass
++from itertools import product
++from math import gcd
+ 
+-def _normalize_grid(intervals):
+-  """
+-  Normalize endpoints to a compact integer grid while preserving order.
+-  Each unique endpoint is mapped to an increasing even integer.
+-  Returns a new list of (l, r) with integer coordinates.
+-  """
+-  endpoints = sorted(set([x for seg in intervals for x in seg]))
+-  coord = {}
+-  cur = 0
+-  for e in endpoints:
+-    coord[e] = cur
+-    cur += 2  # spacing by 2 to keep even gaps
++@dataclass(frozen=True)
++class PatternParams:
++    depth: int
++    offsets: tuple
++    blockers: tuple
++    translation: str   # 'left' or 'center'
++    schedule: str      # 'after','before','split'
+ 
+-  return [(coord[l], coord[r]) for (l, r) in intervals]
++class PatternBuilder:
++    @staticmethod
++    def build(params: PatternParams):
++        T = [(0.0, 1.0)]
++        for _ in range(params.depth):
++            lo = min(l for l, _ in T)
++            hi = max(r for _, r in T)
++            delta = hi - lo
++            center = (lo + hi) / 2.0
+ 
++            def make_copies():
++                for start in params.offsets:
++                    base = lo if params.translation == 'left' else center
++                    offset = delta * start - base
++                    for l, r in T:
++                        yield (l + offset, r + offset)
+ 
+-def construct_intervals(iterations=4, normalize=True):
+-  """
+-  Build a sequence of open intervals that aims to maximize FirstFit/omega
+-  using a small parameter sweep around the canonical 4-copy/4-blocker recursion.
+-  The final output is normalized to a compact integer grid.
+-  """
+-  # Local helpers to evaluate candidates on raw coordinates (open intervals)
+-  def _ff_count(intervals):
+-    last_end = []
+-    for (l, r) in intervals:
+-      placed = False
+-      for i, le in enumerate(last_end):
+-        if l >= le:
+-          last_end[i] = r
+-          placed = True
+-          break
+-      if not placed:
+-        last_end.append(r)
+-    return len(last_end)
++            def make_blockers():
++                for a, b in params.blockers:
++                    if params.translation == 'left':
++                        yield (delta * a, delta * b)
++                    else:
++                        yield (delta * a - center, delta * b - center)
+ 
+-  def _omega_open(intervals):
+-    events = []
+-    for (l, r) in intervals:
+-      if l < r:
+-        events.append((l, +1))
+-        events.append((r, -1))
+-    # right (-1) before left (+1) on ties (open intervals)
+-    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+-    cur = best = 0
+-    for _, t in events:
+-      cur += t
+-      if cur > best:
+-        best = cur
+-    return best
++            if params.schedule == 'before':
++                T = list(make_blockers()) + list(make_copies())
++            elif params.schedule == 'split':
++                half = len(params.offsets) // 2
++                first, second = params.offsets[:half], params.offsets[half:]
++                def copies(starts):
++                    base = lo if params.translation == 'left' else center
++                    for start in starts:
++                        offset = delta * start - base
++                        for l, r in T:
++                            yield (l + offset, r + offset)
++                T = list(copies(first)) + list(make_blockers()) + list(copies(second))
++            else:  # 'after'
++                T = list(make_copies()) + list(make_blockers())
++        return T
+ 
+-  # Parameterized builder
+-  def _build(depth, starts, blockers, schedule='after', translation='left'):
+-    T = [(0.0, 1.0)]
+-    for _ in range(depth):
+-      lo = min(l for l, r in T)
+-      hi = max(r for l, r in T)
+-      delta = hi - lo
+-      center = (lo + hi) / 2.0
++class Evaluator:
++    @staticmethod
++    def ff_count(intervals):
++        last_end = []
++        for l, r in intervals:
++            for i, le in enumerate(last_end):
++                if l >= le:
++                    last_end[i] = r
++                    break
++            else:
++                last_end.append(r)
++        return len(last_end)
+ 
+-      def place_copies(from_T, offs):
+-        U = []
+-        for start in offs:
+-          offset = delta * start - (lo if translation == 'left' else center)
+-          for (l, r) in from_T:
+-            U.append((l + offset, r + offset))
+-        return U
++    @staticmethod
++    def omega(intervals):
++        events = []
++        for l, r in intervals:
++            if l < r:
++                events.append((l, 1))
++                events.append((r, -1))
++        events.sort(key=lambda e: (e[0], 0 if e[1] < 0 else 1))
++        cur = best = 0
++        for _, t in events:
++            cur += t
++            if cur > best:
++                best = cur
++        return best
+ 
+-      # scale blockers according to anchor
+-      if translation == 'left':
+-        blk = [(delta * a, delta * b) for (a, b) in blockers]
+-      else:
+-        blk = [(delta * a - center, delta * b - center) for (a, b) in blockers]
++    @staticmethod
++    def normalize(intervals):
++        pts = sorted({x for seg in intervals for x in seg})
++        coord = {x: 2*i for i, x in enumerate(pts)}
++        norm = [(coord[l], coord[r]) for l, r in intervals]
++        allv = [v for seg in norm for v in seg]
++        g = 0
++        for v in allv: 
++            g = gcd(g, v)
++        if g > 1:
++            norm = [(l//g, r//g) for l, r in norm]
++        min_l = min(l for l, _ in norm)
++        if min_l < 0:
++            norm = [(l - min_l, r - min_l) for l, r in norm]
++        return norm
+ 
+-      if schedule == 'before':
+-        S = list(blk) + place_copies(T, starts)
+-      elif schedule == 'split':
+-        h = len(starts) // 2
+-        S = place_copies(T, starts[:h]) + list(blk) + place_copies(T, starts[h:])
+-      else:  # 'after'
+-        S = place_copies(T, starts) + list(blk)
+-      T = S
+-    return T
++def construct_intervals():
++    depths = [3, 4, 5]
++    offset_sets = [(2,6,10,14), (1,5,9,13), (3,7,11,15), (0,4,8,12)]
++    blocker_templates = [
++        ((1,5),(12,16),(4,9),(8,13)),
++        ((0,4),(6,10),(8,12),(14,18)),
++        ((2,6),(4,8),(10,14),(12,16))
++    ]
++    translations = ['left','center']
++    schedules = ['after','before','split']
+ 
+-  # Sweep a modest space of blueprints
+-  depths = sorted(set([max(2, iterations - 1), max(2, iterations), min(5, iterations + 1)]))
+-  start_sets = [
+-    (2, 6, 10, 14),  # canonical
+-    (1, 5, 9, 13),
+-    (3, 7, 11, 15),
+-    (0, 4, 8, 12),
+-  ]
+-  blocker_templates = [
+-    [(1, 5), (12, 16), (4, 9), (8, 13)],   # canonical
+-    [(1, 5), (11, 15), (4, 9), (8, 13)],   # slight shift
+-    [(2, 6), (12, 16), (4, 9), (8, 13)],   # shift first
+-  ]
+-  schedules = ['after', 'before', 'split']
+-  translations = ['left', 'center']
++    best = None  # (score_tuple, intervals)
++    for depth, offs, blks, tr, sch in product(depths, offset_sets, blocker_templates, translations, schedules):
++        params = PatternParams(depth, offs, blks, tr, sch)
++        raw = PatternBuilder.build(params)
++        n = len(raw)
++        if n > 2000:
++            continue
++        om = Evaluator.omega(raw)
++        if om <= 0:
++            continue
++        cols = Evaluator.ff_count(raw)
++        ratio = cols / om
++        score = (ratio, -n, cols)
++        if best is None or score > best[0]:
++            best = (score, raw)
+ 
+-  best_T = None
+-  best_ratio = -1.0
+-  best_n = None
+-  best_cols = 0
+-  best_om = 0
++    if best is None:
++        # fallback to canonical depth=4
++        params = PatternParams(4, (2,6,10,14), ((1,5),(12,16),(4,9),(8,13)), 'left', 'after')
++        raw = PatternBuilder.build(params)
++    else:
++        raw = best[1]
+ 
+-  for d in depths:
+-    for starts in start_sets:
+-      for blockers in blocker_templates:
+-        for sch in schedules:
+-          for tr in translations:
+-            T = _build(d, starts, blockers, schedule=sch, translation=tr)
+-            n = len(T)
+-            # guard against explosion (keep search modest)
+-            if n > 2000:
+-              continue
+-            om = _omega_open(T)
+-            if om <= 0:
+-              continue
+-            cols = _ff_count(T)
+-            ratio = cols / om
+-            better = False
+-            if ratio > best_ratio + 1e-12:
+-              better = True
+-            elif abs(ratio - best_ratio) <= 1e-12:
+-              if best_n is None or n < best_n:
+-                better = True
+-              elif n == best_n and cols > best_cols:
+-                better = True
+-            if better:
+-              best_ratio = ratio
+-              best_T = T
+-              best_n = n
+-              best_cols = cols
+-              best_om = om
+-
+-  # Fallback to canonical if search didn't produce anything
+-  if best_T is None:
+-    T = _build(max(2, iterations), (2, 6, 10, 14), [(1, 5), (12, 16), (4, 9), (8, 13)], schedule='after', translation='left')
+-  else:
+-    T = best_T
+-
+-  return _normalize_grid(T) if normalize else T
+-
++    return Evaluator.normalize(raw)
+ # EVOLVE-BLOCK-END
+ 
+ def run_experiment(**kwargs):
+   """Main called by evaluator"""
+   return construct_intervals()

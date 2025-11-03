@@ -1,0 +1,176 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point.
+
+  This crossover keeps the strong baseline fractal construction and
+  evaluates a small set of recursive variants and arrival orderings,
+  returning the sequence that maximizes FirstFit/OPT.
+  """
+  import math
+
+  # FirstFit simulator for open intervals using color end-times
+  def firstfit_color_count(intervals):
+    end_times = []
+    for l, r in intervals:
+      placed = False
+      for i, et in enumerate(end_times):
+        if et <= l:
+          end_times[i] = r
+          placed = True
+          break
+      if not placed:
+        end_times.append(r)
+    return len(end_times)
+
+  # Offline optimum via open-interval sweep (end before start at ties)
+  def clique_number(intervals):
+    events = []
+    for l, r in intervals:
+      events.append((l, 1))
+      events.append((r, -1))
+    events.sort(key=lambda e: (e[0], e[1]))
+    cur = best = 0
+    for _, d in events:
+      cur += d
+      if cur > best:
+        best = cur
+    return best
+
+  # Original fractal from the literature (Figure 4 in the cited paper)
+  def original_fractal(depth=4):
+    T = [(0, 1)]
+    for _ in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13),
+      ]
+      T = S
+    return T
+
+  # Recursive generator with optional interleaving and caps ordering
+  def generate_recursive(starts, caps, depth, interleave=False, caps_first=False):
+    T = [(0, 1)]
+    for _ in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      if caps_first:
+        for a, b in caps:
+          S.append((delta * a, delta * b))
+      if interleave:
+        # round-robin over T across starts to increase interference
+        for i in range(len(T)):
+          l_i, r_i = T[i]
+          for s in starts:
+            S.append((delta * s + l_i - lo, delta * s + r_i - lo))
+      else:
+        # block copies
+        for s in starts:
+          S += [(delta * s + l - lo, delta * s + r - lo) for l, r in T]
+      if not caps_first:
+        for a, b in caps:
+          S.append((delta * a, delta * b))
+      T = S
+    return T
+
+  # Block-hybrid ordering (mix identity, reversed, short-first, long-first)
+  def block_hybrid_order(seq):
+    n = len(seq)
+    if n == 0:
+      return []
+    bs = math.ceil(n / 4)
+    blocks = [seq[i * bs:(i + 1) * bs] for i in range(4)]
+    # include any tail into the last block
+    tail = seq[4 * bs:]
+    if tail:
+      blocks[-1].extend(tail)
+    b0 = blocks[0]
+    b1 = list(reversed(blocks[1]))
+    b2 = sorted(blocks[2], key=lambda iv: (iv[1] - iv[0], iv[0]))
+    b3 = sorted(blocks[3], key=lambda iv: (-(iv[1] - iv[0]), iv[0]))
+    return b0 + b1 + b2 + b3
+
+  # Deterministic simple orderings
+  def identity_order(x): return list(x)
+  def reversed_order(x): return list(reversed(x))
+  def left_first(x): return sorted(x, key=lambda iv: (iv[0], iv[1]))
+  def right_first(x): return sorted(x, key=lambda iv: (-iv[0], -iv[1]))
+  def short_first(x): return sorted(x, key=lambda iv: (iv[1] - iv[0], iv[0]))
+  def long_first(x): return sorted(x, key=lambda iv: (-(iv[1] - iv[0]), iv[0]))
+
+  # Seed patterns for starts and caps (from prior scripts)
+  seeds = [
+    ((2, 6, 10, 14), [(1, 5), (4, 9), (8, 13), (12, 16)]),   # baseline
+    ((3, 7, 11, 15), [(2, 6), (5, 10), (9, 14), (13, 17)]),
+    ((4, 8, 12, 16), [(3, 7), (6, 11), (10, 15), (14, 18)]),
+  ]
+
+  # Build candidate sequences (including the exact original fractal)
+  candidates = []
+  orig = original_fractal(depth=4)
+  candidates.append(("orig", orig))
+
+  for starts, caps in seeds:
+    candidates.append((f"{starts}_caps_after", generate_recursive(starts, caps, 4, interleave=False, caps_first=False)))
+    candidates.append((f"{starts}_caps_first", generate_recursive(starts, caps, 4, interleave=False, caps_first=True)))
+    candidates.append((f"{starts}_interleave", generate_recursive(starts, caps, 4, interleave=True, caps_first=False)))
+    candidates.append((f"{starts}_interleave_caps_first", generate_recursive(starts, caps, 4, interleave=True, caps_first=True)))
+
+  # Orderings to try
+  orderings = [
+    ("identity", identity_order),
+    ("reversed", reversed_order),
+    ("left_first", left_first),
+    ("right_first", right_first),
+    ("short_first", short_first),
+    ("long_first", long_first),
+    ("block_hybrid", block_hybrid_order),
+  ]
+
+  # Evaluate and select the best by FirstFit/OPT
+  best_seq = None
+  best_ratio = -1.0
+
+  for cname, seq in candidates:
+    if not seq:
+      continue
+    seq_int = [(int(l), int(r)) for l, r in seq]  # keep integer endpoints
+    omega = clique_number(seq_int)
+    if omega <= 0:
+      continue
+    for oname, ofunc in orderings:
+      try:
+        seq_o = ofunc(seq_int)
+      except Exception:
+        continue
+      colors = firstfit_color_count(seq_o)
+      ratio = colors / omega
+      if ratio > best_ratio:
+        best_ratio = ratio
+        best_seq = seq_o
+
+  # Fallback to the original fractal if nothing beats it (or if evaluation failed)
+  if best_seq is None:
+    best_seq = orig
+
+  return best_seq
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

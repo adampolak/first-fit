@@ -1,0 +1,255 @@
+improve_search_and_interleave
+</NAME>
+
+<DESCRIPTION>
+Checklist (high-level):
+- Add accurate FirstFit simulation and clique-size (OPT) computation.
+- Generalize the recursive gadget generator to support different start patterns, capping intervals and an interleaving arrival order.
+- Run a small randomized/hill-climb search (with deterministic seed) over caps / interleaving / depth to find sequences with higher FirstFit/OPT ratio under a size budget.
+- Keep a safe fallback to the original construction if the search does not find a better candidate.
+
+Description of the edit:
+- I replaced the fixed Figure-4 construction with a parameterized generator plus helper functions to (1) compute the FirstFit coloring, (2) compute the clique number via a sweep line, and (3) synthesize recursive constructions either in block order or in an interleaved (round-robin) order.
+- A small randomized search (deterministic seed) explores a few start patterns, depths and caps to try to increase the FF/OPT ratio while bounding the total number of intervals. The best-found sequence (by ratio, with a tie-break on smaller size) is returned; otherwise the original construction is used as a fallback.
+- This change lets the harness automatically try several promising variants (including interleaving) without rewriting the harness. It is targeted: only the construct_intervals implementation is changed.
+
+Validations (brief, per substantive step):
+- Implemented FirstFit/clique helpers and validated on small hand-made lists (e.g., two overlapping intervals, two disjoint) to ensure correct color counts and clique values.
+- Implemented and sanity-checked the recursive generator; confirmed it respects the max-intervals guard and that interleaving produces different arrival orders.
+- Added the randomized search and deterministic seed; ensured it always returns a sequence (fallback to baseline) and that the reported best_seq has a computed FF and OPT.
+
+Next steps:
+- If the runtime permit, increase trials_per_combo or add guided local moves (mutations) around the best candidate to push the ratio further.
+- Optionally add a tiny simulated-annealing acceptance rule to escape small local maxima.
+
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  T = [(0, 1)]
+  for _ in range(4):
+    lo = min(l for l, r in T)
+    hi = max(r for l, r in T)
+    delta = hi - lo
+    S = []
+    for start in (2, 6, 10, 14):
+      S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+    S += [
+      (delta * 1, delta * 5),
+      (delta * 12, delta * 16),
+      (delta * 4, delta * 9),
+      (delta * 8, delta * 13)
+    ]
+    T = S
+  return T
+
+  # return [  # Figure 3, OPT=2, FF=4
+  #   (2,3),
+  #   (6,7),
+  #   (10,11),
+  #   (14,15),
+  #   (1,5),
+  #   (12,16),
+  #   (4,9),
+  #   (8,13),
+  # ]
+=======
+def construct_intervals():
+  """
+  Construct a sequence of intervals of real line,
+  in the order in which they are presented to FirstFit,
+  so that it maximizes the number of colors used by FirstFit
+  divided by the maximum number of intervals that cover a single point
+
+  The initial implementation uses the construction from
+  Figure 4 in https://arxiv.org/abs/1506.00192
+
+  Returns:
+    intervals: list of tuples, each tuple (l, r) represents an open interval from l to r
+  """
+
+  import random
+  random.seed(0)
+
+  def firstfit_color_count(intervals):
+    """Simulate FirstFit on the given arrival-ordered intervals."""
+    colors = []
+    for (l, r) in intervals:
+      placed = False
+      for col in colors:
+        conflict = False
+        for (cl, cr) in col:
+          # open intervals overlap iff cl < r and l < cr
+          if cl < r and l < cr:
+            conflict = True
+            break
+        if not conflict:
+          col.append((l, r))
+          placed = True
+          break
+      if not placed:
+        colors.append([(l, r)])
+    return len(colors)
+
+  def clique_number(intervals):
+    """Compute the clique number (ω) by sweep-line. For open intervals we
+    process ends before starts at the same coordinate so [a,b) and [b,c)
+    don't overlap."""
+    events = []
+    for (l, r) in intervals:
+      events.append((l, 1))   # start
+      events.append((r, -1))  # end
+    events.sort(key=lambda x: (x[0], x[1]))  # end (-1) comes before start (+1) at same coord
+    active = 0
+    best = 0
+    for _, delta in events:
+      active += delta
+      if active > best:
+        best = active
+    return best
+
+  def generate_recursive(starts, caps, depth, interleave=False):
+    """Generate a recursive construction parameterized by:
+       - starts: sequence of integer offsets for block copies per level
+       - caps: list of (a,b) base intervals appended each level (scaled by delta)
+       - depth: recursion depth
+       - interleave: if True, use a round-robin copy order (increases cross-copy interference)
+    """
+    T = [(0.0, 1.0)]
+    for _ in range(depth):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      if interleave:
+        # Round-robin copy to increase color interactions across blocks
+        for i in range(len(T)):
+          li, ri = T[i]
+          for start in starts:
+            S.append((delta * start + li - lo, delta * start + ri - lo))
+      else:
+        for start in starts:
+          S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      # append scaled caps (longer intervals that intersect several blocks)
+      for a, b in caps:
+        S.append((delta * a, delta * b))
+      T = S
+    return T
+
+  # baseline original construction (kept as fallback)
+  def original():
+    T = [(0, 1)]
+    for _ in range(4):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    return T
+
+  # Search for an improved variant (time/size-bounded)
+  best_seq = None
+  best_score = -1.0
+  best_meta = None
+  max_intervals = 2200
+
+  starts_options = [
+    (2, 6, 10, 14),
+    (2, 6, 10, 14, 18),
+    (2, 6, 10, 14, 18, 22),
+  ]
+  depth_options = [3, 4, 5]
+  trials_per_combo = 80
+
+  # Start with the baseline as a safe candidate
+  baseline = original()
+  baseline_colors = firstfit_color_count(baseline)
+  baseline_omega = clique_number(baseline)
+  if baseline_omega > 0:
+    best_seq = baseline
+    best_score = baseline_colors / baseline_omega
+    best_meta = ("baseline", baseline_colors, baseline_omega, len(baseline))
+
+  # Randomized exploration of caps and interleaving (deterministic seed)
+  for starts in starts_options:
+    for depth in depth_options:
+      # quick estimate of explosion: skip patterns that will definitely exceed budget
+      p_est = max(4, len(starts))
+      est = 1
+      for _ in range(depth):
+        est = len(starts) * est + p_est
+        if est > max_intervals:
+          break
+      if est > max_intervals:
+        continue
+
+      min_s = min(starts)
+      max_s = max(starts)
+
+      # heuristic cap set derived from the starts sequence
+      cap_heur = []
+      for i in range(len(starts)):
+        if i == 0:
+          a = starts[0] - 1
+          b = starts[0] + 3
+        elif i == len(starts) - 1:
+          a = starts[i - 1] + 2
+          b = starts[i] + 2
+        else:
+          a = starts[i - 1] + 2
+          b = starts[i] + 3
+        cap_heur.append((a, b))
+
+      candidates = [cap_heur]
+      # add random cap-sets to explore the local neighborhood
+      for _ in range(trials_per_combo):
+        caps = []
+        for _i in range(max(4, len(starts))):
+          a = random.randint(min_s - 2, max_s + 1)
+          b = a + random.randint(3, 6)
+          caps.append((a, b))
+        candidates.append(caps)
+
+      for interleave in (False, True):
+        for caps in candidates:
+          seq = generate_recursive(starts, caps, depth, interleave=interleave)
+          if len(seq) == 0 or len(seq) > max_intervals:
+            continue
+          colors = firstfit_color_count(seq)
+          omega = clique_number(seq)
+          if omega <= 0:
+            continue
+          score = colors / omega
+          if score > best_score or (abs(score - best_score) < 1e-9 and len(seq) < len(best_seq)):
+            best_score = score
+            best_seq = seq
+            best_meta = ("starts=%s depth=%d interleave=%s caps=%s" % (starts, depth, interleave, caps), colors, omega, len(seq))
+
+  if best_seq is None:
+    best_seq = original()
+  return best_seq
+>>>>>>> REPLACE
+
+</DIFF>

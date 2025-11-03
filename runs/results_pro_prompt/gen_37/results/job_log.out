@@ -1,0 +1,4 @@
+construct_intervals: depth=0, order=starts=(2, 6, 10, 14) depth=5 interleave=False caps_before=False caps=[(1, 5), (4, 9), (8, 13), (12, 16)], n=2388, FirstFit=16, OPT=6, ratio=2.667
+Run 1/1 completed in 432.40 seconds
+Correctness and error status saved to results73v4prolpsat/gen_37/results/correct.json
+Metrics saved to results73v4prolpsat/gen_37/results/metrics.json

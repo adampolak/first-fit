@@ -1,0 +1,4 @@
+construct_intervals: depth=5, order=fractal, n=2388, FirstFit=16, OPT=6, ratio=2.667
+Run 1/1 completed in 2.57 seconds
+Correctness and error status saved to results73v4prolpsat/gen_4/results/correct.json
+Metrics saved to results73v4prolpsat/gen_4/results/metrics.json

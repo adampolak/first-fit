@@ -1,0 +1,296 @@
+# EVOLVE-BLOCK-START
+
+def construct_intervals(iterations=4):
+  """
+  Construct a sequence of intervals of real line to maximize FirstFit/omega.
+  Improvements over the previous implementation:
+   - try both left-anchored and center-anchored translations for copies,
+     and a small set of alternative offset patterns to diversify geometry;
+   - normalize endpoints to a compact even integer grid before returning,
+     which avoids extremely large floats and tends to help validator scoring;
+   - deterministic "wave" augmentation pass: try inserting short intervals
+     (waves) that increase FirstFit colors while preserving the clique number.
+  """
+
+  # --- Helper routines (kept lightweight and deterministic) ---
+
+  def firstfit_colors(intervals):
+    """Simulate FirstFit using per-color last end-point tracking."""
+    last_end = []
+    for (l, r) in intervals:
+      placed = False
+      for i, le in enumerate(last_end):
+        if l >= le:
+          last_end[i] = r
+          placed = True
+          break
+      if not placed:
+        last_end.append(r)
+    return len(last_end)
+
+  def clique_number(intervals):
+    """Sweep for open intervals; process right endpoints before left at ties."""
+    events = []
+    for (l, r) in intervals:
+      if l < r:
+        events.append((l, +1))
+        events.append((r, -1))
+    events.sort(key=lambda e: (e[0], 0 if e[1] == -1 else 1))
+    cur = best = 0
+    for _, t in events:
+      cur += t
+      if cur > best:
+        best = cur
+    return best
+
+  def _normalize_grid(intervals):
+    """
+    Map all unique endpoints to increasing even integers (0,2,4,...).
+    This keeps instances compact and avoids unwieldy coordinates.
+    """
+    if not intervals:
+      return []
+    endpoints = sorted(set(x for seg in intervals for x in seg))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+      coord[e] = cur
+      cur += 2
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+  def build_candidate(k, schedule='after', extra_first=False, translation='left', offsets=(2,6,10,14)):
+    """
+    Build k-level recursive pattern using copies and blockers.
+    translation in {'left','center'}:
+      - 'left' anchors copies by left endpoint as before
+      - 'center' aligns copies relative to the center of current T,
+        producing a staggered geometry that can be adversarial to FirstFit
+    offsets is a tuple of integer multipliers for the level translation.
+    """
+    T = [(0.0, 1.0)]
+    for i in range(k):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      center = (lo + hi) / 2.0
+
+      # optionally include a fifth copy on the first iteration
+      offs = tuple(list(offsets) + ([18] if extra_first and i == 0 else []))
+
+      def make_copies(from_T, offsets_local):
+        S = []
+        for start in offsets_local:
+          if translation == 'left':
+            offset = delta * start - lo
+          else:  # center translation: align by center
+            offset = delta * start - center
+          for (l, r) in from_T:
+            S.append((l + offset, r + offset))
+        return S
+
+      blockers = [
+        (delta * 1,  delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4,  delta * 9),
+        (delta * 8,  delta * 13),
+      ]
+
+      if schedule == 'after':
+        S = make_copies(T, offs) + blockers
+      elif schedule == 'before':
+        S = list(blockers) + make_copies(T, offs)
+      else:  # 'split': half the copies, then blockers, then remaining copies
+        h = max(1, len(offs) // 2)
+        first = offs[:h]
+        second = offs[h:]
+        S = make_copies(T, first) + list(blockers) + make_copies(T, second)
+
+      T = S
+    return T
+
+  # --- Enumerate a modest set of candidates and select the best by ratio ---
+  depths = [max(2, iterations - 1), iterations]
+  schedules = ['after', 'before', 'split']
+  extras = [False, True]
+  translations = ['left', 'center']
+  offsets_options = [
+    (2, 6, 10, 14),  # baseline
+    (1, 5, 9, 13),   # shifted pattern
+    (3, 7, 11, 15),  # alternate stagger
+  ]
+
+  best_T = None
+  best_ratio = -1.0
+  best_n = None
+  best_cols = 0
+  best_om = 0
+
+  for k in depths:
+    for sch in schedules:
+      for ex in extras:
+        for trans in translations:
+          for offs in offsets_options:
+            T = build_candidate(k, schedule=sch, extra_first=ex, translation=trans, offsets=offs)
+            om = clique_number(T)
+            if om == 0:
+              continue
+            cols = firstfit_colors(T)
+            ratio = cols / om
+            n = len(T)
+            # Prefer higher ratio; tie-break by fewer intervals then more colors
+            better = False
+            if ratio > best_ratio + 1e-12:
+              better = True
+            elif abs(ratio - best_ratio) <= 1e-12:
+              if best_n is None or n < best_n:
+                better = True
+              elif n == best_n and cols > best_cols:
+                better = True
+            if better:
+              best_ratio = ratio
+              best_T = T
+              best_n = n
+              best_cols = cols
+              best_om = om
+
+  # Fallback to baseline 4-iteration construction if search fails
+  if best_T is None:
+    T = [(0.0, 1.0)]
+    for i in range(iterations):
+      lo = min(l for l, r in T)
+      hi = max(r for l, r in T)
+      delta = hi - lo
+      S = []
+      for start in (2, 6, 10, 14):
+        S += [(delta * start + l - lo, delta * start + r - lo) for l, r in T]
+      S += [
+        (delta * 1, delta * 5),
+        (delta * 12, delta * 16),
+        (delta * 4, delta * 9),
+        (delta * 8, delta * 13)
+      ]
+      T = S
+    base_norm = _normalize_grid(T)
+    # even for fallback try a quick augmentation (kept conservative)
+    # small helper: integer FirstFit for normalized grid
+    def ff_grid(ints):
+      last = []
+      for (l, r) in ints:
+        placed = False
+        for i in range(len(last)):
+          if l >= last[i]:
+            last[i] = r
+            placed = True
+            break
+        if not placed:
+          last.append(r)
+      return len(last)
+    def try_augment(ints, max_waves=10, wave_len=2):
+      cur = list(ints)
+      om0 = clique_number(cur)
+      cols0 = ff_grid(cur)
+      coords = sorted(set(x for a,b in cur for x in (a,b)))
+      # deterministic candidates: sample coordinates and small offsets
+      candidates = []
+      for a,b in zip(coords, coords[1:]):
+        if b - a > wave_len:
+          candidates.append(a + 1)
+          candidates.append(b - wave_len - 1)
+      candidates = sorted(set([max(0, int(x)) for x in candidates]))
+      waves = 0
+      for x in candidates:
+        if waves >= max_waves:
+          break
+        cand = (x, x + wave_len)
+        if clique_number(cur + [cand]) > om0:
+          continue
+        new_seq = cur + [cand]
+        new_cols = ff_grid(new_seq)
+        if new_cols > cols0:
+          cur = new_seq
+          cols0 = new_cols
+          waves += 1
+      return cur
+    return try_augment(base_norm, max_waves=8, wave_len=2)
+
+  # Normalize the best candidate to a compact integer grid before augmentation.
+  norm = _normalize_grid(best_T)
+
+  # --- Deterministic wave augmentation pass ---
+  # Try to add a small number of short intervals that raise FirstFit colors
+  # while keeping clique number equal to the original.
+  def ff_grid(ints):
+    last = []
+    for (l, r) in ints:
+      placed = False
+      for i in range(len(last)):
+        if l >= last[i]:
+          last[i] = r
+          placed = True
+          break
+      if not placed:
+        last.append(r)
+    return len(last)
+
+  def try_insert_waves(ints, max_waves=40, wave_len_choices=(1,2,3)):
+    cur = list(ints)
+    base_om = clique_number(cur)
+    base_cols = ff_grid(cur)
+    if base_om == 0:
+      return cur
+    # sample candidate left endpoints deterministically from existing coords
+    coords = sorted(set(x for a,b in cur for x in (a,b)))
+    if len(coords) < 2:
+      return cur
+    candidates = []
+    # for each atomic gap add a few deterministic probes
+    for a, b in zip(coords, coords[1:]):
+      gap = b - a
+      if gap <= 0:
+        continue
+      # probe near left, center, near right inside the gap when space allows
+      candidates.append(a)
+      if gap >= 2:
+        candidates.append(a + 1)
+      candidates.append((a + b) // 2)
+      if gap >= 2:
+        candidates.append(b - 1)
+    # also add coarse grid samples across span to increase coverage deterministically
+    lo, hi = coords[0], coords[-1]
+    step = max(1, (hi - lo) // 25)
+    for x in range(lo, hi - 1, step):
+      candidates.append(x)
+    candidates = sorted(set([int(max(lo, min(hi-1, int(c)))) for c in candidates]))
+
+    waves_added = 0
+    # Try wave lengths in the given set
+    for wl in wave_len_choices:
+      for x in candidates:
+        if waves_added >= max_waves:
+          return cur
+        cand = (x, x + wl)
+        if cand[0] >= cand[1]:
+          continue
+        # cheap omega check
+        if clique_number(cur + [cand]) > base_om:
+          continue
+        # append at end to preserve order effect — we also could try other positions,
+        # but appending is deterministic and effective in practice
+        new_seq = cur + [cand]
+        new_cols = ff_grid(new_seq)
+        if new_cols > base_cols and clique_number(new_seq) == base_om:
+          cur = new_seq
+          base_cols = new_cols
+          waves_added += 1
+    return cur
+
+  augmented = try_insert_waves(norm, max_waves=36, wave_len_choices=(2,3))
+  # perform a final conservative normalization to keep coordinates compact
+  final = _normalize_grid(augmented)
+  return final
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

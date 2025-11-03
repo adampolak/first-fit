@@ -1,0 +1,65 @@
+# EVOLVE-BLOCK-START
+
+def _normalize_grid(intervals):
+    """
+    Normalize endpoints to a compact integer grid while preserving order.
+    Each unique endpoint is mapped to an increasing even integer.
+    Returns a new list of (l, r) with integer coordinates.
+    """
+    endpoints = sorted(set(x for seg in intervals for x in seg))
+    coord = {}
+    cur = 0
+    for e in endpoints:
+        coord[e] = cur
+        cur += 2
+    return [(coord[l], coord[r]) for (l, r) in intervals]
+
+def construct_intervals(iterations=4, normalize=True):
+    """
+    Build a sequence of open intervals that forces FirstFit
+    to use many colors while keeping the clique size controlled.
+    Enhancements:
+      - Five copies on first iteration
+      - Half‐step copies on second iteration
+      - Four copies thereafter
+      - Four long “blocker” intervals each iteration
+      - Final coordinate normalization to even integers
+    """
+    # Base gadget: one unit interval
+    T = [(0.0, 1.0)]
+    for i in range(iterations):
+        lo = min(l for l, r in T)
+        hi = max(r for l, r in T)
+        delta = hi - lo
+        S = []
+        # dynamic offsets
+        if i == 0:
+            offsets = (2, 6, 10, 14, 18)
+        elif i == 1:
+            offsets = (1.5, 5.5, 9.5, 13.5)
+        else:
+            offsets = (2, 6, 10, 14)
+        # place scaled/trans lated copies
+        for start in offsets:
+            off = delta * start - lo
+            for (l, r) in T:
+                S.append((l + off, r + off))
+        # four long blockers to couple copies (no increase in clique)
+        S.extend([
+            (delta * 1,  delta * 5),
+            (delta * 4,  delta * 9),
+            (delta * 8,  delta * 13),
+            (delta * 12, delta * 16)
+        ])
+        T = S
+
+    if normalize:
+        return _normalize_grid(T)
+    else:
+        return T
+
+# EVOLVE-BLOCK-END
+
+def run_experiment(**kwargs):
+  """Main called by evaluator"""
+  return construct_intervals()

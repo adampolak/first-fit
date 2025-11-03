@@ -1,0 +1,26 @@
+<NAME>
+add_wave_intervals
+</NAME>
+
+<DESCRIPTION>
+Insert a post‐processing step in `construct_intervals` to generate a series of short “wave” intervals evenly spaced through the total span. These new intervals are mutually non‐overlapping (so they do not raise the clique number ω) but each intersects many of the existing intervals, forcing FirstFit to use a new color per wave. We choose the wave length as a small fraction of the total span and cap the count at 60 for compactness. This boosts the FF/OPT ratio substantially.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+  # Normalize endpoints to a compact integer grid while preserving order.
+=======
+  # Add wave intervals to boost FirstFit colors without increasing clique number
+  lo = min(l for l, r in T)
+  hi = max(r for l, r in T)
+  span = hi - lo
+  # choose wave length as small fraction of total span
+  wave_length = span / 100.0
+  # determine number of non‐overlapping waves, capped for compactness
+  wave_count = min(int(span / (wave_length * 3.0)), 60)
+  for i in range(wave_count):
+    start = lo + (i + 1) * span / (wave_count + 1)
+    T.append((start, start + wave_length))
+  # Normalize endpoints to a compact integer grid while preserving order.
+>>>>>>> REPLACE
+</DIFF>

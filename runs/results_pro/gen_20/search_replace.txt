@@ -1,0 +1,225 @@
+<NAME>
+depth4_alt_caps
+</NAME>
+
+<DESCRIPTION>
+I switch the backbone gadget to depth 4 with alternating start pattern (a proven sweet spot) to recover the strong 13/5 ≈ 2.6 ratio we’ve previously observed. Then, I add a conservative, deterministic “cap” extension that attempts to push FirstFit further while keeping the clique equal to the gadget’s omega.
+
+Key changes:
+- Increase gadget depth to 4 with alternating starts to amplify FirstFit without inflating omega beyond ~5.
+- Make the targeted extension stricter and smarter:
+  - Limit added intervals (max 8, at most 3 successful) and cap clique at the gadget’s base omega.
+  - Choose representatives using a cycling quantile (skew) rather than always the median, to avoid densest cores.
+  - Use small, asymmetric pads and a shrinker loop to keep omega stable while still forcing new colors.
+- Tie the extension’s omega cap to the gadget’s actual clique (base_omega) so we never exceed it.
+
+This combines the known strong Figure-4 recursion with targeted, low-risk caps designed to increase FF colors beyond the baseline while preserving a small clique number, aiming to lift the combined score above 2.6. If the caps cannot be added safely, we still retain the strong 2.6 baseline.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # --- Representative chooser (heuristic) -------------------------------
+    def choose_reps_spread(existing_intervals, existing_colors, num_colors):
+        # pick one interval index per color 1..num_colors, trying to spread centers
+        by_color = [[] for _ in range(num_colors + 1)]
+        for idx, col in enumerate(existing_colors):
+            if 1 <= col <= num_colors:
+                by_color[col].append(idx)
+        # if any color has no representative, fail
+        for c in range(1, num_colors + 1):
+            if not by_color[c]:
+                return None
+        # pick for each color the interval with median center (deterministic choice)
+        reps = []
+        for c in range(1, num_colors + 1):
+            centers = sorted(by_color[c], key=lambda i: ((existing_intervals[i][0] + existing_intervals[i][1]) / 2.0, existing_intervals[i][1]-existing_intervals[i][0]))
+            reps.append(centers[len(centers)//2])
+        return reps
+=======
+    # --- Representative chooser (heuristic) -------------------------------
+    def choose_reps_spread(existing_intervals, existing_colors, num_colors, skew=0.5):
+        # pick one interval index per color 1..num_colors, trying to spread centers
+        by_color = [[] for _ in range(num_colors + 1)]
+        for idx, col in enumerate(existing_colors):
+            if 1 <= col <= num_colors:
+                by_color[col].append(idx)
+        # if any color has no representative, fail
+        for c in range(1, num_colors + 1):
+            if not by_color[c]:
+                return None
+        # pick for each color an interval near the specified quantile of centers
+        reps = []
+        for c in range(1, num_colors + 1):
+            centers = sorted(by_color[c], key=lambda i: ((existing_intervals[i][0] + existing_intervals[i][1]) / 2.0, existing_intervals[i][1]-existing_intervals[i][0]))
+            if centers:
+                q = min(max(skew, 0.0), 1.0)
+                idx = int(round(q * (len(centers) - 1)))
+                reps.append(centers[idx])
+        return reps
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # --- Short targeted constructive phase -------------------------------
+    def targeted_extend(base_intervals, max_add=30, target_omega=4):
+        """
+        Try to append up to max_add intervals that force FirstFit to open new colors
+        while keeping clique <= target_omega. Use deterministic-randomized heuristics.
+        """
+        intervals = list(base_intervals)
+        colors, maxcolor = firstfit_colors(intervals)
+        attempts = 0
+        trials_limit = max_add * 60
+        # aim to increase maxcolor modestly
+        target_increase = min(10, max_add)
+        while attempts < trials_limit and len(intervals) - len(base_intervals) < max_add and maxcolor - (max(colors) if colors else 0) <= 100:
+            attempts += 1
+            # recompute since appended earlier
+            colors, maxcolor = firstfit_colors(intervals)
+            # try to force next color = maxcolor + 1
+            if maxcolor == 0:
+                # seed a small pocket
+                candidate = (0.1 + len(intervals) % 10, 0.6 + len(intervals) % 10)
+                assigned, clq = evaluate_candidate(intervals, colors, candidate, target_omega)
+                if assigned == maxcolor + 1 and clq <= target_omega:
+                    intervals.append(candidate)
+                continue
+
+            # pick representatives across existing colors
+            reps = choose_reps_spread(intervals, colors, maxcolor)
+            if reps is None:
+                # fallback: random short interval
+                center = (intervals[-1][0] + intervals[-1][1]) / 2.0
+                candidate = (center + 0.2, center + 1.2)
+            else:
+                # build a candidate that spans the bounding box of reps with a small pad
+                left = min(intervals[i][0] for i in reps)
+                right = max(intervals[i][1] for i in reps)
+                # vary pad deterministically with attempts to explore space
+                pads = [0.5, 1.0, 2.0, 3.0, 5.0]
+                pad = pads[attempts % len(pads)]
+                candidate = (left - pad, right + pad)
+                # shrink slightly if candidate is too large relative to span to avoid increasing clique too much
+                span = right - left
+                if span > 0:
+                    candidate = (candidate[0] + 0.02 * span, candidate[1] - 0.02 * span)
+            # clamp to positive coordinates
+            if candidate[0] < 0:
+                shift = -candidate[0] + 1.0
+                candidate = (candidate[0] + shift, candidate[1] + shift)
+            if candidate[1] <= candidate[0]:
+                continue
+            assigned, clq = evaluate_candidate(intervals, colors, candidate, target_omega)
+            if assigned == maxcolor + 1 and clq <= target_omega:
+                intervals.append(candidate)
+                # update colors quickly for next iteration
+                colors, maxcolor = firstfit_colors(intervals)
+                # small back-off to avoid aggressive blow-ups
+                if len(intervals) - len(base_intervals) >= target_increase:
+                    break
+        return intervals
+=======
+    # --- Short targeted constructive phase -------------------------------
+    def targeted_extend(base_intervals, max_add=30, target_omega=4):
+        """
+        Try to append up to max_add intervals that force FirstFit to open new colors
+        while keeping clique <= target_omega. Deterministic heuristics with
+        slight asymmetry and a shrinker help avoid densest cores.
+        """
+        intervals = list(base_intervals)
+        colors, maxcolor = firstfit_colors(intervals)
+        attempts = 0
+        trials_limit = max_add * 120
+        # only try to add a handful to protect omega
+        target_increase = min(3, max_add)
+        added = 0
+
+        # overall span scale for tiny pads
+        lo_all = min(l for l, r in intervals)
+        hi_all = max(r for l, r in intervals)
+        total_span = max(hi_all - lo_all, 1.0)
+
+        while attempts < trials_limit and added < max_add:
+            attempts += 1
+            # recompute since appended earlier
+            colors, maxcolor = firstfit_colors(intervals)
+
+            # choose representatives with a cycling skew (avoid central density)
+            skew_seq = [0.2, 0.8, 0.35, 0.65]
+            skew = skew_seq[attempts % len(skew_seq)]
+            reps = choose_reps_spread(intervals, colors, maxcolor, skew=skew)
+            if not reps:
+                # fallback: short interval near the last one
+                center = (intervals[-1][0] + intervals[-1][1]) / 2.0
+                candidate = (center + 0.15, center + 0.75)
+            else:
+                left = min(intervals[i][0] for i in reps)
+                right = max(intervals[i][1] for i in reps)
+                span = max(right - left, 1e-9)
+                # gentle, asymmetric padding
+                pads = [0.08, 0.12, 0.18, 0.25, 0.35]
+                pad_base = pads[attempts % len(pads)] * max(1.0, total_span / 2000.0)
+                asym = 1.3 if (attempts % 2 == 0) else 0.7
+                pad_l = pad_base * asym
+                pad_r = pad_base / max(asym, 1e-9)
+                candidate = (left - pad_l, right + pad_r)
+                # slight inner shrink to avoid hitting peak cliques
+                candidate = (candidate[0] + 0.01 * span, candidate[1] - 0.01 * span)
+
+            # clamp to positive coordinates
+            if candidate[0] < 0:
+                shift = -candidate[0] + 1.0
+                candidate = (candidate[0] + shift, candidate[1] + shift)
+            if candidate[1] <= candidate[0]:
+                continue
+
+            # try a few shrinking attempts if clique would blow up
+            attempt_candidate = candidate
+            ok = False
+            for _ in range(5):
+                assigned, clq = evaluate_candidate(intervals, colors, attempt_candidate, target_omega)
+                if assigned == maxcolor + 1 and clq <= target_omega:
+                    ok = True
+                    break
+                # shrink symmetrically
+                L, R = attempt_candidate
+                mid = (L + R) / 2.0
+                new_len = (R - L) * 0.92
+                if new_len <= 0:
+                    break
+                attempt_candidate = (mid - new_len / 2.0, mid + new_len / 2.0)
+
+            if ok:
+                intervals.append(attempt_candidate)
+                added += 1
+                if added >= target_increase:
+                    break
+
+        return intervals
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # --- Build final sequence ---------------------------------------------
+    # Build a mid-sized gadget as backbone
+    gadget = make_gadget(depth=3, alternate=True)  # depth 3 gives good pressure without extreme size
+=======
+    # --- Build final sequence ---------------------------------------------
+    # Build a stronger backbone (depth 4 with alternating starts)
+    gadget = make_gadget(depth=4, alternate=True)  # depth 4 pushes FF while keeping omega modest
+>>>>>>> REPLACE
+</DIFF>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Optionally run targeted extension to push FirstFit further while preserving small clique
+    extended = targeted_extend(gadget, max_add=40, target_omega=4)
+=======
+    # Optionally run targeted extension to push FirstFit further while preserving small clique
+    # Keep omega at the gadget's level and add only a few caps
+    base_omega = clique_size(gadget)
+    extended = targeted_extend(gadget, max_add=8, target_omega=base_omega)
+>>>>>>> REPLACE
+</DIFF>

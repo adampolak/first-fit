@@ -1,0 +1,61 @@
+<NAME>
+add_simple_wave_augmentation
+</NAME>
+
+<DESCRIPTION>
+Introduce a helper function try_simple_wave that scans for a small new interval (a "wave") of fixed length which, when appended, increases the number of FirstFit colors without increasing the clique size. Place this function just before the main construct_intervals.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+def construct_intervals():
+=======
+def try_simple_wave(intervals, wave_length=2):
+    """Try adding a short wave interval of given length that boosts FirstFit without raising omega."""
+    orig_om = clique_number(intervals)
+    orig_cols = firstfit_colors(intervals)
+    # scan candidate starts at existing endpoints
+    coords = sorted(set(x for iv in intervals for x in iv))
+    for x in coords:
+        cand = (x, x + wave_length)
+        if cand[1] <= cand[0]:
+            continue
+        # skip if clique would increase
+        if clique_number(intervals + [cand]) > orig_om:
+            continue
+        # accept if FirstFit colors increases
+        if firstfit_colors(intervals + [cand]) > orig_cols:
+            return cand
+    return None
+
+def construct_intervals():
+>>>>>>> REPLACE
+</DIFF>
+
+<NAME>
+integrate_wave_augmentation_in_construct
+</NAME>
+
+<DESCRIPTION>
+Modify the final return sequence of construct_intervals to first attempt up to three simple wave additions using try_simple_wave, then apply the existing shrink_optimize_by_ratio to the augmented set, thereby potentially increasing the FirstFit/OPT ratio.
+</DESCRIPTION>
+
+<DIFF>
+<<<<<<< SEARCH
+    # Apply a conservative pruning pass to potentially improve ratio or reduce n
+    pruned = shrink_optimize_by_ratio(best[4], max_rounds=2)
+    return pruned if pruned else best[4]
+=======
+    # Augmentation pass: simple wave addition to boost FirstFit
+    augmented = list(best[4])
+    # try adding up to 3 simple waves of length 2
+    for _ in range(3):
+        wave = try_simple_wave(augmented, wave_length=2)
+        if not wave:
+            break
+        augmented.append(wave)
+    # prune augmented intervals
+    pruned = shrink_optimize_by_ratio(augmented, max_rounds=2)
+    return pruned if pruned else augmented
+>>>>>>> REPLACE
+</DIFF>
