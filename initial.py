@@ -1,6 +1,6 @@
 # EVOLVE-BLOCK-START
 
-def construct3vs2:
+def construct3vs2():
   # The construction from Figure 2 in https://arxiv.org/abs/1506.00192
   return [(1, 4), (7, 10), (3, 6), (5, 8)]
 
